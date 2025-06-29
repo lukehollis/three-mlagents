@@ -1,0 +1,2 @@
+use pnpm for node packages in client
+use uv for python packages in api

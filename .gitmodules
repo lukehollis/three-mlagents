@@ -1,0 +1,9 @@
+[submodule "context/reinforcejs"]
+	path = context/reinforcejs
+	url = https://github.com/karpathy/reinforcejs.git
+[submodule "context/rl-book-challenge"]
+	path = context/rl-book-challenge
+	url = https://github.com/mtrazzi/rl-book-challenge.git
+[submodule "context/ml-agents"]
+	path = context/ml-agents
+	url = https://github.com/Unity-Technologies/ml-agents.git
