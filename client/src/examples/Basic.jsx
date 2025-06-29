@@ -13,6 +13,7 @@ import DebugConsole from '../components/DebugConsole.jsx';
 import config from '../config.js';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
+import { Text, Button } from '@geist-ui/core';
 
 ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale);
 
@@ -253,18 +254,36 @@ export default function BasicExample() {
           textShadow: '0 0 4px #000',
         }}
       >
-        <h3 style={{ margin: '0 0 12px 0' }}>Reward: {rewardAccum.toFixed(2)}</h3>
-        <button disabled={training || trained} onClick={startTraining} style={{ marginRight: 8 }}>
-          Train
-        </button>
-        <button disabled={!trained || autoRun} onClick={startRun}>
-          Run
-        </button>
-        {trained && (
-          <button onClick={resetTraining} style={{ marginLeft: 8 }}>
-            Reset
-          </button>
-        )}
+        <Text h3 style={{ margin: '0 0 12px 0', color: '#fff' }}>
+          Reward: {rewardAccum.toFixed(2)}
+        </Text>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <Button
+            auto
+            type="secondary"
+            disabled={training || trained}
+            onClick={startTraining}
+          >
+            Train
+          </Button>
+
+          <Button
+            auto
+            type="success"
+            disabled={!trained || autoRun}
+            onClick={startRun}
+          >
+            Run
+          </Button>
+
+          {trained && (
+            <Button auto type="error" onClick={resetTraining}>
+              Reset
+            </Button>
+          )}
+        </div>
+
         {modelInfo && (
           <div style={{ 
             marginTop: '8px', 
@@ -281,7 +300,7 @@ export default function BasicExample() {
             }</div>
             <div><strong>Session:</strong> {modelInfo.sessionUuid}</div>
             <a 
-              href={modelInfo.fileUrl} 
+              href={`${VITE_API_BASE_URL}${modelInfo.fileUrl}`} 
               download
               style={{ color: '#4CAF50', textDecoration: 'underline' }}
             >
