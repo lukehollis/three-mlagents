@@ -300,7 +300,7 @@ export default function BasicExample() {
             }</div>
             <div><strong>Session:</strong> {modelInfo.sessionUuid}</div>
             <a 
-              href={`${VITE_API_BASE_URL}${modelInfo.fileUrl}`} 
+              href={`${config.API_BASE_URL}${modelInfo.fileUrl}`} 
               download
               style={{ color: '#4CAF50', textDecoration: 'underline' }}
             >
