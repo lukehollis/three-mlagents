@@ -5,7 +5,7 @@ import BasicExample from './examples/Basic.jsx';
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/three-mlagents">
       <Routes>
         <Route path="/" element={<ExamplesIndex />} />
         <Route path="/basic" element={<BasicExample />} />

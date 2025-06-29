@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from fastapi import WebSocket
+from datetime import datetime
+import uuid
 
 # Environment constants
 SMALL_GOAL = 7
@@ -13,8 +15,8 @@ MIN_POS = 0
 MAX_POS = 20
 START_POS = 10
 
-# Path where the trained policy will be exported (same as in main.py)
-MODEL_PATH = "policies/basic_policy.onnx"
+# Base path for policies directory
+POLICIES_DIR = "policies"
 
 # --- Neural-net definition ----------------------------------------------------
 
@@ -39,6 +41,15 @@ def position_to_onehot(pos):
 
 async def train_basic(websocket: WebSocket):
     """Train a simple Q-learning agent and stream progress via websocket."""
+    # Generate timestamped filename with UUID for guaranteed uniqueness
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    session_uuid = str(uuid.uuid4())[:8]  # Use first 8 chars of UUID
+    model_filename = f"basic_policy_{timestamp}_{session_uuid}.onnx"
+    model_path = os.path.join(POLICIES_DIR, model_filename)
+    
+    # Ensure policies directory exists
+    os.makedirs(POLICIES_DIR, exist_ok=True)
+    
     net = Net()
     optimizer = optim.Adam(net.parameters(), lr=1e-3)
     gamma = 0.9
@@ -139,7 +150,7 @@ async def train_basic(websocket: WebSocket):
     torch.onnx.export(
         net,
         dummy_input,
-        MODEL_PATH,
+        model_path,
         input_names=["input"],
         output_names=["output"],
         opset_version=17,
@@ -148,23 +159,59 @@ async def train_basic(websocket: WebSocket):
 
     await websocket.send_json({
         "type": "trained",
-        "file_url": f"/policies/{os.path.basename(MODEL_PATH)}",
+        "file_url": f"/policies/{model_filename}",
+        "model_filename": model_filename,
+        "timestamp": timestamp,
+        "session_uuid": session_uuid,
     })
+
+# -----------------------------------------------------------------------------
+# Utility functions -----------------------------------------------------------
+
+def list_available_models():
+    """List all available trained policy models."""
+    if not os.path.exists(POLICIES_DIR):
+        return []
+    
+    policy_files = [f for f in os.listdir(POLICIES_DIR) if f.startswith("basic_policy_") and f.endswith(".onnx")]
+    policy_files.sort(reverse=True)  # Most recent first
+    return policy_files
 
 # -----------------------------------------------------------------------------
 # Inference helper -------------------------------------------------------------
 
-_ort_session = None  # lazy initialisation
+_ort_sessions = {}  # cache for multiple models
 
-async def infer_action(position: int):
+async def infer_action(position: int, model_filename: str = None):
     """Run the trained ONNX policy and return an action index (0,1,2)."""
-    global _ort_session
-    if _ort_session is None:
+    global _ort_sessions
+    
+    # If no model specified, try to find the most recent one
+    if model_filename is None:
+        if not os.path.exists(POLICIES_DIR):
+            raise FileNotFoundError(f"No policies directory found at {POLICIES_DIR}")
+        
+        # Find all policy files and get the most recent one
+        policy_files = [f for f in os.listdir(POLICIES_DIR) if f.startswith("basic_policy_") and f.endswith(".onnx")]
+        if not policy_files:
+            raise FileNotFoundError("No trained policy files found")
+        
+        # Sort by timestamp (embedded in filename) and get the most recent
+        policy_files.sort(reverse=True)
+        model_filename = policy_files[0]
+    
+    model_path = os.path.join(POLICIES_DIR, model_filename)
+    
+    # Check if we already have this model loaded
+    if model_filename not in _ort_sessions:
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        
         import onnxruntime as ort
-        _ort_session = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
-
+        _ort_sessions[model_filename] = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+    
     # Convert position to one-hot encoding like in training
     pos_onehot = position_to_onehot(position)
     inp = np.array([pos_onehot], dtype=np.float32)
-    outputs = _ort_session.run(None, {"input": inp})
+    outputs = _ort_sessions[model_filename].run(None, {"input": inp})
     return int(np.argmax(outputs[0])) 

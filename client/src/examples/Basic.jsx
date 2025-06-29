@@ -10,6 +10,7 @@ import {
   CategoryScale,
 } from 'chart.js';
 import DebugConsole from '../components/DebugConsole.jsx';
+import config from '../config.js';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 
@@ -19,7 +20,7 @@ const SMALL_GOAL_POS = 7;
 const LARGE_GOAL_POS = 17;
 const MIN_POS = 0;
 const MAX_POS = 20;
-const WS_URL = 'ws://localhost:8000/ws/basic';
+const WS_URL = `${config.WS_BASE_URL}/ws/basic`;
 
 function Agent({ position }) {
   return (
@@ -49,6 +50,7 @@ export default function BasicExample() {
 
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
+  const [modelInfo, setModelInfo] = useState(null);
   const [visualTraining, setVisualTraining] = useState(false);
   const [autoRun, setAutoRun] = useState(false);
   const intervalRef = useRef(null);
@@ -123,6 +125,12 @@ export default function BasicExample() {
         setTraining(false);
         setTrained(true);
         setVisualTraining(false);
+        setModelInfo({
+          filename: parsed.model_filename,
+          timestamp: parsed.timestamp,
+          sessionUuid: parsed.session_uuid,
+          fileUrl: parsed.file_url
+        });
       }
       if (parsed.type === 'action') {
         // Action mapping: 0=left, 1=no move, 2=right
@@ -158,6 +166,19 @@ export default function BasicExample() {
     intervalRef.current = setInterval(() => {
       send({ cmd: 'inference', obs: posRef.current });
     }, 200);
+  };
+
+  const resetTraining = () => {
+    setTraining(false);
+    setTrained(false);
+    setModelInfo(null);
+    setVisualTraining(false);
+    setAutoRun(false);
+    setChartState({ labels: [], rewards: [], losses: [] });
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
   };
 
   useEffect(() => {
@@ -239,6 +260,35 @@ export default function BasicExample() {
         <button disabled={!trained || autoRun} onClick={startRun}>
           Run
         </button>
+        {trained && (
+          <button onClick={resetTraining} style={{ marginLeft: 8 }}>
+            Reset
+          </button>
+        )}
+        {modelInfo && (
+          <div style={{ 
+            marginTop: '8px', 
+            fontSize: '12px', 
+            background: 'rgba(0,255,0,0.1)', 
+            padding: '4px 8px', 
+            borderRadius: '4px',
+            border: '1px solid rgba(0,255,0,0.3)'
+          }}>
+            <div><strong>Model:</strong> {modelInfo.filename}</div>
+            <div><strong>Trained:</strong> {
+              modelInfo.timestamp.replace(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/, 
+                '$1-$2-$3 $4:$5:$6')
+            }</div>
+            <div><strong>Session:</strong> {modelInfo.sessionUuid}</div>
+            <a 
+              href={modelInfo.fileUrl} 
+              download
+              style={{ color: '#4CAF50', textDecoration: 'underline' }}
+            >
+              Download Policy
+            </a>
+          </div>
+        )}
       </div>
 
       <DebugConsole logs={logs} />
