@@ -17,7 +17,7 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 ## Project layout
 
 ```
-rlagents/
+three-mlagents/
 │
 ├─ client/         ← Vite + React + Three.js front-end (examples live here)
 │   └─ src/examples
