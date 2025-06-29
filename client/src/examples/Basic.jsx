@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls } from '@react-three/drei';
+import { OrbitControls, Grid, Stars } from '@react-three/drei';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -125,6 +125,7 @@ export default function BasicExample() {
         setVisualTraining(false);
       }
       if (parsed.type === 'action') {
+        // Action mapping: 0=left, 1=no move, 2=right
         const delta = [-1, 0, 1][parsed.action];
         step(delta);
       }
@@ -173,19 +174,54 @@ export default function BasicExample() {
     <div
       tabIndex={0}
       onKeyDown={handleKey}
-      style={{ width: '100%', height: '100%', outline: 'none', background: '#202020' }}
+      style={{ width: '100%', height: '100%', outline: 'none', background: 'linear-gradient(to bottom, #1a1a2e, #16213e)' }}
     >
       <Canvas
-        orthographic
-        camera={{ zoom: 50, position: [0, 0, 50] }}
-        style={{ background: '#202020' }}
+        camera={{ position: [0, 15, 25], fov: 50 }}
+        style={{ background: 'linear-gradient(to bottom, #1a1a2e, #16213e)' }}
       >
-        <ambientLight intensity={0.6} />
-        <pointLight position={[10, 10, 10]} intensity={1} />
+        <ambientLight intensity={0.3} />
+        <directionalLight 
+          position={[0, 20, 10]} 
+          intensity={1.2} 
+          castShadow
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+        />
+        
+        {/* Professional background */}
+        <Stars 
+          radius={100} 
+          depth={50} 
+          count={5000} 
+          factor={4} 
+          saturation={0} 
+          fade 
+        />
+        
+        {/* Grid underneath the cubes */}
+        <Grid 
+          position={[0, -1, 0]}
+          args={[30, 30]}
+          cellSize={1}
+          cellThickness={0.5}
+          cellColor="#444"
+          sectionSize={5}
+          sectionThickness={1}
+          sectionColor="#666"
+          fadeDistance={25}
+          fadeStrength={1}
+        />
+        
         <Goal position={SMALL_GOAL_POS} color="green" />
         <Goal position={LARGE_GOAL_POS} color="blue" />
         <Agent position={pos} />
-        <OrbitControls enableRotate={false} enableZoom={false} enablePan={false} />
+        <OrbitControls 
+          enableRotate={true} 
+          enableZoom={true} 
+          enablePan={true}
+          target={[0, 0, 0]}
+        />
       </Canvas>
       <div
         style={{

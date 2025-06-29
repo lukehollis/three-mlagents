@@ -21,7 +21,8 @@ MODEL_PATH = "policies/basic_policy.onnx"
 class Net(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(1, 32)
+        # Use one-hot encoding like Unity (21 positions: 0-20)
+        self.fc1 = nn.Linear(21, 32)
         self.fc2 = nn.Linear(32, 3)
 
     def forward(self, x):
@@ -30,10 +31,16 @@ class Net(nn.Module):
 
 # ----------------------------------------------------------------------------
 
+def position_to_onehot(pos):
+    """Convert position to one-hot encoding like Unity implementation."""
+    onehot = np.zeros(21, dtype=np.float32)  # positions 0-20
+    onehot[pos] = 1.0
+    return onehot
+
 async def train_basic(websocket: WebSocket):
     """Train a simple Q-learning agent and stream progress via websocket."""
     net = Net()
-    optimizer = optim.Adam(net.parameters(), lr=1e-2)
+    optimizer = optim.Adam(net.parameters(), lr=1e-3)
     gamma = 0.9
     epsilon = 1.0
     episodes = 300
@@ -45,14 +52,18 @@ async def train_basic(websocket: WebSocket):
         step_count = 0
         steps = 0
         while True:
+            # Convert position to one-hot encoding
+            pos_onehot = position_to_onehot(pos)
+            
             if np.random.rand() < epsilon:
                 action = np.random.randint(0, 3)  # explore
             else:
                 with torch.no_grad():
-                    qvals = net(torch.tensor([[pos]], dtype=torch.float32))
+                    qvals = net(torch.tensor([pos_onehot], dtype=torch.float32))
                     action = int(torch.argmax(qvals).item())
 
             # Map action index to environment delta
+            # Action 0 = left, Action 1 = no move, Action 2 = right
             delta = [-1, 0, 1][action]
 
             next_pos = pos + delta
@@ -70,9 +81,10 @@ async def train_basic(websocket: WebSocket):
             total_reward += reward
 
             # Q-learning update
-            q_pred = net(torch.tensor([[pos]], dtype=torch.float32))[0, action]
+            q_pred = net(torch.tensor([pos_onehot], dtype=torch.float32))[0, action]
             with torch.no_grad():
-                q_next_max = net(torch.tensor([[next_pos]], dtype=torch.float32)).max()
+                next_pos_onehot = position_to_onehot(next_pos)
+                q_next_max = net(torch.tensor([next_pos_onehot], dtype=torch.float32)).max()
                 q_target = reward + (0.0 if done else gamma * q_next_max.item())
                 q_target = torch.tensor(q_target)
             loss = (q_pred - q_target) ** 2
@@ -104,15 +116,26 @@ async def train_basic(websocket: WebSocket):
 
         if (ep + 1) % 20 == 0:
             avg_loss = episode_loss / max(1, step_count)
+            
+            # Debug: check what the policy does at key positions
+            debug_actions = []
+            for debug_pos in [8, 10, 16]:
+                debug_onehot = position_to_onehot(debug_pos)
+                with torch.no_grad():
+                    debug_qvals = net(torch.tensor([debug_onehot], dtype=torch.float32))
+                    debug_action = int(torch.argmax(debug_qvals).item())
+                debug_actions.append(f"pos{debug_pos}->act{debug_action}")
+            
             await websocket.send_json({
                 "type": "progress",
                 "episode": ep + 1,
                 "reward": round(total_reward, 3),
                 "loss": round(avg_loss, 5),
+                "debug": " | ".join(debug_actions),
             })
 
     # Export policy to ONNX
-    dummy_input = torch.tensor([[START_POS]], dtype=torch.float32)
+    dummy_input = torch.tensor([position_to_onehot(START_POS)], dtype=torch.float32)
     torch.onnx.export(
         net,
         dummy_input,
@@ -140,6 +163,8 @@ async def infer_action(position: int):
         import onnxruntime as ort
         _ort_session = ort.InferenceSession(MODEL_PATH, providers=["CPUExecutionProvider"])
 
-    inp = np.array([[position]], dtype=np.float32)
+    # Convert position to one-hot encoding like in training
+    pos_onehot = position_to_onehot(position)
+    inp = np.array([pos_onehot], dtype=np.float32)
     outputs = _ort_session.run(None, {"input": inp})
     return int(np.argmax(outputs[0])) 
