@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from examples.basic import train_basic, infer_action
 
-app = FastAPI(title="RL-Agents API")
+app = FastAPI(title="ML-Agents API")
 
 SMALL_GOAL = 7
 LARGE_GOAL = 17

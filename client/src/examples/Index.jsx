@@ -25,22 +25,25 @@ export default function ExamplesIndex() {
                 boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
                 transition: 'all 0.3s ease',
+                overflow: 'hidden'
               }}
             >
-              <Link to="/basic" style={{ textDecoration: 'none', color: 'inherit' }}>
-                <div style={{ cursor: 'pointer' }}>
-                  <img 
-                    src="/three-mlagents/basic_example.jpg" 
-                    alt="Basic 1-D Move-To-Goal Example"
-                    style={{
-                      width: '100%',
-                      height: '200px',
-                      objectFit: 'cover',
-                      display: 'block'
-                    }}
-                  />
-                </div>
-              </Link>
+              <Card.Content style={{ padding: 0 }}>  
+                <Link to="/basic" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/basic_example.jpg" 
+                      alt="Basic 1-D Move-To-Goal Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
               <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/basic" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>

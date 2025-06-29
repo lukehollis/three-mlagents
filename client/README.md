@@ -1,4 +1,4 @@
-# RL-Agents – client
+# ML-Agents – client
 
 This folder hosts the **React + Three.js** front-end that recreates the Unity ML-Agents example scenes in the browser.
 
