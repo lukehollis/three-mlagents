@@ -73,7 +73,8 @@ async def train_basic(websocket: WebSocket):
             q_pred = net(torch.tensor([[pos]], dtype=torch.float32))[0, action]
             with torch.no_grad():
                 q_next_max = net(torch.tensor([[next_pos]], dtype=torch.float32)).max()
-                q_target = torch.tensor(reward + (0.0 if done else gamma * q_next_max))
+                q_target = reward + (0.0 if done else gamma * q_next_max.item())
+                q_target = torch.tensor(q_target)
             loss = (q_pred - q_target) ** 2
             optimizer.zero_grad()
             loss.backward()
