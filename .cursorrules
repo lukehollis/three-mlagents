@@ -1,0 +1,3 @@
+use pnpm for node packages in client
+use uv for python packages in api
+do not offer to run or start the dev servers -- assume they are already running
