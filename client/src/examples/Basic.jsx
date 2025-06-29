@@ -61,6 +61,7 @@ export default function BasicExample() {
   const step = useCallback((direction) => {
     setPos((prev) => {
       const next = Math.min(MAX_POS, Math.max(MIN_POS, prev + direction));
+      // Base per-step penalty encourages shorter paths
       let reward = -0.01;
       let done = false;
 
@@ -70,6 +71,14 @@ export default function BasicExample() {
       }
       if (next === LARGE_GOAL_POS) {
         reward += 1;
+        done = true;
+      }
+
+      // Treat hitting the extrema of the grid as a terminal (failure) state so
+      // the agent cannot get stuck endlessly accumulating negative reward.
+      // We also apply an extra penalty to make this outcome clearly undesirable.
+      if (next === MIN_POS || next === MAX_POS) {
+        reward -= 0.5; // extra penalty for falling off the playable area
         done = true;
       }
 
