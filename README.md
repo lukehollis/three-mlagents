@@ -1,3 +1,6 @@
+
+![Screenshot 2025-06-29 at 10 25 21](https://github.com/user-attachments/assets/501626cc-fec4-4a0d-8d6c-6f50ff320575)
+
 # Three ML-Agents
 
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples.
