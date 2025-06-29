@@ -1,5 +1,6 @@
 
-![Screenshot 2025-06-29 at 10 25 21](https://github.com/user-attachments/assets/501626cc-fec4-4a0d-8d6c-6f50ff320575)
+<img width="1371" alt="Screenshot 2025-06-29 at 12 16 54" src="https://github.com/user-attachments/assets/79cc7c3c-cda8-4237-b233-ba2b37cd6e6a" />
+
 
 # Three ML-Agents
 
