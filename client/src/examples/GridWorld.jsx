@@ -13,6 +13,14 @@ import { Link } from 'react-router-dom';
 const WS_URL = `${config.WS_BASE_URL}/ws/gridworld`;
 const CELL_SIZE = 1;
 
+const ACTION_DELTAS = [
+  [0, 0],   // stay
+  [0, 1],   // up
+  [0, -1],  // down
+  [-1, 0],  // left
+  [1, 0],   // right
+];
+
 function CellFloor({ position }) {
   return (
     <mesh position={position} rotation={[-Math.PI / 2, 0, 0]}>
@@ -57,6 +65,16 @@ export default function GridWorldExample() {
   const [modelInfo, setModelInfo] = useState(null);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const [homeHover, setHomeHover] = useState(false);
+  // Local environment replica for inference – keeps client-side state in sync across steps
+  const envRef = useRef({
+    gridSize: 5,
+    agentX: 0,
+    agentY: 0,
+    greenGoals: [[0, 0]],
+    redGoals: [[0, 0]],
+    currentGoalType: 0,
+    steps: 0,
+  });
   const wsRef = useRef(null);
   const intervalRef = useRef(null);
 
@@ -101,7 +119,19 @@ export default function GridWorldExample() {
         });
       }
       if (parsed.type === 'action') {
-        // handle inference step – send action to physics, but here env simulated server-side so ignore
+        // Prefer the scoped handler when the user is in run mode.
+        if (wsRef.current._gwActionHandler) {
+          wsRef.current._gwActionHandler(parsed.action);
+        } else {
+          // Fallback: basic positional update (training visualisation)
+          setState((prev) => {
+            const { agentX, agentY, gridSize } = prev;
+            const [dx, dy] = ACTION_DELTAS[parsed.action] ?? [0, 0];
+            const newX = Math.min(Math.max(agentX + dx, 0), gridSize - 1);
+            const newY = Math.min(Math.max(agentY + dy, 0), gridSize - 1);
+            return { ...prev, agentX: newX, agentY: newY };
+          });
+        }
       }
     };
     ws.onclose = () => addLog('WS closed');
@@ -123,14 +153,93 @@ export default function GridWorldExample() {
   const startRun = () => {
     if (!trained) return;
     if (intervalRef.current) return;
+    // Initialise a fresh random episode that mirrors training resets
+    const resetLocalEnv = () => {
+      const gSize = 5;
+      const cells = [];
+      for (let x = 0; x < gSize; x += 1) {
+        for (let y = 0; y < gSize; y += 1) {
+          cells.push([x, y]);
+        }
+      }
+      // shuffle cells in-place (Fisher-Yates)
+      for (let i = cells.length - 1; i > 0; i -= 1) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [cells[i], cells[j]] = [cells[j], cells[i]];
+      }
+      const agentPos = cells[0];
+      const green = [cells[1]];
+      const red = [cells[2]];
+      const goalType = Math.random() < 0.5 ? 0 : 1;
+
+      envRef.current = {
+        gridSize: gSize,
+        agentX: agentPos[0],
+        agentY: agentPos[1],
+        greenGoals: green,
+        redGoals: red,
+        currentGoalType: goalType,
+        steps: 0,
+      };
+
+      // Push to React state so UI shows the newly initialised grid
+      setState({
+        gridSize: gSize,
+        agentX: agentPos[0],
+        agentY: agentPos[1],
+        greenGoals: green,
+        redGoals: red,
+        currentGoalType: goalType,
+      });
+    };
+
+    const stepLocalEnv = (actionIdx) => {
+      const st = { ...envRef.current };
+      const [dxA, dyA] = ACTION_DELTAS[actionIdx] ?? [0, 0];
+      st.agentX = Math.min(Math.max(st.agentX + dxA, 0), st.gridSize - 1);
+      st.agentY = Math.min(Math.max(st.agentY + dyA, 0), st.gridSize - 1);
+      st.steps += 1;
+
+      // Goal collision / episode termination
+      const atGreen = st.greenGoals.some(([gx, gy]) => gx === st.agentX && gy === st.agentY);
+      const atRed = st.redGoals.some(([rx, ry]) => rx === st.agentX && ry === st.agentY);
+      let done = false;
+      if (atGreen || atRed) done = true;
+      if (st.steps >= 100) done = true; // aligns with MAX_STEPS_PER_EP
+
+      envRef.current = st;
+      setState({
+        gridSize: st.gridSize,
+        agentX: st.agentX,
+        agentY: st.agentY,
+        greenGoals: st.greenGoals,
+        redGoals: st.redGoals,
+        currentGoalType: st.currentGoalType,
+      });
+
+      if (done) {
+        resetLocalEnv();
+      }
+    };
+
+    // Kick-off first episode
+    resetLocalEnv();
+
+    // Fixed-rate control loop
     intervalRef.current = setInterval(() => {
-      const { agentX, agentY, gridSize, currentGoalType, greenGoals, redGoals } = state;
-      const goalPos = currentGoalType === 0 ? (greenGoals[0] || [0, 0]) : (redGoals[0] || [0, 0]);
-      const dx = (goalPos[0] - agentX) / Math.max(1, gridSize - 1);
-      const dy = (goalPos[1] - agentY) / Math.max(1, gridSize - 1);
-      const goalOneHot = currentGoalType === 0 ? [1, 0] : [0, 1];
+      const st = envRef.current;
+      const goalPos = st.currentGoalType === 0 ? (st.greenGoals[0] || [0, 0]) : (st.redGoals[0] || [0, 0]);
+      const dx = (goalPos[0] - st.agentX) / Math.max(1, st.gridSize - 1);
+      const dy = (goalPos[1] - st.agentY) / Math.max(1, st.gridSize - 1);
+      const goalOneHot = st.currentGoalType === 0 ? [1, 0] : [0, 1];
       send({ cmd: 'inference', obs: [dx, dy, ...goalOneHot] });
     }, 200);
+
+    // Handle every action the backend sends
+    const onAction = (actionIdx) => stepLocalEnv(actionIdx);
+
+    // Attach a listener scoped to this run
+    wsRef.current._gwActionHandler = onAction;
   };
 
   const resetTraining = () => {
@@ -140,6 +249,9 @@ export default function GridWorldExample() {
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
+    }
+    if (wsRef.current && wsRef.current._gwActionHandler) {
+      delete wsRef.current._gwActionHandler;
     }
   };
 

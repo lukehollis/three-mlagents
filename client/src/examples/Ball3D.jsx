@@ -272,7 +272,7 @@ export default function Ball3DExample() {
 
       {/* PPO-style update equation (bottom-left) */}
       <div style={{ position: 'absolute', bottom: 10, left: 10, width: 'auto', maxWidth: '420px', background: 'rgba(0,0,0,0.95)', color: '#fff', padding: '6px 8px', fontSize: 14, textAlign: 'left', justifyContent: 'flex-start' }}>
-        <BlockMath math={'\\theta \\leftarrow \\theta - \\alpha \\nabla_{\\theta} \\frac{1}{2}\left( Q_{\\theta}(s_t, a_t) - \left[ r_t + \\gamma \\max_{a^{\\prime}} Q_{\\theta}(s_{t+1}, a^{\\prime}) \right] \right)^{2}'} />
+        <BlockMath math={'\\theta \\leftarrow \\theta - \\alpha \\nabla_{\\theta} \\frac{1}{2}\\left( Q_{\\theta}(s_t, a_t) - \\left[ r_t + \\gamma \\max_{a^{\\prime}} Q_{\\theta}(s_{t+1}, a^{\\prime}) \\right] \\right)^{2}'} />
         <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
           Gradient TD-error update (DQN-style): α learning rate, γ discount factor.
         </div>

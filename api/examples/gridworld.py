@@ -147,10 +147,14 @@ async def train_gridworld(websocket: WebSocket):
     envs: List[GridWorldEnv] = [GridWorldEnv() for _ in range(12)]
 
     net = QNet()
+    target_net = QNet()
+    target_net.load_state_dict(net.state_dict())
+    target_net.eval()
     optimizer = optim.Adam(net.parameters(), lr=3e-4)
     gamma = 0.95
     epsilon = 1.0
-    episodes = 100
+    episodes = 1500
+    target_update_freq = 100
 
     for ep in range(episodes):
         obs_list = [env.reset() for env in envs]
@@ -182,28 +186,43 @@ async def train_gridworld(websocket: WebSocket):
                 rewards.append(rew)
                 dones.append(dn)
 
-            obs_tensor = torch.tensor(obs_list, dtype=torch.float32)
-            next_obs_tensor = torch.tensor(next_obs_list, dtype=torch.float32)
-            actions_tensor = torch.tensor(actions, dtype=torch.long)
-            rewards_tensor = torch.tensor(rewards, dtype=torch.float32)
-            dones_tensor = torch.tensor(dones, dtype=torch.float32)
+            # Train only on the transitions coming from environments that were *active*
+            # at the beginning of the step (i.e. not yet done). Continuing to optimise on
+            # terminal observations with zero-reward targets can quickly dominate the loss
+            # signal and collapse the Q-values, leading to degenerate policies (e.g. always
+            # selecting a single action regardless of the state).
 
-            q_pred = net(obs_tensor).gather(1, actions_tensor.view(-1, 1)).squeeze()
-            with torch.no_grad():
-                q_next_max = net(next_obs_tensor).max(dim=1).values
-                q_target = rewards_tensor + gamma * (1.0 - dones_tensor) * q_next_max
-            loss = ((q_pred - q_target) ** 2).mean()
+            active_idxs = [i for i, d in enumerate(done_flags) if not d]
+            if active_idxs:
+                obs_tensor = torch.tensor([obs_list[i] for i in active_idxs], dtype=torch.float32)
+                next_obs_tensor = torch.tensor([next_obs_list[i] for i in active_idxs], dtype=torch.float32)
+                actions_tensor = torch.tensor([actions[i] for i in active_idxs], dtype=torch.long)
+                rewards_tensor = torch.tensor([rewards[i] for i in active_idxs], dtype=torch.float32)
+                dones_tensor = torch.tensor([dones[i] for i in active_idxs], dtype=torch.float32)
 
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
+                q_pred = net(obs_tensor).gather(1, actions_tensor.view(-1, 1)).squeeze()
+                with torch.no_grad():
+                    q_next_max = target_net(next_obs_tensor).max(dim=1).values
+                    q_target = rewards_tensor + gamma * (1.0 - dones_tensor) * q_next_max
+                loss = ((q_pred - q_target) ** 2).mean()
 
-            ep_loss_accum += float(loss.item())
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                ep_loss_accum += float(loss.item())
+
             step_counter += 1
             total_reward += float(np.sum(rewards))
 
+            # Prepare for next step
             obs_list = next_obs_list
             done_flags = dones
+
+            # Sync target network periodically for stable updates (using global
+            # step counter so that the cadence is independent of episode length).
+            if step_counter % target_update_freq == 0:
+                target_net.load_state_dict(net.state_dict())
 
             # stream first env state for visualization
             env0 = envs[0]
@@ -220,12 +239,16 @@ async def train_gridworld(websocket: WebSocket):
                 "episode": ep + 1,
             })
 
-            await asyncio.sleep(0.01)
+            # Yield to the event loop occasionally so the websocket remains responsive,
+            # but don't block training with a fixed sleep each step (makes it ~20× faster).
+            if step_counter % 20 == 0:
+                await asyncio.sleep(0)
 
             if step_counter >= MAX_STEPS_PER_EP:
                 break
 
-        epsilon = max(0.05, epsilon * 0.99)
+        # Slower decay so exploration lasts across more episodes
+        epsilon = max(0.05, epsilon * 0.995)
 
         if (ep + 1) % 10 == 0:
             avg_loss = ep_loss_accum / max(1, step_counter)
