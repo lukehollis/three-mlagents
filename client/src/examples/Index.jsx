@@ -13,7 +13,7 @@ export default function ExamplesIndex() {
       <Page style={{ backgroundColor: 'transparent', minHeight: '100vh' }}>
         <Page.Header style={{ backgroundColor: 'transparent', position: 'relative', zIndex: 1, padding: '3rem 0 1rem 0' }}>
           <Text h1 style={{ color: '#fff', marginBottom: '8px', textShadow: '0 0 10px rgba(0, 255, 255, 0.5)' }}>Three ML-Agents Examples</Text>
-          <Text p style={{ color: '#ccc' }}>Interactive reinforcement learning environments in the browser. Learn more about the project and fork on <a href="https://github.com/lukehollis/three-mlagents" target="_blank" rel="noopener noreferrer" style={{ color: '#00ffff', textDecoration: 'none' }}>GitHub</a>.</Text>
+          <Text p style={{ color: '#ccc' }}>Interactive reinforcement learning environments in the browser. Learn more about the project and fork on <a href="https://github.com/lukehollis/three-mlagents" target="_blank" rel="noopener noreferrer" style={{ color: '#00ffff', textDecoration: 'none' }}>GitHub</a>. Built by <a href="https://github.com/lukehollis" target="_blank" rel="noopener noreferrer" style={{ color: '#00ffff', textDecoration: 'none' }}>Luke Hollis</a>.</Text>
         </Page.Header>
         
         <Page.Content style={{ backgroundColor: 'transparent', position: 'relative', zIndex: 1 }}>
