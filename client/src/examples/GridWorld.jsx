@@ -7,6 +7,7 @@ import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 import DebugConsole from '../components/DebugConsole.jsx';
 import ChartPanel from '../components/ChartPanel.jsx';
+import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/gridworld`;
 const CELL_SIZE = 1;
@@ -202,6 +203,9 @@ export default function GridWorldExample() {
       </div>
 
       <DebugConsole logs={logs} />
+
+      {/* Fork link (top-right) */}
+      <ButtonForkOnGithub position={{ top: '20px', right: '20px' }} />
     </div>
   );
 } 

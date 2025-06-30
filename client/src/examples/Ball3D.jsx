@@ -7,6 +7,7 @@ import config from '../config.js';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 import { Text, Button } from '@geist-ui/core';
+import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 
 const ROWS = 3;
 const COLS = 4;
@@ -241,6 +242,9 @@ export default function Ball3DExample() {
       </div>
 
       <DebugConsole logs={logs} />
+
+      {/* Fork link (top-right) */}
+      <ButtonForkOnGithub position={{ top: '20px', right: '20px' }} />
     </div>
   );
 } 

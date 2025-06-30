@@ -2,6 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Page, Grid, Card, Text, Spacer, Button } from '@geist-ui/core';
 import { Play } from 'geist-icons';
+import { Github } from '@geist-ui/icons';
 import TronBackground from '../components/TronBackground.jsx';
 
 export default function ExamplesIndex() {
@@ -165,6 +166,33 @@ export default function ExamplesIndex() {
         
               </Page.Content>
       </Page>
+
+      {/* Fixed "Fork on GitHub" link */}
+      <a
+        href="https://github.com/lukehollis/three-mlagents"
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{
+          position: 'fixed',
+          right: '20px',
+          bottom: '20px',
+          backgroundColor: 'rgba(17, 17, 17, 0.8)',
+          color: '#fff',
+          padding: '10px 16px',
+          borderRadius: '6px',
+          fontWeight: 500,
+          textDecoration: 'none',
+          backdropFilter: 'blur(8px)',
+          zIndex: 1000,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          border: '1px solid #fff',
+        }}
+      >
+        <Github size={12} style={{ border: '1px solid #fff' }} />
+        Fork on GitHub
+      </a>
     </>
   );
 } 

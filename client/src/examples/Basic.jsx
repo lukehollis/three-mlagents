@@ -14,6 +14,7 @@ import config from '../config.js';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 import { Text, Button } from '@geist-ui/core';
+import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 
 ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale);
 
@@ -418,6 +419,9 @@ export default function BasicExample() {
           Q-learning update:&nbsp;Q(s,a) is the action-value,&nbsp;α the learning rate,&nbsp;γ the discount&nbsp;factor,&nbsp;r the reward,&nbsp;s′ the next&nbsp;state.
         </div>
       </div>
+
+      {/* Fork link (top-right) */}
+      <ButtonForkOnGithub position={{ top: '20px', right: '20px' }} />
 
     </div>
   );
