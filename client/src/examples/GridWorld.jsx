@@ -319,9 +319,12 @@ export default function GridWorldExample() {
 
       {/* Q-learning update equation (bottom-left) */}
       <div style={{ position: 'absolute', bottom: 10, left: 10, width: 'auto', maxWidth: '420px', background: 'rgba(0,0,0,0.95)', color: '#fff', padding: '6px 8px', fontSize: 14, textAlign: 'left', justifyContent: 'flex-start' }}>
-        <BlockMath math={"Q(s,a) \\leftarrow Q(s,a) + \\alpha\\, \\bigl(\\, r + \\gamma \\max_{a'} Q(s',a') - Q(s,a) \\bigr)"} style={{ textAlign: 'left' }} />
+        <BlockMath
+          math={"Q(s,a) \\leftarrow Q(s,a) + \\alpha\\, \\bigl( r + \\gamma (1 - d) \\max_{a'} Q(s',a') - Q(s,a) \\bigr)"}
+          style={{ textAlign: 'left' }}
+        />
         <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
-          Q-learning update: α learning rate, γ discount factor, r reward, a′ next action, s′ next state.
+          Q-learning update: α learning rate, γ discount factor, d done flag (1 if terminal), r reward, a′ next action, s′ next state.
         </div>
       </div>
 
