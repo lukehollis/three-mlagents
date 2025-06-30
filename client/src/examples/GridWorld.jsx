@@ -8,6 +8,7 @@ import { BlockMath } from 'react-katex';
 import DebugConsole from '../components/DebugConsole.jsx';
 import ChartPanel from '../components/ChartPanel.jsx';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
+import { Link } from 'react-router-dom';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/gridworld`;
 const CELL_SIZE = 1;
@@ -55,6 +56,7 @@ export default function GridWorldExample() {
   const [trained, setTrained] = useState(false);
   const [modelInfo, setModelInfo] = useState(null);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
+  const [homeHover, setHomeHover] = useState(false);
   const wsRef = useRef(null);
   const intervalRef = useRef(null);
 
@@ -179,6 +181,21 @@ export default function GridWorldExample() {
 
       {/* Overlay UI */}
       <div style={{ position: 'absolute', top: 10, left: 10, color: '#fff' }}>
+        {/* Home link */}
+        <Link
+          to="/"
+          style={{
+            fontFamily: 'monospace',
+            color: '#fff',
+            textDecoration: homeHover ? 'none' : 'underline',
+            marginBottom: '4px',
+            display: 'inline-block',
+          }}
+          onMouseEnter={() => setHomeHover(true)}
+          onMouseLeave={() => setHomeHover(false)}
+        >
+          Home
+        </Link>
         <Text h1 style={{ margin: '0 0 12px 0', color: '#fff' }}>
           GridWorld Example
         </Text>

@@ -15,6 +15,7 @@ import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 import { Text, Button } from '@geist-ui/core';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
+import { Link } from 'react-router-dom';
 
 ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale);
 
@@ -58,6 +59,9 @@ export default function BasicExample() {
   const intervalRef = useRef(null);
 
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
+
+  // Add hover state for Home link
+  const [homeHover, setHomeHover] = useState(false);
 
   const step = useCallback((direction) => {
     setPos((prev) => {
@@ -264,6 +268,21 @@ export default function BasicExample() {
           textShadow: '0 0 4px #000',
         }}
       >
+        {/* Home link */}
+        <Link
+          to="/"
+          style={{
+            fontFamily: 'monospace',
+            color: '#fff',
+            textDecoration: homeHover ? 'none' : 'underline',
+            marginBottom: '4px',
+            display: 'inline-block',
+          }}
+          onMouseEnter={() => setHomeHover(true)}
+          onMouseLeave={() => setHomeHover(false)}
+        >
+          Home
+        </Link>
         <Text h1 style={{ margin: '0 0 12px 0', color: '#fff' }}>
           Basic Example - 1-D Move-To-Goal
         </Text>

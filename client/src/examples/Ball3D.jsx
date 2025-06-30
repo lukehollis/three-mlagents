@@ -8,6 +8,7 @@ import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 import { Text, Button } from '@geist-ui/core';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
+import { Link } from 'react-router-dom';
 
 const ROWS = 3;
 const COLS = 4;
@@ -44,6 +45,7 @@ export default function Ball3DExample() {
   const intervalRef = useRef(null);
 
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
+  const [homeHover, setHomeHover] = useState(false);
 
   const envRef = useRef({ rotX: 0, rotZ: 0, ballX: 0, ballZ: 0, velX: 0, velZ: 0 });
 
@@ -209,6 +211,23 @@ export default function Ball3DExample() {
 
       {/* UI overlay */}
       <div style={{ position: 'absolute', top: 10, left: 10, color: '#fff' }}>
+
+        {/* Home link */}
+        <Link
+          to="/"
+          style={{
+            fontFamily: 'monospace',
+            color: '#fff',
+            textDecoration: homeHover ? 'none' : 'underline',
+            marginBottom: '4px',
+            display: 'inline-block',
+          }}
+          onMouseEnter={() => setHomeHover(true)}
+          onMouseLeave={() => setHomeHover(false)}
+        >
+          Home
+        </Link>
+
         <Text h1 style={{ margin: '0 0 12px 0', color: '#fff' }}>
           Ball 3D Example
         </Text>
