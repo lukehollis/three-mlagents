@@ -21,17 +21,20 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 
 ### 0. Basic 1-D Move to Goal
 
-![basic_example](https://github.com/user-attachments/assets/a905f5c6-f932-4c77-9d7c-724897720e8b)
+![three_ml_agents_basic_example](https://github.com/user-attachments/assets/4fa2da3a-f983-41e0-8a66-620b2d809674)
+
 
 
 ### 1. 3DBall Balance
 
-![3d_ball_example](https://github.com/user-attachments/assets/44065a71-1d86-4518-a1c2-3bdb0fb7466b)
+![three_mlagents_3dball_example](https://github.com/user-attachments/assets/3b15e67f-daae-467a-80d3-ecdae09decd8)
+
 
 
 ### 2. GridWorld Navigation
 
-![grid_world_example](https://github.com/user-attachments/assets/61c048da-03a8-45bd-a618-cbd84c080f0e)
+![three_ml_agents_gridworld_example](https://github.com/user-attachments/assets/eef5ae25-5189-41b1-8143-045e1d701533)
+
 
 
 
