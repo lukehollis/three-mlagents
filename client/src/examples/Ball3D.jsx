@@ -272,9 +272,9 @@ export default function Ball3DExample() {
 
       {/* PPO-style update equation (bottom-left) */}
       <div style={{ position: 'absolute', bottom: 10, left: 10, width: 'auto', maxWidth: '420px', background: 'rgba(0,0,0,0.95)', color: '#fff', padding: '6px 8px', fontSize: 14, textAlign: 'left', justifyContent: 'flex-start' }}>
-        <BlockMath math={'\\theta \\leftarrow \\theta + \\alpha \\nabla_{\\theta} \\hat{E}_{t}[\\min(r_{t}(\\theta)\\hat{A}_{t}, \\text{clip}(r_{t}(\\theta), 1-\\epsilon, 1+\\epsilon)\\hat{A}_{t})]'} />
+        <BlockMath math={'\\theta \\leftarrow \\theta - \\alpha \\nabla_{\\theta} \\frac{1}{2}\left( Q_{\\theta}(s_t, a_t) - \left[ r_t + \\gamma \\max_{a^{\\prime}} Q_{\\theta}(s_{t+1}, a^{\\prime}) \right] \right)^{2}'} />
         <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
-          PPO update: θ are policy parameters, α learning rate, rₜ probability ratio, Â advantage estimate, ε clipping coefficient.
+          Gradient TD-error update (DQN-style): α learning rate, γ discount factor.
         </div>
       </div>
 
