@@ -91,11 +91,12 @@ class Ball3DEnv:
         done = off_platform or timeout
 
         # Reward scheme: +0.1 per step alive, −1 when failure, +1 bonus if survived full episode
-        reward = 0.1
+        center_dist = np.linalg.norm(self.pos)          # 0 at centre, grows as ball drifts
+        reward = 1.0 - center_dist / PLATFORM_HALF_SIZE # ∈ (-∞, 1], highest at centre
         if done:
             reward = -1.0
-            if not off_platform and timeout:
-                reward = 1.0
+            if timeout and not off_platform:
+                reward = +1.0
 
         dist_penalty = -0.02 * np.linalg.norm(self.pos)
         reward += dist_penalty
