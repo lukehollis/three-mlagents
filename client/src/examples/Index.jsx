@@ -177,7 +177,7 @@ export default function ExamplesIndex() {
                 <Link to="/push" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
-                      src="/three-mlagents/3d_ball_example.jpg" 
+                      src="/three-mlagents/push_block_example.jpg" 
                       alt="Push-Block Example"
                       style={{
                         width: '100%',

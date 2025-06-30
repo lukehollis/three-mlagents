@@ -15,7 +15,7 @@ from fastapi import WebSocket
 # --------------------------------------------------------------
 
 DEFAULT_GRID_SIZE = 6  # N x N grid
-MAX_STEPS_PER_EP = 100
+MAX_STEPS_PER_EP = 120
 
 # Actions: 0 stay, 1 up, 2 down, 3 left, 4 right
 ACTION_DELTAS: List[Tuple[int, int]] = [
@@ -72,8 +72,15 @@ class PushEnv:
         new_agent_y = int(np.clip(self.agent_pos[1] + dy, 0, self.grid_size - 1))
 
         new_box_x, new_box_y = self.box_pos
-        reward = -0.01
+
+        # Dense shaping: distances before moving
+        prev_dist_bg = abs(self.goal_pos[0] - self.box_pos[0]) + abs(self.goal_pos[1] - self.box_pos[1])
+        prev_dist_ab = abs(self.box_pos[0] - self.agent_pos[0]) + abs(self.box_pos[1] - self.agent_pos[1])
+
+        reward = -0.01  # step penalty
         done = False
+
+        invalid_push = False
 
         # Attempt push if agent moves into box
         if (new_agent_x, new_agent_y) == self.box_pos:
@@ -85,13 +92,26 @@ class PushEnv:
             else:
                 # Invalid push – cancel agent movement
                 new_agent_x, new_agent_y = self.agent_pos
+                invalid_push = True
+
         # Update positions
         self.agent_pos = (new_agent_x, new_agent_y)
         self.box_pos = (new_box_x, new_box_y)
         self.steps += 1
 
-        # Check goal achievement
-        if self.box_pos == self.goal_pos:
+        # Shaping: reward change
+        dist_bg = abs(self.goal_pos[0] - self.box_pos[0]) + abs(self.goal_pos[1] - self.box_pos[1])
+        dist_ab = abs(self.box_pos[0] - self.agent_pos[0]) + abs(self.box_pos[1] - self.agent_pos[1])
+
+        # Encourage reducing agent→box distance until touching, then box→goal distance
+        reward += 0.05 * (prev_dist_ab - dist_ab)  # approach box
+        reward += 0.3 * (prev_dist_bg - dist_bg)   # push box closer to goal
+
+        if invalid_push:
+            reward -= 0.05
+
+        # Check goal achievement (any cell on goal strip)
+        if self.box_pos[1] == self.grid_size - 1:
             reward = 1.0
             done = True
 
@@ -154,7 +174,7 @@ async def train_push(websocket: WebSocket):
     optimizer = optim.Adam(net.parameters(), lr=3e-4)
     gamma = 0.95
     epsilon = 1.0
-    episodes = 1500
+    episodes = 2500
     target_update_freq = 100
 
     for ep in range(episodes):
