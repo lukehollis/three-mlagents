@@ -19,7 +19,7 @@ function PlatformAndBall({ state, position }) {
       {/* Platform cuboid */}
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[6, 0.5, 6]} />
-        <meshBasicMaterial color="#3da8ff"/>
+        <meshStandardMaterial color="#3da8ff" />
       </mesh>
       {/* Ball */}
       <mesh position={[ballX, 0.75, ballZ]}>

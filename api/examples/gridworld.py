@@ -150,7 +150,7 @@ async def train_gridworld(websocket: WebSocket):
     optimizer = optim.Adam(net.parameters(), lr=3e-4)
     gamma = 0.95
     epsilon = 1.0
-    episodes = 300
+    episodes = 100
 
     for ep in range(episodes):
         obs_list = [env.reset() for env in envs]

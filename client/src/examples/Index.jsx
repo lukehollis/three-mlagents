@@ -128,7 +128,7 @@ export default function ExamplesIndex() {
                 <Link to="/gridworld" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
-                      src="/three-mlagents/gridworld_example.jpg" 
+                      src="/three-mlagents/grid_world_example.jpg" 
                       alt="GridWorld Navigation Example"
                       style={{
                         width: '100%',

@@ -15,7 +15,7 @@ function CellFloor({ position }) {
   return (
     <mesh position={position} rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[CELL_SIZE, CELL_SIZE]} />
-      <meshStandardMaterial color="#222" />
+      <meshStandardMaterial color="#222" transparent opacity={0.3} depthWrite={false} />
     </mesh>
   );
 }
@@ -151,7 +151,7 @@ export default function GridWorldExample() {
         <directionalLight position={[5, 10, 5]} intensity={1} />
 
         {/* Floor grid */}
-        <Grid args={[gridSize, gridSize]} cellSize={1} position={[0, 0, 0]} />
+        <Grid args={[gridSize, gridSize]} cellSize={1} position={[0, 0, 0]}  />
 
         {/* Render cells (invisible floor for each) */}
         {Array.from({ length: gridSize }).map((_, x) =>
