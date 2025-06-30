@@ -275,7 +275,6 @@ export default function BasicExample() {
             fontFamily: 'monospace',
             color: '#fff',
             textDecoration: homeHover ? 'none' : 'underline',
-            marginBottom: '4px',
             display: 'inline-block',
           }}
           onMouseEnter={() => setHomeHover(true)}

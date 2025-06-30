@@ -219,7 +219,6 @@ export default function Ball3DExample() {
             fontFamily: 'monospace',
             color: '#fff',
             textDecoration: homeHover ? 'none' : 'underline',
-            marginBottom: '4px',
             display: 'inline-block',
           }}
           onMouseEnter={() => setHomeHover(true)}
@@ -253,7 +252,7 @@ export default function Ball3DExample() {
       </div>
 
       {/* PPO-style update equation (bottom-left) */}
-      <div style={{ position: 'absolute', bottom: 10, left: 10, width: 'auto', maxWidth: '660px', background: 'rgba(0,0,0,0.95)', color: '#fff', padding: '6px 8px', fontSize: 14, textAlign: 'left', justifyContent: 'flex-start' }}>
+      <div style={{ position: 'absolute', bottom: 10, left: 10, width: 'auto', maxWidth: '420px', background: 'rgba(0,0,0,0.95)', color: '#fff', padding: '6px 8px', fontSize: 14, textAlign: 'left', justifyContent: 'flex-start' }}>
         <BlockMath math={'\\theta \\leftarrow \\theta + \\alpha \\nabla_{\\theta} \\hat{E}_{t}[\\min(r_{t}(\\theta)\\hat{A}_{t}, \\text{clip}(r_{t}(\\theta), 1-\\epsilon, 1+\\epsilon)\\hat{A}_{t})]'} />
         <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
           PPO update: θ are policy parameters, α learning rate, rₜ probability ratio, Â advantage estimate, ε clipping coefficient.
