@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from examples.basic import train_basic, infer_action
 from examples.ball3d import train_ball3d, infer_action_ball3d
+from examples.gridworld import train_gridworld, infer_action_gridworld
 
 app = FastAPI(title="ML-Agents API")
 
@@ -96,4 +97,21 @@ async def websocket_ball3d(ws: WebSocket):
         elif cmd == "inference":
             obs = data.get("obs", [])  # expect list [rotX, rotZ, ballX, ballZ]
             act_idx = infer_action_ball3d(obs)
+            await ws.send_json({"type": "action", "action": int(act_idx)})
+
+
+# WebSocket endpoint for GridWorld
+
+
+@app.websocket("/ws/gridworld")
+async def websocket_gridworld(ws: WebSocket):
+    await ws.accept()
+    async for message in ws.iter_text():
+        data = json.loads(message)
+        cmd = data.get("cmd")
+        if cmd == "train":
+            await train_gridworld(ws)
+        elif cmd == "inference":
+            obs = data.get("obs", [])  # expect [dx, dy, g0, g1] (or any agreed)
+            act_idx = infer_action_gridworld(obs)
             await ws.send_json({"type": "action", "action": int(act_idx)}) 

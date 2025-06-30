@@ -1,21 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Stars, Grid } from '@react-three/drei';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  LineElement,
-  PointElement,
-  LinearScale,
-  CategoryScale,
-} from 'chart.js';
 import DebugConsole from '../components/DebugConsole.jsx';
+import ChartPanel from '../components/ChartPanel.jsx';
 import config from '../config.js';
 import 'katex/dist/katex.min.css';
 import { BlockMath } from 'react-katex';
 import { Text, Button } from '@geist-ui/core';
-
-ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale);
 
 const ROWS = 3;
 const COLS = 4;
@@ -28,7 +19,7 @@ function PlatformAndBall({ state, position }) {
       {/* Platform cuboid */}
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[6, 0.5, 6]} />
-        <meshStandardMaterial color="#3da8ff" />
+        <meshBasicMaterial color="#3da8ff"/>
       </mesh>
       {/* Ball */}
       <mesh position={[ballX, 0.75, ballZ]}>
@@ -238,25 +229,7 @@ export default function Ball3DExample() {
 
       {/* Chart */}
       <div style={{ position: 'absolute', bottom: 160, right: 10, width: '30%', height: '180px', background: 'rgba(255,255,255,0.05)', padding: 4 }}>
-        <Line
-          data={{
-            labels: chartState.labels,
-            datasets: [
-              { label: 'Reward', data: chartState.rewards, borderColor: '#0f0', backgroundColor: 'transparent', borderWidth: 1, pointRadius: 0, yAxisID: 'y' },
-              { label: 'Loss', data: chartState.losses, borderColor: 'orange', backgroundColor: 'transparent', borderWidth: 1, pointRadius: 0, yAxisID: 'y1' },
-            ],
-          }}
-          options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-              x: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' }, title: { display: true, text: 'Episode', color: '#aaa' } },
-              y: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' }, title: { display: true, text: 'Reward', color: '#aaa' } },
-              y1: { position: 'right', ticks: { color: 'orange' }, grid: { drawOnChartArea: false }, title: { display: true, text: 'Loss', color: 'orange' } },
-            },
-            plugins: { legend: { labels: { color: '#ddd' } } },
-          }}
-        />
+        <ChartPanel labels={chartState.labels} rewards={chartState.rewards} losses={chartState.losses} />
       </div>
 
       {/* PPO-style update equation (bottom-left) */}
