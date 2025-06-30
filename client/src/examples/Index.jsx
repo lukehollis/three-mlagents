@@ -162,6 +162,54 @@ export default function ExamplesIndex() {
               </Card.Footer>
             </Card>
           </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/push" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/3d_ball_example.jpg" 
+                      alt="Push-Block Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/push" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
+                    Push-Block
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                  Push the box to the goal strip while learning optimal manoeuvres.
+                </Text>
+                <Link to="/push" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
         </Grid.Container>
         
               </Page.Content>

@@ -4,6 +4,7 @@ import ExamplesIndex from './examples/Index.jsx';
 import BasicExample from './examples/Basic.jsx';
 import Ball3DExample from './examples/Ball3D.jsx';
 import GridWorldExample from './examples/GridWorld.jsx';
+import PushExample from './examples/Push.jsx';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/basic" element={<BasicExample />} />
         <Route path="/ball3d" element={<Ball3DExample />} />
         <Route path="/gridworld" element={<GridWorldExample />} />
+        <Route path="/push" element={<PushExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
