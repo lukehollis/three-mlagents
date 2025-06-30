@@ -1,5 +1,7 @@
 # Three ML-Agents
 
+[![Live demo](https://img.shields.io/badge/web-live%20demo-brightgreen?style=flat&logo=github)](https://lukehollis.github.io/three-mlagents/)  [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat)](#license)
+
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples.
 
 ![threejs_ml_agents_examples](https://github.com/user-attachments/assets/ab15555e-3f72-4992-ad82-edfe5fcd06df)
@@ -23,17 +25,23 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 
 ![three_ml_agents_basic_example](https://github.com/user-attachments/assets/4fa2da3a-f983-41e0-8a66-620b2d809674)
 
+[Live demo](https://lukehollis.github.io/three-mlagents/basic)
+
 
 
 ### 1. 3DBall Balance
 
 ![three_mlagents_3dball_example](https://github.com/user-attachments/assets/3b15e67f-daae-467a-80d3-ecdae09decd8)
 
+[Live demo](https://lukehollis.github.io/three-mlagents/ball3d)
+
 
 
 ### 2. GridWorld Navigation
 
 ![three_ml_agents_gridworld_example](https://github.com/user-attachments/assets/eef5ae25-5189-41b1-8143-045e1d701533)
+
+[Live demo](https://lukehollis.github.io/three-mlagents/gridworld)
 
 
 
