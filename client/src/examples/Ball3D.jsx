@@ -113,10 +113,28 @@ export default function Ball3DExample() {
   const startRun = () => {
     if (!trained || autoRun) return;
     setAutoRun(true);
+    // Randomize local env for diversity similar to training resets
+    envRef.current = {
+      rotX: (Math.random() - 0.5) * (Math.PI / 14), // ±~12°
+      rotZ: (Math.random() - 0.5) * (Math.PI / 14),
+      ballX: (Math.random() - 0.5) * 3,
+      ballZ: (Math.random() - 0.5) * 3,
+      velX: (Math.random() - 0.5) * 1,
+      velZ: (Math.random() - 0.5) * 1,
+    };
+
+    setStates(Array.from({ length: ROWS * COLS }, () => ({
+      rotX: envRef.current.rotX,
+      rotZ: envRef.current.rotZ,
+      ballX: envRef.current.ballX,
+      ballZ: envRef.current.ballZ,
+    })));
+
     intervalRef.current = setInterval(() => {
       // send current observation from first platform
       const obs = states[0];
-      send({ cmd: 'inference', obs: [obs.rotX, obs.rotZ, obs.ballX, obs.ballZ] });
+      // Include velocity to match training observation (velX, velZ)
+      send({ cmd: 'inference', obs: [obs.rotX, obs.rotZ, obs.ballX, obs.ballZ, envRef.current.velX, envRef.current.velZ] });
     }, 100);
   };
 
@@ -126,6 +144,7 @@ export default function Ball3DExample() {
     setModelInfo(null);
     setAutoRun(false);
     setChartState({ labels: [], rewards: [], losses: [] });
+    envRef.current = { rotX: 0, rotZ: 0, ballX: 0, ballZ: 0, velX: 0, velZ: 0 };
     if (intervalRef.current) {
       clearInterval(intervalRef.current);
       intervalRef.current = null;

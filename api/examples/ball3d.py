@@ -26,8 +26,8 @@ MAX_TILT = np.deg2rad(25.0)
 TILT_DELTA = np.deg2rad(3.0)  # amount each discrete action tilts the platform
 
 # Observation indices for convenience
-#   0: rotX, 1: rotZ, 2: ballPosX, 3: ballPosZ
-OBS_SIZE = 4
+#   0: rotX, 1: rotZ, 2: ballPosX, 3: ballPosZ, 4: ballVelX, 5: ballVelZ
+OBS_SIZE = 6
 
 # Discrete action mapping (5 actions)
 #  0: tilt +x  (rotate platform around Z-axis positive)
@@ -52,17 +52,26 @@ class Ball3DEnv:
         self.reset()
 
     def reset(self):
-        # Platform rotation (x, z) in radians
-        self.rot = np.zeros(2, dtype=np.float32)
-        # Ball position relative to platform centre
-        self.pos = np.random.uniform(-0.5, 0.5, size=2).astype(np.float32)
-        # Ball velocity (x, z)
-        self.vel = np.zeros(2, dtype=np.float32)
+        # Platform rotation (x, z) in radians – start with a random small tilt
+        self.rot = np.random.uniform(-MAX_TILT * 0.5, MAX_TILT * 0.5, size=2).astype(np.float32)
+
+        # Ball position relative to platform centre – random within half size
+        self.pos = np.random.uniform(-1.5, 1.5, size=2).astype(np.float32)
+
+        # Ball velocity (x, z) – give it a small random push so corrective control is needed
+        self.vel = np.random.uniform(-1.0, 1.0, size=2).astype(np.float32)
         self.steps = 0
         return self._get_obs()
 
     def _get_obs(self):
-        return np.array([self.rot[0], self.rot[1], self.pos[0], self.pos[1]], dtype=np.float32)
+        return np.array([
+            self.rot[0],
+            self.rot[1],
+            self.pos[0],
+            self.pos[1],
+            self.vel[0],
+            self.vel[1],
+        ], dtype=np.float32)
 
     def step(self, action_idx: int):
         # Apply platform tilt change, clip to limits
@@ -111,9 +120,9 @@ class Ball3DEnv:
 class QNet(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(OBS_SIZE, 64)
-        self.fc2 = nn.Linear(64, 64)
-        self.out = nn.Linear(64, NUM_ACTIONS)
+        self.fc1 = nn.Linear(OBS_SIZE, 128)
+        self.fc2 = nn.Linear(128, 128)
+        self.out = nn.Linear(128, NUM_ACTIONS)
 
     def forward(self, x):
         x = torch.tanh(self.fc1(x))
@@ -153,10 +162,17 @@ async def train_ball3d(websocket: WebSocket):
     envs: List[Ball3DEnv] = [Ball3DEnv() for _ in range(12)]
 
     net = QNet()
+    target_net = QNet()
+    target_net.load_state_dict(net.state_dict())
+    target_net.eval()
     optimizer = optim.Adam(net.parameters(), lr=3e-4)
     gamma = 0.99
     epsilon = 1.0
-    episodes = 100
+    # Train long enough for the agent to discover Z-axis tilt actions as in the official Unity
+    # implementation (see Ball3DAgent.cs / Ball3DHardAgent.cs in the ML-Agents repo). 1500
+    # episodes still completes quickly because the per-step sleep has been removed.
+    episodes = 1500
+    target_update_freq = 100  # how many environment steps between target network updates
 
     for ep in range(episodes):
         # Reset all envs
@@ -201,13 +217,17 @@ async def train_ball3d(websocket: WebSocket):
 
             q_pred = net(obs_tensor).gather(1, actions_tensor.view(-1, 1)).squeeze()
             with torch.no_grad():
-                q_next_max = net(next_obs_tensor).max(dim=1).values
+                q_next_max = target_net(next_obs_tensor).max(dim=1).values
                 q_target = rewards_tensor + gamma * (1.0 - dones_tensor) * q_next_max
             loss = ((q_pred - q_target) ** 2).mean()
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+
+            # Sync target network at specified frequency for more stable learning
+            if step_counter % target_update_freq == 0:
+                target_net.load_state_dict(net.state_dict())
 
             ep_loss_accum += float(loss.item())
             step_counter += 1
@@ -229,15 +249,16 @@ async def train_ball3d(websocket: WebSocket):
                 "episode": ep + 1,
             })
 
-            # small sleep so UI can update smoothly
-            await asyncio.sleep(0.01)
+            # Yield control occasionally so FastAPI event loop stays responsive
+            if step_counter % 25 == 0:
+                await asyncio.sleep(0)
 
             # Break loop if steps too many (safety)
             if step_counter >= MAX_STEPS_PER_EP:
                 break
 
-        # Epsilon annealing
-        epsilon = max(0.05, epsilon * 0.995)
+        # Epsilon annealing – slower decay so exploration lasts across the longer run
+        epsilon = max(0.05, epsilon * 0.99)
 
         # Send progress summary every 10 episodes
         if (ep + 1) % 10 == 0:
@@ -285,6 +306,9 @@ def infer_action_ball3d(obs: List[float], model_filename: str = None):
         model_path = os.path.join(POLICIES_DIR, model_filename)
         _ort_sessions_ball3d[model_filename] = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
 
+    # Ensure obs is length 6 (rotX, rotZ, posX, posZ, velX, velZ)
+    if len(obs) == 4:
+        obs = list(obs) + [0.0, 0.0]  # backward-compat: assume zero velocity if not provided
     inp = np.array([obs], dtype=np.float32)
     outputs = _ort_sessions_ball3d[model_filename].run(None, {"input": inp})
     return int(np.argmax(outputs[0])) 
