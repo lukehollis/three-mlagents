@@ -1,10 +1,9 @@
-
-<img width="1371" alt="Screenshot 2025-06-29 at 12 16 54" src="https://github.com/user-attachments/assets/79cc7c3c-cda8-4237-b233-ba2b37cd6e6a" />
-
-
 # Three ML-Agents
 
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples.
+
+![threejs_ml_agents_examples](https://github.com/user-attachments/assets/ab15555e-3f72-4992-ad82-edfe5fcd06df)
+
 
 The goal of this repository is to make the ideas from Unity ML-Agents easily approachable from the browser (React + Three.js) and from lightweight Python back-ends (FastAPI) to be used for future study.
 
