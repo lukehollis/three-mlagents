@@ -263,6 +263,9 @@ export default function BasicExample() {
           textShadow: '0 0 4px #000',
         }}
       >
+        <Text h1 style={{ margin: '0 0 12px 0', color: '#fff' }}>
+          Basic Example - 1-D Move-To-Goal
+        </Text>
         <Text h3 style={{ margin: '0 0 12px 0', color: '#fff' }}>
           Reward: {rewardAccum.toFixed(2)}
         </Text>

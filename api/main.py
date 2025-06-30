@@ -7,6 +7,7 @@ from fastapi import WebSocket
 from fastapi.staticfiles import StaticFiles
 
 from examples.basic import train_basic, infer_action
+from examples.ball3d import train_ball3d, infer_action_ball3d
 
 app = FastAPI(title="ML-Agents API")
 
@@ -78,4 +79,21 @@ async def websocket_basic(ws: WebSocket):
         elif cmd == "inference":
             position = int(data.get("obs", 0))
             act_idx = await infer_action(position)
+            await ws.send_json({"type": "action", "action": int(act_idx)})
+
+
+# WebSocket endpoint for 3DBall
+
+
+@app.websocket("/ws/ball3d")
+async def websocket_ball3d(ws: WebSocket):
+    await ws.accept()
+    async for message in ws.iter_text():
+        data = json.loads(message)
+        cmd = data.get("cmd")
+        if cmd == "train":
+            await train_ball3d(ws)
+        elif cmd == "inference":
+            obs = data.get("obs", [])  # expect list [rotX, rotZ, ballX, ballZ]
+            act_idx = infer_action_ball3d(obs)
             await ws.send_json({"type": "action", "action": int(act_idx)}) 
