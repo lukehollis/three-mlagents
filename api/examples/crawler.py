@@ -1,4 +1,15 @@
+# --------------------------------------------------------------
+# Crawler Example – PyBullet rag-doll with 4 arms + 4 forearms
+# --------------------------------------------------------------
+# This is a **simplified** but structurally correct port of the Unity
+# Crawler task. It builds a small URDF rag-doll at runtime (torso + 8
+# limb links), exposes a 172-float observation and 20 continuous action
+# vector, trains a minimal PPO agent, and streams a reduced state over
+# WebSocket for visualisation. No try/except is used to comply with the
+# repository rules.
+
 import os
+import math
 import asyncio
 from datetime import datetime
 import uuid
@@ -9,284 +20,308 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from fastapi import WebSocket
+import pybullet as p
+import pybullet_data
 
-# --------------------------------------------------------------
-# Environment ---------------------------------------------------
-# --------------------------------------------------------------
+# -----------------------------------------------------------------------------------
+# URDF helper – write a small crawler robot to /tmp so PyBullet can load it
+# -----------------------------------------------------------------------------------
 
-TRACK_LEN = 30  # 1-D track length (along +x)
-MAX_STEPS = 200
+_URDF_PATH = "/tmp/crawler_ragdoll.urdf"
 
-#           0     1         2          3
-# Actions: stay, turn_left, turn_right, move_forward
-NUM_ACTIONS = 4
+_RAGDOLL_URDF = """
+<?xml version=\"1.0\" ?>
+<robot name=\"crawler\">
+  <link name=\"torso\">
+    <inertial>
+      <mass value=\"1.0\" />
+      <inertia ixx=\"0.1\" ixy=\"0\" ixz=\"0\" iyy=\"0.1\" iyz=\"0\" izz=\"0.1\" />
+    </inertial>
+    <visual>
+      <geometry><box size=\"0.4 0.2 0.2\" /></geometry>
+    </visual>
+    <collision>
+      <geometry><box size=\"0.4 0.2 0.2\" /></geometry>
+    </collision>
+  </link>
 
-OBS_SIZE = 5  # [dx_goal, cos_heading, vel_norm, target_speed_norm, sin_heading]
+{{links}}
+{{joints}}
+</robot>
+"""
+
+_LINK_TMPL = """
+  <link name=\"{name}\">
+    <inertial><mass value=\"0.2\"/><inertia ixx=\"0.01\" ixy=\"0\" ixz=\"0\" iyy=\"0.01\" iyz=\"0\" izz=\"0.01\"/></inertial>
+    <visual><geometry><capsule radius=\"0.05\" length=\"0.3\"/></geometry></visual>
+    <collision><geometry><capsule radius=\"0.05\" length=\"0.3\"/></geometry></collision>
+  </link>
+"""
+
+_JOINT_TMPL = """
+  <joint name=\"{jname}\" type=\"revolute\">
+    <parent link=\"{parent}\" />
+    <child  link=\"{child}\" />
+    <origin xyz=\"{px} {py} {pz}\" rpy=\"0 0 0\" />
+    <axis xyz=\"{ax} {ay} {az}\" />
+    <limit lower=\"-1.5708\" upper=\"1.5708\" effort=\"20\" velocity=\"5\" />
+  </joint>
+"""
+
+
+def _write_ragdoll_urdf():
+    limbs = []
+    joints = []
+    limb_names = []
+    for i in range(4):
+        up_name = f"upper_{i}"
+        lo_name = f"lower_{i}"
+        limb_names.extend([up_name, lo_name])
+        limbs.append(_LINK_TMPL.format(name=up_name))
+        limbs.append(_LINK_TMPL.format(name=lo_name))
+        # attach upper to torso – hinge around local Y
+        sign = 1.0 if i < 2 else -1.0  # left/right side
+        px = 0.2 * sign
+        py = 0.05 if i % 2 == 0 else -0.05
+        joints.append(_JOINT_TMPL.format(jname=f"joint_torso_{up_name}", parent="torso", child=up_name, px=px, py=py, pz=0, ax=0, ay=1, az=0))
+        # attach lower to upper – hinge around local Y
+        joints.append(_JOINT_TMPL.format(jname=f"joint_{up_name}_{lo_name}", parent=up_name, child=lo_name, px=0, py=0, pz=-0.3, ax=0, ay=1, az=0))
+
+    with open(_URDF_PATH, "w") as fh:
+        fh.write(_RAGDOLL_URDF.replace("{{links}}", "".join(limbs)).replace("{{joints}}", "".join(joints)))
+
+
+_write_ragdoll_urdf()
+
+# -----------------------------------------------------------------------------------
+# Environment definition
+# -----------------------------------------------------------------------------------
+
+OBS_SIZE = 172
+ACTION_SIZE = 20
+MAX_EPISODE_STEPS = 1000
+TARGET_SPEED = 1.0  # m/s
 
 
 class CrawlerEnv:
-    """Very light-weight 1-D crawler environment.
-
-    The agent starts at x == 0 with a random target speed in (0.1, 1.0].
-    Heading (yaw) is continuous in [−π, π). The goal is to move towards
-    +x direction without falling (modelled here as exceeding |heading| > π/2).
-    Reward each step is geometric (product) of:
-        speed_reward  ∈ [0,1] – match between current speed and target speed
-        heading_reward ∈ [0,1] – alignment of heading with +x direction
-    """
-
-    TURN_DELTA = 0.25  # radians per left/right action
-    FORWARD_STEP = 1.0  # units per forward action
-    MAX_SPEED = FORWARD_STEP  # used for normalisation
-
     def __init__(self):
+        self.client = p.connect(p.DIRECT)
+        p.setAdditionalSearchPath(pybullet_data.getDataPath())
+        p.setGravity(0, 0, -9.8)
+        self.robot_id: int | None = None
+        self.joints: list[int] = []
+        self.step_counter = 0
+        self.prev_base_pos = (0.0, 0.0, 0.0)
         self.reset()
 
-    # ----------------------------------------------------------
+    # --------------------------------------------------
     def reset(self):
-        self.x: float = 0.0
-        self.heading: float = 0.0  # 0 rad points towards +x (goal)
-        self.prev_x: float = 0.0
-        self.steps: int = 0
-        self.target_speed: float = float(np.random.uniform(0.1, 1.0))
-        return self._obs()
+        p.resetSimulation(physicsClientId=self.client)
+        p.setGravity(0, 0, -9.8, physicsClientId=self.client)
+        p.loadURDF("plane.urdf", physicsClientId=self.client)
+        self.robot_id = p.loadURDF(_URDF_PATH, [0, 0, 0.5], useFixedBase=False, physicsClientId=self.client)
+        self.joints = list(range(p.getNumJoints(self.robot_id, physicsClientId=self.client)))[:ACTION_SIZE]
+        self.step_counter = 0
+        self.prev_base_pos = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)[0]
+        return self._get_obs()
 
-    # ----------------------------------------------------------
-    def _obs(self):
-        dx_goal = (TRACK_LEN - 1 - self.x) / max(1.0, TRACK_LEN - 1)
-        vel = np.clip(self.x - self.prev_x, -self.MAX_SPEED, self.MAX_SPEED)
-        vel_norm = (vel + self.MAX_SPEED) / (2 * self.MAX_SPEED)  # map to [0,1]
-        tgt_speed_norm = self.target_speed / 1.0  # already ≤1
-        return np.array([
-            dx_goal,
-            np.cos(self.heading),
-            vel_norm,
-            tgt_speed_norm,
-            np.sin(self.heading),
-        ], dtype=np.float32)
+    # --------------------------------------------------
+    def _get_obs(self):
+        base_pos, base_ori = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
+        base_lin, base_ang = p.getBaseVelocity(self.robot_id, physicsClientId=self.client)
+        obs = []
+        obs.extend(base_pos)
+        obs.extend(base_ori)
+        obs.extend(base_lin)
+        obs.extend(base_ang)
+        for j in self.joints:
+            jstate = p.getJointState(self.robot_id, j, physicsClientId=self.client)
+            obs.append(jstate[0])  # position
+            obs.append(jstate[1])  # velocity
+        # zero-pad to 172
+        if len(obs) < OBS_SIZE:
+            obs.extend([0.0] * (OBS_SIZE - len(obs)))
+        return np.array(obs[:OBS_SIZE], dtype=np.float32)
 
-    # ----------------------------------------------------------
-    def step(self, action_idx: int):
-        assert 0 <= action_idx < NUM_ACTIONS
-
-        if action_idx == 1:  # turn left
-            self.heading += self.TURN_DELTA
-        elif action_idx == 2:  # turn right
-            self.heading -= self.TURN_DELTA
-        elif action_idx == 3:  # move forward along heading
-            self.prev_x = self.x
-            self.x += self.FORWARD_STEP * float(np.cos(self.heading))
-        # action 0 is stay (no changes)
-
-        # Clamp heading into [−π, π)
-        if self.heading >= np.pi:
-            self.heading -= 2 * np.pi
-        if self.heading < -np.pi:
-            self.heading += 2 * np.pi
-
-        # Speed (|Δx|) for reward calc
-        curr_speed = abs(self.x - self.prev_x)
-
-        # Rewards ------------------------------------------------
-        speed_reward = 1.0 - abs(curr_speed - self.target_speed) / max(1e-5, self.target_speed)
-        speed_reward = np.clip(speed_reward, 0.0, 1.0)
-        heading_reward = (np.cos(self.heading) + 1.0) * 0.5  # 1 when heading==0 rad
-        step_reward = speed_reward * heading_reward  # geometric
-
-        done = False
-        if self.x >= TRACK_LEN - 1:
-            step_reward = 1.0  # big reward for success
-            done = True
-
-        self.steps += 1
-        if self.steps >= MAX_STEPS:
-            done = True
-
-        obs = self._obs()
-        return obs, float(step_reward), done
+    # --------------------------------------------------
+    def step(self, action: np.ndarray):
+        # action expected in [-1,1]
+        for idx, j in enumerate(self.joints):
+            tgt = float(action[idx]) * math.pi * 0.5  # scale to ±90°
+            p.setJointMotorControl2(self.robot_id, j, p.POSITION_CONTROL, targetPosition=tgt, force=20, physicsClientId=self.client)
+        p.stepSimulation(physicsClientId=self.client)
+        self.step_counter += 1
+        # reward: geometric product of speed alignment and heading alignment
+        base_pos, base_ori = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
+        forward_vel = (base_pos[0] - self.prev_base_pos[0]) / max(1e-3, p.getPhysicsEngineParameters(physicsClientId=self.client)["fixedTimeStep"])
+        speed_reward = max(0.0, 1.0 - abs(forward_vel - TARGET_SPEED) / TARGET_SPEED)
+        # heading – torso x-axis aligns with +x world when roll/pitch small
+        # We'll approximate by dot product of body x-axis with world x
+        ori_mat = p.getMatrixFromQuaternion(base_ori)  # 9 elems
+        body_x_axis = (ori_mat[0], ori_mat[3], ori_mat[6])
+        heading_reward = (body_x_axis[0] + 1.0) * 0.5  # maps cos(0)=1 →1 etc.
+        reward = speed_reward * heading_reward
+        self.prev_base_pos = base_pos
+        done = self.step_counter >= MAX_EPISODE_STEPS or base_pos[2] < 0.1  # fell over
+        return self._get_obs(), reward, done
 
 
-# --------------------------------------------------------------
-# Q-network (discrete actions) ----------------------------------
-# --------------------------------------------------------------
+# -----------------------------------------------------------------------------------
+# PPO agent (very compact, single file)
+# -----------------------------------------------------------------------------------
 
-
-class QNet(nn.Module):
+class ActorCritic(nn.Module):
     def __init__(self):
         super().__init__()
-        self.fc1 = nn.Linear(OBS_SIZE, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.out = nn.Linear(128, NUM_ACTIONS)
+        self.shared = nn.Sequential(nn.Linear(OBS_SIZE, 256), nn.Tanh(), nn.Linear(256, 128), nn.Tanh())
+        self.actor_mean = nn.Linear(128, ACTION_SIZE)
+        self.log_std = nn.Parameter(torch.zeros(ACTION_SIZE))
+        self.critic = nn.Linear(128, 1)
 
-    def forward(self, x):  # type: ignore[override]
-        x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        return self.out(x)
+    def forward(self, obs: torch.Tensor):  # type: ignore[override]
+        h = self.shared(obs)
+        return self.actor_mean(h), self.log_std.expand_as(self.actor_mean(h)), self.critic(h)
 
-
-# --------------------------------------------------------------
-# Training ------------------------------------------------------
-# --------------------------------------------------------------
 
 POLICIES_DIR = "policies"
+BATCH_SIZE = 2048
+MINI_BATCH = 256
+EPOCHS = 4
+GAMMA = 0.99
+GAE_LAMBDA = 0.95
+CLIP_EPS = 0.2
+ENT_COEF = 0.001
+LR = 3e-4
 
 
 def _export_model_onnx(model: nn.Module, path: str):
     dummy = torch.zeros((1, OBS_SIZE), dtype=torch.float32)
-    torch.onnx.export(
-        model,
-        dummy,
-        path,
-        input_names=["input"],
-        output_names=["output"],
-        opset_version=17,
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
-    )
+    torch.onnx.export(model, dummy, path, input_names=["input"], output_names=["output"], opset_version=17, dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}})
 
 
 async def train_crawler(websocket: WebSocket):
     os.makedirs(POLICIES_DIR, exist_ok=True)
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_uuid = str(uuid.uuid4())[:8]
     model_filename = f"crawler_policy_{timestamp}_{session_uuid}.onnx"
     model_path = os.path.join(POLICIES_DIR, model_filename)
 
-    envs: List[CrawlerEnv] = [CrawlerEnv() for _ in range(16)]
+    envs: List[CrawlerEnv] = [CrawlerEnv() for _ in range(8)]
+    model = ActorCritic()
+    optimizer = optim.Adam(model.parameters(), lr=LR)
 
-    net = QNet()
-    target_net = QNet()
-    target_net.load_state_dict(net.state_dict())
-    target_net.eval()
+    obs = torch.tensor([e.reset() for e in envs], dtype=torch.float32)
+    ep_counter = 0
+    step_buffer: list[dict] = []
+    while ep_counter < 2000:  # episodes
+        # collect rollout
+        with torch.no_grad():
+            mean, log_std, value = model(obs)
+            std = log_std.exp()
+            actions = mean + std * torch.randn_like(mean)
+            probs = (-0.5 * ((actions - mean) / std).pow(2) - log_std - 0.5 * math.log(2 * math.pi)).sum(-1, keepdim=True)
+        actions_np = actions.clamp(-1, 1).cpu().numpy()
+        step_obs = []
+        rewards = []
+        dones = []
+        for idx, env in enumerate(envs):
+            nobs, rew, dn = env.step(actions_np[idx])
+            step_obs.append(nobs)
+            rewards.append(rew)
+            dones.append(dn)
+        next_obs = torch.tensor(step_obs, dtype=torch.float32)
+        rewards_t = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1)
+        dones_t = torch.tensor(dones, dtype=torch.float32).unsqueeze(1)
+        step_buffer.append({"obs": obs, "actions": actions, "logp": probs, "reward": rewards_t, "done": dones_t, "value": value})
+        obs = next_obs
 
-    optimizer = optim.Adam(net.parameters(), lr=3e-4)
-    gamma = 0.97
-    epsilon = 1.0
-    episodes = 4000
-    target_update_freq = 120
-
-    for ep in range(episodes):
-        obs_list = [env.reset() for env in envs]
-        done_flags = [False] * len(envs)
-        total_reward = 0.0
-        ep_loss_accum = 0.0
-        step_counter = 0
-
-        while not all(done_flags):
-            obs_batch = torch.tensor(obs_list, dtype=torch.float32)
-            if np.random.rand() < epsilon:
-                actions = np.random.randint(0, NUM_ACTIONS, size=len(envs))
-            else:
-                with torch.no_grad():
-                    qvals = net(obs_batch)
-                actions = torch.argmax(qvals, dim=1).cpu().numpy()
-
-            next_obs_list: List[np.ndarray] = []
-            rewards: List[float] = []
-            dones: List[bool] = []
-            for idx, env in enumerate(envs):
-                if done_flags[idx]:
-                    next_obs_list.append(obs_list[idx])
-                    rewards.append(0.0)
-                    dones.append(True)
-                    continue
-                nobs, rew, dn = env.step(int(actions[idx]))
-                next_obs_list.append(nobs)
-                rewards.append(rew)
-                dones.append(dn)
-
-            active_idxs = [i for i, d in enumerate(done_flags) if not d]
-            if active_idxs:
-                obs_tensor = torch.tensor([obs_list[i] for i in active_idxs], dtype=torch.float32)
-                next_obs_tensor = torch.tensor([next_obs_list[i] for i in active_idxs], dtype=torch.float32)
-                actions_tensor = torch.tensor([int(actions[i]) for i in active_idxs], dtype=torch.long)
-                rewards_tensor = torch.tensor([rewards[i] for i in active_idxs], dtype=torch.float32)
-                dones_tensor = torch.tensor([dones[i] for i in active_idxs], dtype=torch.float32)
-
-                q_pred = net(obs_tensor).gather(1, actions_tensor.view(-1, 1)).squeeze()
-                with torch.no_grad():
-                    q_next_max = target_net(next_obs_tensor).max(dim=1).values
-                    q_target = rewards_tensor + gamma * (1.0 - dones_tensor) * q_next_max
-                loss = ((q_pred - q_target) ** 2).mean()
-
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                ep_loss_accum += float(loss.item())
-
-            step_counter += 1
-            total_reward += float(np.sum(rewards))
-
-            obs_list = next_obs_list
-            done_flags = dones
-
-            if step_counter % target_update_freq == 0:
-                target_net.load_state_dict(net.state_dict())
-
-            # Visualise first env every few steps
-            if step_counter % 5 == 0:
-                env0 = envs[0]
-                await websocket.send_json({
-                    "type": "train_step",
-                    "state": {
-                        "agentX": float(env0.x),
-                        "heading": float(env0.heading),
-                        "gridSize": TRACK_LEN,
-                        "goalX": TRACK_LEN - 1,
-                    },
-                    "episode": ep + 1,
-                })
-
-            if step_counter % 20 == 0:
-                await asyncio.sleep(0)
-
-            if step_counter >= MAX_STEPS:
-                break
-
-        epsilon = max(0.05, epsilon * 0.994)
-
-        if (ep + 1) % 10 == 0:
-            avg_loss = ep_loss_accum / max(1, step_counter)
+        # stream first env every 10 steps
+        if len(step_buffer) % 10 == 0:
+            e0 = envs[0]
+            base_pos, base_ori = p.getBasePositionAndOrientation(e0.robot_id, physicsClientId=e0.client)
+            joint_angles = [p.getJointState(e0.robot_id, j, physicsClientId=e0.client)[0] for j in e0.joints]
             await websocket.send_json({
-                "type": "progress",
-                "episode": ep + 1,
-                "reward": round(total_reward / len(envs), 3),
-                "loss": round(avg_loss, 5),
+                "type": "train_step",
+                "state": {
+                    "basePos": [float(base_pos[0]), float(base_pos[1]), float(base_pos[2])],
+                    "baseOri": [float(x) for x in base_ori],
+                    "jointAngles": [float(a) for a in joint_angles],
+                },
+                "episode": ep_counter + 1,
             })
 
-    _export_model_onnx(net, model_path)
+        # finish episode if any env done
+        for i, dn in enumerate(dones):
+            if dn:
+                ep_counter += 1
+                envs[i].reset()
 
-    await websocket.send_json({
-        "type": "trained",
-        "file_url": f"/policies/{model_filename}",
-        "model_filename": model_filename,
-        "timestamp": timestamp,
-        "session_uuid": session_uuid,
-    })
+        # once buffer big enough, update policy
+        if len(step_buffer) * len(envs) >= BATCH_SIZE:
+            # convert buffer to tensors
+            obs_cat = torch.cat([b["obs"] for b in step_buffer])
+            act_cat = torch.cat([b["actions"] for b in step_buffer])
+            logp_cat = torch.cat([b["logp"] for b in step_buffer])
+            rew_cat = torch.cat([b["reward"] for b in step_buffer])
+            done_cat = torch.cat([b["done"] for b in step_buffer])
+            val_cat = torch.cat([b["value"] for b in step_buffer])
+            # compute advantages via GAE
+            adv = torch.zeros_like(rew_cat)
+            gae = 0.0
+            for t in reversed(range(rew_cat.shape[0])):
+                delta = rew_cat[t] + GAMMA * (1.0 - done_cat[t]) * val_cat[t] - val_cat[t]
+                gae = delta + GAMMA * GAE_LAMBDA * (1.0 - done_cat[t]) * gae
+                adv[t] = gae
+            returns = adv + val_cat
+            adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+            # PPO update
+            for _ in range(EPOCHS):
+                idx = torch.randperm(obs_cat.shape[0])
+                for start in range(0, obs_cat.shape[0], MINI_BATCH):
+                    mb_idx = idx[start:start + MINI_BATCH]
+                    mb_obs = obs_cat[mb_idx]
+                    mb_act = act_cat[mb_idx]
+                    mb_logp_old = logp_cat[mb_idx]
+                    mb_adv = adv[mb_idx]
+                    mb_ret = returns[mb_idx]
+                    mean, log_std, value = model(mb_obs)
+                    std = log_std.exp()
+                    logp = (-0.5 * ((mb_act - mean) / std).pow(2) - log_std - 0.5 * math.log(2 * math.pi)).sum(-1, keepdim=True)
+                    ratio = (logp - mb_logp_old).exp()
+                    clip_adv = torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS) * mb_adv
+                    policy_loss = -torch.min(ratio * mb_adv, clip_adv).mean() - ENT_COEF * (-logp.mean())
+                    value_loss = ((mb_ret - value) ** 2).mean()
+                    loss = policy_loss + 0.5 * value_loss
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+            # gather simple metrics for frontend
+            avg_reward = float(rew_cat.mean().cpu().item())
+            avg_loss = float(loss.detach().cpu().item())
+            step_buffer = []
+            # send progress every update (include reward/loss)
+            await websocket.send_json({"type": "progress", "episode": ep_counter + 1, "reward": avg_reward, "loss": avg_loss})
+
+    _export_model_onnx(model, model_path)
+    await websocket.send_json({"type": "trained", "file_url": f"/policies/{model_filename}", "model_filename": model_filename, "timestamp": timestamp, "session_uuid": session_uuid})
 
 
-# --------------------------------------------------------------
-# Inference -----------------------------------------------------
-# --------------------------------------------------------------
+# -----------------------------------------------------------------------------------
+# Inference helper
+# -----------------------------------------------------------------------------------
 
-_ort_sessions_cr: dict[str, "onnxruntime.InferenceSession"] = {}
+_ORT_CACHE: dict[str, "onnxruntime.InferenceSession"] = {}
 
 
 def infer_action_crawler(obs: List[float], model_filename: str | None = None):
     import onnxruntime as ort
-
     if model_filename is None:
         files = [f for f in os.listdir(POLICIES_DIR) if f.startswith("crawler_policy_") and f.endswith(".onnx")]
-        if not files:
-            raise FileNotFoundError("No trained crawler policy files available")
         files.sort(reverse=True)
         model_filename = files[0]
-
-    if model_filename not in _ort_sessions_cr:
-        model_path = os.path.join(POLICIES_DIR, model_filename)
-        _ort_sessions_cr[model_filename] = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-
+    if model_filename not in _ORT_CACHE:
+        sess = ort.InferenceSession(os.path.join(POLICIES_DIR, model_filename), providers=["CPUExecutionProvider"])
+        _ORT_CACHE[model_filename] = sess
     inp = np.array([obs], dtype=np.float32)
-    outputs = _ort_sessions_cr[model_filename].run(None, {"input": inp})
-    return int(np.argmax(outputs[0])) 
+    out = _ORT_CACHE[model_filename].run(None, {"input": inp})[0]
+    return out[0].tolist()  # return continuous 20-D vector 

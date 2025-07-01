@@ -30,10 +30,9 @@ function HeadingArrow({ heading }) {
 
 export default function CrawlerExample() {
   const [state, setState] = useState({
-    gridSize: 30,
-    agentX: 0,
-    heading: 0,
-    goalX: 29,
+    basePos: [0, 0, 0.35],
+    baseOri: [0, 0, 0, 1],
+    jointAngles: Array(8).fill(0),
   });
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
@@ -113,7 +112,7 @@ export default function CrawlerExample() {
       const heading = 0;
       const goalX = gridSize - 1;
       envRef.current = { gridSize, agentX, heading, goalX, steps: 0 };
-      setState({ gridSize, agentX, heading, goalX });
+      setState((prev) => ({ ...prev, gridSize, agentX, heading, goalX }));
     };
 
     const stepLocalEnv = (actionIdx) => {
@@ -165,8 +164,7 @@ export default function CrawlerExample() {
     }
   };
 
-  const { gridSize, agentX, heading, goalX } = state;
-  const half = (gridSize - 1) / 2;
+  const { basePos, baseOri, jointAngles } = state;
 
   return (
     <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom, #08081c, #03030a)' }}>
@@ -174,29 +172,36 @@ export default function CrawlerExample() {
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 10, 5]} intensity={1} />
 
-        <Grid args={[gridSize, 1]} cellSize={1} position={[0, 0, 0]} />
+        <Grid args={[20, 1]} cellSize={1} position={[0, 0, 0]} />
 
-        {/* Ground cells */}
-        {Array.from({ length: gridSize }).map((_, x) => (
-          <mesh key={x} position={[x - half, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[1, 1]} />
-            <meshStandardMaterial color="#222" transparent opacity={0.3} depthWrite={false} />
-          </mesh>
-        ))}
-
-        {/* Goal strip */}
-        <mesh position={[goalX - half, 0.01, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <planeGeometry args={[1, 1]} />
-          <meshStandardMaterial color="#00ff00" transparent opacity={0.3} depthWrite={false} />
-        </mesh>
-
-        {/* Agent */}
-        <group position={[agentX - half, 0.35, 0]} rotation={[0, -heading, 0]}>
+        <group position={basePos} quaternion={baseOri}>
           <mesh>
-            <boxGeometry args={[0.6, 0.3, 0.4]} />
+            <boxGeometry args={[0.4, 0.2, 0.2]} />
             <meshStandardMaterial color="#00aaff" />
           </mesh>
-          <HeadingArrow heading={heading} />
+          {Array.from({ length: 4 }).map((_, i) => {
+            const upperAngle = jointAngles[i] || 0;
+            const lowerAngle = jointAngles[4 + i] || 0;
+            const side = i < 2 ? 1 : -1; // left/right
+            const upDown = i % 2 === 0 ? 1 : -1;
+            const upperAnchor = [0.2 * side, 0.05 * upDown, 0];
+            return (
+              <group key={i} position={upperAnchor} rotation={[0, upperAngle, 0]}>
+                {/* upper */}
+                <mesh position={[0, 0, -0.15]} rotation={[Math.PI / 2, 0, 0]}>
+                  <cylinderGeometry args={[0.05, 0.05, 0.3, 8]} />
+                  <meshStandardMaterial color="#ffaa00" />
+                </mesh>
+                {/* lower */}
+                <group position={[0, 0, -0.3]} rotation={[0, lowerAngle, 0]}>
+                  <mesh position={[0, 0, -0.15]} rotation={[Math.PI / 2, 0, 0]}>
+                    <cylinderGeometry args={[0.05, 0.05, 0.3, 8]} />
+                    <meshStandardMaterial color="#ffdd55" />
+                  </mesh>
+                </group>
+              </group>
+            );
+          })}
         </group>
 
         <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
