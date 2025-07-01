@@ -120,8 +120,12 @@ class CrawlerEnv:
         p.resetSimulation(physicsClientId=self.client)
         p.setGravity(0, 0, -9.8, physicsClientId=self.client)
         p.loadURDF("plane.urdf", physicsClientId=self.client)
-        self.robot_id = p.loadURDF(_URDF_PATH, [0, 0, 0.5], useFixedBase=False, physicsClientId=self.client)
+        self.robot_id = p.loadURDF(_URDF_PATH, [0, 0, 0.45], useFixedBase=False, physicsClientId=self.client)
         self.joints = list(range(p.getNumJoints(self.robot_id, physicsClientId=self.client)))[:ACTION_SIZE]
+        # give legs a bent pose so feet touch ground
+        startup = [0.8, -1.2] * 4  # upper,lower pairs (upper down, lower folded)
+        for j, ang in zip(self.joints, startup):
+            p.resetJointState(self.robot_id, j, targetValue=ang, physicsClientId=self.client)
         self.step_counter = 0
         self.prev_base_pos = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)[0]
         return self._get_obs()
@@ -149,7 +153,7 @@ class CrawlerEnv:
         # action expected in [-1,1]
         for idx, j in enumerate(self.joints):
             tgt = float(action[idx]) * math.pi * 0.5  # scale to ±90°
-            p.setJointMotorControl2(self.robot_id, j, p.POSITION_CONTROL, targetPosition=tgt, force=5, physicsClientId=self.client)
+            p.setJointMotorControl2(self.robot_id, j, p.POSITION_CONTROL, targetPosition=tgt, force=8, physicsClientId=self.client)
         p.stepSimulation(physicsClientId=self.client)
         self.step_counter += 1
         # reward: geometric product of speed alignment and heading alignment

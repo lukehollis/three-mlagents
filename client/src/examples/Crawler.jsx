@@ -30,7 +30,7 @@ function HeadingArrow({ heading }) {
 
 export default function CrawlerExample() {
   const [state, setState] = useState({
-    basePos: [0, 0, 0.35],
+    basePos: [0, 0, 0.45],
     baseOri: [0, 0, 0, 1],
     jointAngles: Array(8).fill(0),
   });
@@ -113,6 +113,9 @@ export default function CrawlerExample() {
   };
 
   const { basePos, baseOri, jointAngles } = state;
+  const bulletToThreeQuat = (q) => [q[0], q[2], -q[1], q[3]];
+  const threePos = basePos ? [basePos[0], basePos[2], -basePos[1]] : [0, 0, 0];
+  const threeQuat = baseOri ? bulletToThreeQuat(baseOri) : [0, 0, 0, 1];
 
   return (
     <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom, #08081c, #03030a)' }}>
@@ -123,7 +126,7 @@ export default function CrawlerExample() {
         {/* Wider floor grid for better spatial reference */}
         <Grid args={[8, 8]} cellSize={1} position={[0, 0, 0]} />
 
-        <group position={basePos} quaternion={baseOri}>
+        <group position={threePos} quaternion={threeQuat}>
           <mesh>
             <boxGeometry args={[0.4, 0.2, 0.2]} />
             <meshStandardMaterial color="#00aaff" />
