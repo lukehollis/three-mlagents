@@ -6,6 +6,7 @@ import Ball3DExample from './examples/Ball3D.jsx';
 import GridWorldExample from './examples/GridWorld.jsx';
 import PushExample from './examples/Push.jsx';
 import WallJumpExample from './examples/WallJump.jsx';
+import CrawlerExample from './examples/Crawler.jsx';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/gridworld" element={<GridWorldExample />} />
         <Route path="/push" element={<PushExample />} />
         <Route path="/walljump" element={<WallJumpExample />} />
+        <Route path="/crawler" element={<CrawlerExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

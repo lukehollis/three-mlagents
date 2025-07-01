@@ -11,6 +11,7 @@ from examples.ball3d import train_ball3d, infer_action_ball3d
 from examples.gridworld import train_gridworld, infer_action_gridworld
 from examples.push import train_push, infer_action_push
 from examples.walljump import train_walljump, infer_action_walljump
+from examples.crawler import train_crawler, infer_action_crawler
 
 app = FastAPI(title="ML-Agents API")
 
@@ -150,4 +151,21 @@ async def websocket_walljump(ws: WebSocket):
         elif cmd == "inference":
             obs = data.get("obs", [])  # [dx_goal, dx_wall, wall_height, on_ground]
             act_idx = infer_action_walljump(obs)
+            await ws.send_json({"type": "action", "action": int(act_idx)})
+
+
+# WebSocket endpoint for Crawler
+
+
+@app.websocket("/ws/crawler")
+async def websocket_crawler(ws: WebSocket):
+    await ws.accept()
+    async for message in ws.iter_text():
+        data = json.loads(message)
+        cmd = data.get("cmd")
+        if cmd == "train":
+            await train_crawler(ws)
+        elif cmd == "inference":
+            obs = data.get("obs", [])  # expect [dx_goal, cos_head, vel_norm, tgt_speed_norm, sin_head]
+            act_idx = infer_action_crawler(obs)
             await ws.send_json({"type": "action", "action": int(act_idx)}) 
