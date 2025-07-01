@@ -41,9 +41,7 @@ export default function CrawlerExample() {
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const [homeHover, setHomeHover] = useState(false);
 
-  const envRef = useRef({ ...state, steps: 0 });
   const wsRef = useRef(null);
-  const intervalRef = useRef(null);
 
   const addLog = (txt) => {
     setLogs((l) => {
@@ -80,10 +78,8 @@ export default function CrawlerExample() {
         setTrained(true);
         setModelInfo({ filename: parsed.model_filename, timestamp: parsed.timestamp, sessionUuid: parsed.session_uuid, fileUrl: parsed.file_url });
       }
-      if (parsed.type === 'action') {
-        if (wsRef.current._crawlerActionHandler) {
-          wsRef.current._crawlerActionHandler(parsed.action);
-        }
+      if (parsed.type === 'run_step') {
+        setState((prev) => ({ ...prev, ...parsed.state }));
       }
     };
     ws.onclose = () => addLog('WS closed');
@@ -104,61 +100,13 @@ export default function CrawlerExample() {
 
   const startRun = () => {
     if (!trained) return;
-    if (intervalRef.current) return;
-
-    const resetLocalEnv = () => {
-      const gridSize = 30;
-      const agentX = 0;
-      const heading = 0;
-      const goalX = gridSize - 1;
-      envRef.current = { gridSize, agentX, heading, goalX, steps: 0 };
-      setState((prev) => ({ ...prev, gridSize, agentX, heading, goalX }));
-    };
-
-    const stepLocalEnv = (actionIdx) => {
-      const st = envRef.current;
-      let heading = st.heading;
-      let x = st.agentX;
-
-      if (actionIdx === 1) heading += 0.25; // left
-      if (actionIdx === 2) heading -= 0.25; // right
-      if (actionIdx === 3) x = Math.min(st.gridSize - 1, x + Math.cos(heading));
-
-      // wrap heading to -π..π
-      if (heading >= Math.PI) heading -= 2 * Math.PI;
-      if (heading < -Math.PI) heading += 2 * Math.PI;
-
-      const steps = st.steps + 1;
-      const done = x >= st.goalX || steps >= 200;
-
-      envRef.current = { ...st, agentX: x, heading, steps };
-      setState((prev) => ({ ...prev, agentX: x, heading }));
-
-      if (done) resetLocalEnv();
-    };
-
-    resetLocalEnv();
-
-    intervalRef.current = setInterval(() => {
-      const st = envRef.current;
-      const dx_goal = (st.goalX - st.agentX) / Math.max(1, st.gridSize - 1);
-      const vel_norm = 0; // local env does not track velocity for inference
-      const tgt_speed_norm = 0.5; // dummy
-      const obs = [dx_goal, Math.cos(st.heading), vel_norm, tgt_speed_norm, Math.sin(st.heading)];
-      send({ cmd: 'inference', obs });
-    }, 200);
-
-    wsRef.current._crawlerActionHandler = (aIdx) => stepLocalEnv(aIdx);
+    send({ cmd: 'run' });
   };
 
   const resetTraining = () => {
     setTraining(false);
     setTrained(false);
     setModelInfo(null);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
     if (wsRef.current && wsRef.current._crawlerActionHandler) {
       delete wsRef.current._crawlerActionHandler;
     }
@@ -172,7 +120,8 @@ export default function CrawlerExample() {
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 10, 5]} intensity={1} />
 
-        <Grid args={[20, 1]} cellSize={1} position={[0, 0, 0]} />
+        {/* Wider floor grid for better spatial reference */}
+        <Grid args={[8, 8]} cellSize={1} position={[0, 0, 0]} />
 
         <group position={basePos} quaternion={baseOri}>
           <mesh>

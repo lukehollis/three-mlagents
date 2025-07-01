@@ -79,13 +79,13 @@ def _write_ragdoll_urdf():
         limb_names.extend([up_name, lo_name])
         limbs.append(_LINK_TMPL.format(name=up_name))
         limbs.append(_LINK_TMPL.format(name=lo_name))
-        # attach upper to torso – hinge around local Y
+        # attach upper to torso – hinge around local Z so legs swing forward/back
         sign = 1.0 if i < 2 else -1.0  # left/right side
         px = 0.2 * sign
         py = 0.05 if i % 2 == 0 else -0.05
-        joints.append(_JOINT_TMPL.format(jname=f"joint_torso_{up_name}", parent="torso", child=up_name, px=px, py=py, pz=0, ax=0, ay=1, az=0))
-        # attach lower to upper – hinge around local Y
-        joints.append(_JOINT_TMPL.format(jname=f"joint_{up_name}_{lo_name}", parent=up_name, child=lo_name, px=0, py=0, pz=-0.3, ax=0, ay=1, az=0))
+        joints.append(_JOINT_TMPL.format(jname=f"joint_torso_{up_name}", parent="torso", child=up_name, px=px, py=py, pz=0, ax=0, ay=0, az=1))
+        # attach lower to upper – hinge around local Z
+        joints.append(_JOINT_TMPL.format(jname=f"joint_{up_name}_{lo_name}", parent=up_name, child=lo_name, px=0, py=0, pz=-0.3, ax=0, ay=0, az=1))
 
     with open(_URDF_PATH, "w") as fh:
         fh.write(_RAGDOLL_URDF.replace("{{links}}", "".join(limbs)).replace("{{joints}}", "".join(joints)))
@@ -112,6 +112,7 @@ class CrawlerEnv:
         self.joints: list[int] = []
         self.step_counter = 0
         self.prev_base_pos = (0.0, 0.0, 0.0)
+        self.dt = p.getPhysicsEngineParameters(physicsClientId=self.client)["fixedTimeStep"]
         self.reset()
 
     # --------------------------------------------------
@@ -148,19 +149,20 @@ class CrawlerEnv:
         # action expected in [-1,1]
         for idx, j in enumerate(self.joints):
             tgt = float(action[idx]) * math.pi * 0.5  # scale to ±90°
-            p.setJointMotorControl2(self.robot_id, j, p.POSITION_CONTROL, targetPosition=tgt, force=20, physicsClientId=self.client)
+            p.setJointMotorControl2(self.robot_id, j, p.POSITION_CONTROL, targetPosition=tgt, force=5, physicsClientId=self.client)
         p.stepSimulation(physicsClientId=self.client)
         self.step_counter += 1
         # reward: geometric product of speed alignment and heading alignment
         base_pos, base_ori = p.getBasePositionAndOrientation(self.robot_id, physicsClientId=self.client)
-        forward_vel = (base_pos[0] - self.prev_base_pos[0]) / max(1e-3, p.getPhysicsEngineParameters(physicsClientId=self.client)["fixedTimeStep"])
-        speed_reward = max(0.0, 1.0 - abs(forward_vel - TARGET_SPEED) / TARGET_SPEED)
-        # heading – torso x-axis aligns with +x world when roll/pitch small
-        # We'll approximate by dot product of body x-axis with world x
-        ori_mat = p.getMatrixFromQuaternion(base_ori)  # 9 elems
+        forward_vel = (base_pos[0] - self.prev_base_pos[0]) / self.dt
+        speed_rew = max(0.0, 1.0 - abs(forward_vel - TARGET_SPEED) / TARGET_SPEED)
+        ori_mat = p.getMatrixFromQuaternion(base_ori)
         body_x_axis = (ori_mat[0], ori_mat[3], ori_mat[6])
-        heading_reward = (body_x_axis[0] + 1.0) * 0.5  # maps cos(0)=1 →1 etc.
-        reward = speed_reward * heading_reward
+        heading_rew = (body_x_axis[0] + 1.0) * 0.5
+        upright_rew = max(0.0, body_x_axis[2])
+        yaw_vel = p.getBaseVelocity(self.robot_id, physicsClientId=self.client)[1][2]
+        yaw_pen = 1.0 / (1.0 + 5.0 * abs(yaw_vel))
+        reward = speed_rew * heading_rew * upright_rew * yaw_pen
         self.prev_base_pos = base_pos
         done = self.step_counter >= MAX_EPISODE_STEPS or base_pos[2] < 0.1  # fell over
         return self._get_obs(), reward, done
@@ -175,7 +177,7 @@ class ActorCritic(nn.Module):
         super().__init__()
         self.shared = nn.Sequential(nn.Linear(OBS_SIZE, 256), nn.Tanh(), nn.Linear(256, 128), nn.Tanh())
         self.actor_mean = nn.Linear(128, ACTION_SIZE)
-        self.log_std = nn.Parameter(torch.zeros(ACTION_SIZE))
+        self.log_std = nn.Parameter(torch.full((ACTION_SIZE,), -1.5))
         self.critic = nn.Linear(128, 1)
 
     def forward(self, obs: torch.Tensor):  # type: ignore[override]
@@ -235,8 +237,8 @@ async def train_crawler(websocket: WebSocket):
         step_buffer.append({"obs": obs, "actions": actions, "logp": probs, "reward": rewards_t, "done": dones_t, "value": value})
         obs = next_obs
 
-        # stream first env every 10 steps
-        if len(step_buffer) % 10 == 0:
+        # stream first env every 2 steps for smoother preview
+        if len(step_buffer) % 2 == 0:
             e0 = envs[0]
             base_pos, base_ori = p.getBasePositionAndOrientation(e0.robot_id, physicsClientId=e0.client)
             joint_angles = [p.getJointState(e0.robot_id, j, physicsClientId=e0.client)[0] for j in e0.joints]
@@ -322,6 +324,39 @@ def infer_action_crawler(obs: List[float], model_filename: str | None = None):
     if model_filename not in _ORT_CACHE:
         sess = ort.InferenceSession(os.path.join(POLICIES_DIR, model_filename), providers=["CPUExecutionProvider"])
         _ORT_CACHE[model_filename] = sess
-    inp = np.array([obs], dtype=np.float32)
+    # pad or truncate to OBS_SIZE so it matches network input
+    if len(obs) < OBS_SIZE:
+        obs_adj = obs + [0.0] * (OBS_SIZE - len(obs))
+    else:
+        obs_adj = obs[:OBS_SIZE]
+    inp = np.array([obs_adj], dtype=np.float32)
     out = _ORT_CACHE[model_filename].run(None, {"input": inp})[0]
-    return out[0].tolist()  # return continuous 20-D vector 
+    return out[0].tolist()  # return continuous 20-D vector
+
+
+async def run_crawler(websocket: WebSocket, model_filename: str | None = None):
+    """Stream live inference rollout of a single CrawlerEnv to the websocket."""
+    env = CrawlerEnv()
+    episode = 0
+    obs = env.reset()
+    from starlette.websockets import WebSocketState
+    while websocket.application_state == WebSocketState.CONNECTED:
+        act_vec = infer_action_crawler(obs.tolist(), model_filename)
+        nobs, _, done = env.step(np.array(act_vec, dtype=np.float32))
+        base_pos, base_ori = p.getBasePositionAndOrientation(env.robot_id, physicsClientId=env.client)
+        joint_angles = [p.getJointState(env.robot_id, j, physicsClientId=env.client)[0] for j in env.joints]
+        await websocket.send_json({
+            "type": "run_step",
+            "state": {
+                "basePos": [float(base_pos[0]), float(base_pos[1]), float(base_pos[2])],
+                "baseOri": [float(x) for x in base_ori],
+                "jointAngles": [float(a) for a in joint_angles],
+            },
+            "episode": episode + 1,
+        })
+        if done:
+            episode += 1
+            obs = env.reset()
+        else:
+            obs = nobs
+        await asyncio.sleep(0)  # cooperative yield 

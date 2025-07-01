@@ -11,7 +11,7 @@ from examples.ball3d import train_ball3d, infer_action_ball3d
 from examples.gridworld import train_gridworld, infer_action_gridworld
 from examples.push import train_push, infer_action_push
 from examples.walljump import train_walljump, infer_action_walljump
-from examples.crawler import train_crawler, infer_action_crawler
+from examples.crawler import train_crawler, infer_action_crawler, run_crawler
 
 app = FastAPI(title="ML-Agents API")
 
@@ -165,7 +165,20 @@ async def websocket_crawler(ws: WebSocket):
         cmd = data.get("cmd")
         if cmd == "train":
             await train_crawler(ws)
+        elif cmd == "run":
+            await run_crawler(ws)
         elif cmd == "inference":
             obs = data.get("obs", [])  # expect [dx_goal, cos_head, vel_norm, tgt_speed_norm, sin_head]
-            act_idx = infer_action_crawler(obs)
-            await ws.send_json({"type": "action", "action": int(act_idx)}) 
+            act_vec = infer_action_crawler(obs)
+            # simple heuristic mapping continuous 20-D vector → discrete command for demo
+            heading_signal = act_vec[0]  # first joint as proxy for turn
+            forward_signal = abs(act_vec[2])  # third joint magnitude for move forward
+            if forward_signal > 0.5:
+                action_idx = 3  # move forward
+            elif heading_signal > 0.3:
+                action_idx = 1  # turn left
+            elif heading_signal < -0.3:
+                action_idx = 2  # turn right
+            else:
+                action_idx = 0  # no-op
+            await ws.send_json({"type": "action", "action": action_idx}) 
