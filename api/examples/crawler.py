@@ -53,8 +53,14 @@ _RAGDOLL_URDF = """
 _LINK_TMPL = """
   <link name=\"{name}\">
     <inertial><mass value=\"0.2\"/><inertia ixx=\"0.01\" ixy=\"0\" ixz=\"0\" iyy=\"0.01\" iyz=\"0\" izz=\"0.01\"/></inertial>
-    <visual><geometry><capsule radius=\"0.05\" length=\"0.3\"/></geometry></visual>
-    <collision><geometry><capsule radius=\"0.05\" length=\"0.3\"/></geometry></collision>
+    <visual>
+      <origin rpy=\"0 1.5708 0\"/>
+      <geometry><capsule radius=\"0.05\" length=\"0.3\"/></geometry>
+    </visual>
+    <collision>
+      <origin rpy=\"0 1.5708 0\"/>
+      <geometry><capsule radius=\"0.05\" length=\"0.3\"/></geometry>
+    </collision>
   </link>
 """
 
@@ -64,7 +70,7 @@ _JOINT_TMPL = """
     <child  link=\"{child}\" />
     <origin xyz=\"{px} {py} {pz}\" rpy=\"0 0 0\" />
     <axis xyz=\"{ax} {ay} {az}\" />
-    <limit lower=\"-1.5708\" upper=\"1.5708\" effort=\"20\" velocity=\"5\" />
+    <limit lower=\"-1.5708\" upper=\"1.5708\" effort=\"300\" velocity=\"10\" />
   </joint>
 """
 
@@ -74,18 +80,30 @@ def _write_ragdoll_urdf():
     joints = []
     limb_names = []
     for i in range(4):
+        hip_name = f"hip_{i}"
         up_name = f"upper_{i}"
         lo_name = f"lower_{i}"
-        limb_names.extend([up_name, lo_name])
+
+        limb_names.extend([hip_name, up_name, lo_name])
+
+        # small hip link (no geometry)
+        limbs.append(
+            f"  <link name=\"{hip_name}\">\n    <inertial><mass value=\"0.01\"/><inertia ixx=\"1e-5\" ixy=\"0\" ixz=\"0\" iyy=\"1e-5\" iyz=\"0\" izz=\"1e-5\"/></inertial>\n  </link>\n"
+        )
         limbs.append(_LINK_TMPL.format(name=up_name))
         limbs.append(_LINK_TMPL.format(name=lo_name))
-        # attach upper to torso – hinge around local Z so legs swing forward/back
+
+        # Position on torso (left/right & fore/back)
         sign = 1.0 if i < 2 else -1.0  # left/right side
         px = 0.2 * sign
         py = 0.05 if i % 2 == 0 else -0.05
-        joints.append(_JOINT_TMPL.format(jname=f"joint_torso_{up_name}", parent="torso", child=up_name, px=px, py=py, pz=0, ax=0, ay=0, az=1))
-        # attach lower to upper – hinge around local Z
-        joints.append(_JOINT_TMPL.format(jname=f"joint_{up_name}_{lo_name}", parent=up_name, child=lo_name, px=0, py=0, pz=-0.3, ax=0, ay=0, az=1))
+
+        # Hip roll (X axis) – torso -> hip link
+        joints.append(_JOINT_TMPL.format(jname=f"joint_torso_{hip_name}", parent="torso", child=hip_name, px=px, py=py, pz=0, ax=1, ay=0, az=0))
+        # Hip pitch (Y axis) – hip link -> upper leg
+        joints.append(_JOINT_TMPL.format(jname=f"joint_{hip_name}_{up_name}", parent=hip_name, child=up_name, px=0, py=0, pz=0, ax=0, ay=1, az=0))
+        # Knee pitch – upper -> lower
+        joints.append(_JOINT_TMPL.format(jname=f"joint_{up_name}_{lo_name}", parent=up_name, child=lo_name, px=0, py=0, pz=-0.3, ax=0, ay=1, az=0))
 
     with open(_URDF_PATH, "w") as fh:
         fh.write(_RAGDOLL_URDF.replace("{{links}}", "".join(limbs)).replace("{{joints}}", "".join(joints)))
@@ -98,7 +116,7 @@ _write_ragdoll_urdf()
 # -----------------------------------------------------------------------------------
 
 OBS_SIZE = 172
-ACTION_SIZE = 20
+ACTION_SIZE = 20  # 12 joint angles + 8 strength scalars (matches Unity)
 MAX_EPISODE_STEPS = 1000
 TARGET_SPEED = 1.0  # m/s
 
@@ -121,9 +139,9 @@ class CrawlerEnv:
         p.setGravity(0, 0, -9.8, physicsClientId=self.client)
         p.loadURDF("plane.urdf", physicsClientId=self.client)
         self.robot_id = p.loadURDF(_URDF_PATH, [0, 0, 0.45], useFixedBase=False, physicsClientId=self.client)
-        self.joints = list(range(p.getNumJoints(self.robot_id, physicsClientId=self.client)))[:ACTION_SIZE]
+        self.joints = list(range(p.getNumJoints(self.robot_id, physicsClientId=self.client)))[:12]
         # give legs a bent pose so feet touch ground
-        startup = [0.8, -1.2] * 4  # upper,lower pairs (upper down, lower folded)
+        startup = [0.0, 0.8, -1.2] * 4  # roll 0, hip pitch 0.8, knee -1.2
         for j, ang in zip(self.joints, startup):
             p.resetJointState(self.robot_id, j, targetValue=ang, physicsClientId=self.client)
         self.step_counter = 0
@@ -150,10 +168,26 @@ class CrawlerEnv:
 
     # --------------------------------------------------
     def step(self, action: np.ndarray):
-        # action expected in [-1,1]
-        for idx, j in enumerate(self.joints):
-            tgt = float(action[idx]) * math.pi * 0.5  # scale to ±90°
-            p.setJointMotorControl2(self.robot_id, j, p.POSITION_CONTROL, targetPosition=tgt, force=8, physicsClientId=self.client)
+        # Split action vector: first 12 values are joint target angles, next 8 values are strength scalars in [-1,1]
+        max_force = 150.0
+        # Map strength scalars: indices 0-3 upper legs, 4-7 lower legs
+        for leg in range(4):
+            roll_idx = self.joints[leg * 3]
+            pitch_idx = self.joints[leg * 3 + 1]
+            knee_idx = self.joints[leg * 3 + 2]
+
+            # Angles
+            roll_ang = float(action[leg * 3]) * math.pi * 0.5
+            pitch_ang = float(action[leg * 3 + 1]) * math.pi * 0.5
+            knee_ang = float(action[leg * 3 + 2]) * math.pi * 0.5
+
+            # Strengths
+            upper_strength = (float(action[12 + leg]) + 1.0) * 0.5
+            lower_strength = (float(action[12 + 4 + leg]) + 1.0) * 0.5
+
+            p.setJointMotorControl2(self.robot_id, roll_idx, p.POSITION_CONTROL, targetPosition=roll_ang, force=max_force * upper_strength, physicsClientId=self.client)
+            p.setJointMotorControl2(self.robot_id, pitch_idx, p.POSITION_CONTROL, targetPosition=pitch_ang, force=max_force * upper_strength, physicsClientId=self.client)
+            p.setJointMotorControl2(self.robot_id, knee_idx, p.POSITION_CONTROL, targetPosition=knee_ang, force=max_force * lower_strength, physicsClientId=self.client)
         p.stepSimulation(physicsClientId=self.client)
         self.step_counter += 1
         # reward: geometric product of speed alignment and heading alignment
@@ -245,7 +279,10 @@ async def train_crawler(websocket: WebSocket):
         if len(step_buffer) % 2 == 0:
             e0 = envs[0]
             base_pos, base_ori = p.getBasePositionAndOrientation(e0.robot_id, physicsClientId=e0.client)
-            joint_angles = [p.getJointState(e0.robot_id, j, physicsClientId=e0.client)[0] for j in e0.joints]
+            joint_angles = []
+            for leg in range(4):
+                joint_angles.append(p.getJointState(e0.robot_id, e0.joints[leg * 3 + 1], physicsClientId=e0.client)[0])  # hip pitch
+                joint_angles.append(p.getJointState(e0.robot_id, e0.joints[leg * 3 + 2], physicsClientId=e0.client)[0])  # knee
             await websocket.send_json({
                 "type": "train_step",
                 "state": {
@@ -348,7 +385,10 @@ async def run_crawler(websocket: WebSocket, model_filename: str | None = None):
         act_vec = infer_action_crawler(obs.tolist(), model_filename)
         nobs, _, done = env.step(np.array(act_vec, dtype=np.float32))
         base_pos, base_ori = p.getBasePositionAndOrientation(env.robot_id, physicsClientId=env.client)
-        joint_angles = [p.getJointState(env.robot_id, j, physicsClientId=env.client)[0] for j in env.joints]
+        joint_angles = []
+        for leg in range(4):
+            joint_angles.append(p.getJointState(env.robot_id, env.joints[leg * 3 + 1], physicsClientId=env.client)[0])
+            joint_angles.append(p.getJointState(env.robot_id, env.joints[leg * 3 + 2], physicsClientId=env.client)[0])
         await websocket.send_json({
             "type": "run_step",
             "state": {

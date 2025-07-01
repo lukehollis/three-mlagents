@@ -188,11 +188,11 @@ export default function CrawlerExample() {
 
       <div style={{ position: 'absolute', bottom: 10, left: 10, width: 'auto', maxWidth: '420px', background: 'rgba(0,0,0,0.95)', color: '#fff', padding: '6px 8px', fontSize: 14, textAlign: 'left', justifyContent: 'flex-start' }}>
         <BlockMath
-          math={"r_{step} = r_{speed} \\times r_{heading}"}
+          math={"r_{step} = r_{speed} \\times r_{heading} \\times r_{upright} \\times r_{yaw}"}
           style={{ textAlign: 'left' }}
         />
         <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
-          Geometric reward combining speed alignment and heading alignment.
+          Geometric reward combining speed alignment, heading alignment, uprightness, and yaw stability.
         </div>
       </div>
 
