@@ -23,7 +23,7 @@ MAX_STEPS = 150
 
 # Actions: 0 stay, 1 forward, 2 backward, 3 jump
 NUM_ACTIONS = 4
-ACTION_DELTAS = [0, 1, -1, 0]
+ACTION_DELTAS = [0, 1, -1, 1]  # jump also moves forward
 
 OBS_SIZE = 4  # [dx_goal, dx_wall, wall_height, on_ground]
 
@@ -37,7 +37,7 @@ class WallJumpEnv:
     """
 
     WALL_X = 10
-    JUMP_DURATION = 2
+    JUMP_DURATION = 3
 
     def __init__(self):
         self.width = WIDTH
@@ -66,9 +66,10 @@ class WallJumpEnv:
         reward = -0.01  # step penalty
         done = False
 
-        # Handle jump action
+        just_jumped = False
         if action_idx == 3 and self.in_air == 0:
             self.in_air = self.JUMP_DURATION
+            just_jumped = True
 
         # Determine proposed move
         dx = ACTION_DELTAS[action_idx]
@@ -82,6 +83,10 @@ class WallJumpEnv:
         if crossing_wall and self.wall_height == 1 and self.in_air == 0:
             proposed_x = self.agent_x  # cannot cross
             reward -= 0.02  # slight penalty for hitting wall
+
+        # Penalise jumping when not needed (wall not immediately ahead)
+        if just_jumped and not crossing_wall and abs(self.WALL_X - self.agent_x) > 1:
+            reward -= 0.03
 
         self.agent_x = proposed_x
 

@@ -82,20 +82,26 @@ export default function WallJumpExample() {
             const actIdx = parsed.action;
             let { agentX, gridSize } = prev;
             let inAir = prev.inAir;
-            // Jump action sets air timer
+            // Handle jump (also forward movement)
+            let jumpForward = false;
             if (actIdx === 3 && inAir === 0) {
-              inAir = 2;
+              inAir = 6; // frames in air (taller arc)
+              jumpForward = true;
             }
-            if (actIdx === 1) agentX = Math.min(agentX + 1, gridSize - 1);
+            if (actIdx === 1 || jumpForward) agentX = Math.min(agentX + 1, gridSize - 1);
             if (actIdx === 2) agentX = Math.max(agentX - 1, 0);
-            // decrement air timer each basic update step
-            if (inAir > 0 && actIdx !== 3) {
+            // decrement air timer when not just started a new jump
+            if (inAir > 0 && !(actIdx === 3 && prev.inAir === 0)) {
               inAir -= 1;
             }
-            const crossingWall =
-              (agentX < state.wallX && agentX >= state.wallX) || (agentX <= state.wallX && agentX > state.wallX);
-            if (crossingWall && state.wallPresent && inAir === 0) {
-              agentX = agentX; // blocked
+            // collision during training visualisation
+            const pathCrossesWall = (
+              (prev.agentX < state.wallX && agentX >= state.wallX) ||
+              (prev.agentX > state.wallX && agentX <= state.wallX) ||
+              (agentX === state.wallX)
+            );
+            if (state.wallPresent && pathCrossesWall && inAir === 0) {
+              agentX = prev.agentX; // blocked
             }
             const steps = prev.steps + 1;
             const done = agentX === state.goalX || steps >= 100;
@@ -143,21 +149,36 @@ export default function WallJumpExample() {
       const st = envRef.current;
       let newAgentX = st.agentX;
       let inAir = st.inAir;
+
+      // Handle jump (also forward movement)
+      let jumpForward = false;
       if (actionIdx === 3 && inAir === 0) {
-        inAir = 2; // jump duration
+        inAir = 6; // frames in air (taller arc)
+        jumpForward = true;
       }
-      if (actionIdx === 1) newAgentX = Math.min(newAgentX + 1, st.gridSize - 1);
+
+      // Horizontal moves (jump counts as forward)
+      if (actionIdx === 1 || jumpForward) newAgentX = Math.min(newAgentX + 1, st.gridSize - 1);
       if (actionIdx === 2) newAgentX = Math.max(newAgentX - 1, 0);
-      const crossingWall =
-        (st.agentX < st.wallX && newAgentX >= st.wallX) || (newAgentX <= st.wallX && st.agentX > st.wallX);
-      if (crossingWall && st.wallPresent && inAir === 0) {
-        newAgentX = st.agentX; // blocked
+
+      // Wall collision – blocked if path crosses the wall cell and not airborne
+      const pathCrossesWall = (
+        (st.agentX < st.wallX && newAgentX >= st.wallX) ||
+        (st.agentX > st.wallX && newAgentX <= st.wallX) ||
+        (newAgentX === st.wallX)
+      );
+      if (st.wallPresent && pathCrossesWall && inAir === 0) {
+        newAgentX = st.agentX; // cancel move
       }
-      if (inAir > 0) inAir -= 1;
+
+      if (inAir > 0 && actionIdx !== 3) inAir -= 1;
+
       const steps = st.steps + 1;
       const done = newAgentX === st.goalX || steps >= 100;
+
       envRef.current = { ...st, agentX: newAgentX, steps, inAir };
       setState((prev) => ({ ...prev, agentX: newAgentX, inAir }));
+
       if (done) resetLocalEnv();
     };
 
@@ -222,10 +243,17 @@ export default function WallJumpExample() {
         )}
 
         {/* Agent (raise height when jumping) */}
-        <mesh position={[agentX - half, inAir > 0 ? 0.8 : 0.35, 0]}>
-          <boxGeometry args={[0.4, 0.4, 0.4]} />
-          <meshStandardMaterial color="#00aaff" />
-        </mesh>
+        {(() => {
+          const JUMP_DURATION = 6;
+          const jumpHeight = 2.0;
+          const yPos = inAir > 0 ? 0.35 + jumpHeight * (inAir / JUMP_DURATION) : 0.35;
+          return (
+            <mesh position={[agentX - half, yPos, 0]}>
+              <boxGeometry args={[0.4, 0.4, 0.4]} />
+              <meshStandardMaterial color="#00aaff" />
+            </mesh>
+          );
+        })()}
 
         <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
         <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
@@ -279,7 +307,7 @@ export default function WallJumpExample() {
         }}
       >
         <BlockMath
-          math={"Q(s,a) \\leftarrow Q(s,a) + \\alpha\\, \\bigl( r + \\gamma (1 - d) \\max_{a'} Q(s',a') - Q(s,a) \\bigr)"}
+          math={"\\mathcal{L}(\\mathbf{\\theta}) = \\bigl( r + \\gamma (1 - d) \\max_{a'} Q_{\\mathbf{\\theta^-}}(s',a') - Q_{\\mathbf{\\theta}}(s,a) \\bigr)^{2}"}
           style={{ textAlign: 'left' }}
         />
         <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
