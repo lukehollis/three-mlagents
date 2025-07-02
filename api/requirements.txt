@@ -33,4 +33,5 @@ uvloop==0.21.0
 watchfiles==1.1.0
 websockets==15.0.1
 mujoco>=3.0.0
-dm-control>=1.0.0 
+dm-control>=1.0.0
+gymnasium-robotics==1.4.0
