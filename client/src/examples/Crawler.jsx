@@ -30,9 +30,12 @@ function HeadingArrow({ heading }) {
 
 export default function CrawlerExample() {
   const [state, setState] = useState({
-    basePos: [0, 0, 0.45],
+    basePos: [0, 0, 0.25],
     baseOri: [0, 0, 0, 1],
-    jointAngles: Array(8).fill(0), // 8 joints total: 2 per leg
+    jointAngles: Array(12).fill(0), // 12 joints total: hip_x, hip_y, knee for each leg
+    targetPos: [10, 0, 0.25],
+    targetDistance: 10,
+    orientationForward: [1, 0, 0]
   });
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
@@ -116,51 +119,81 @@ export default function CrawlerExample() {
   const bulletToThreeQuat = (q) => [q[0], q[2], -q[1], q[3]];
   const threePos = basePos ? [basePos[0], basePos[2], -basePos[1]] : [0, 0, 0];
   const threeQuat = baseOri ? bulletToThreeQuat(baseOri) : [0, 0, 0, 1];
+  
+  // Convert target position to Three.js coordinates
+  const targetThreePos = state.targetPos ? [state.targetPos[0], state.targetPos[2], -state.targetPos[1]] : [10, 0.25, 0];
+  const orientationForward = state.orientationForward || [1, 0, 0];
+  const targetDirection = Math.atan2(-orientationForward[1], orientationForward[0]); // Convert to heading angle
 
   return (
     <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom, #08081c, #03030a)' }}>
-      <Canvas camera={{ position: [0, 8, 10], fov: 50 }} style={{ background: 'transparent' }}>
+      <Canvas camera={{ position: [0, 6, 8], fov: 50 }} style={{ background: 'transparent' }}>
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 10, 5]} intensity={1} />
 
         {/* Wider floor grid for better spatial reference */}
         <Grid args={[8, 8]} cellSize={1} position={[0, 0, 0]} />
 
+        {/* Target position indicator */}
+        <mesh position={targetThreePos}>
+          <boxGeometry args={[0.3, 0.3, 0.3]} />
+          <meshStandardMaterial color="#00ff00" transparent opacity={0.7} />
+        </mesh>
+        
+        {/* Direction arrow from agent to target */}
+        <group position={threePos}>
+          <mesh rotation={[0, targetDirection, 0]} position={[0, 0.4, 0]}>
+            <coneGeometry args={[0.1, 0.4, 8]} />
+            <meshStandardMaterial color="#ffff00" />
+          </mesh>
+        </group>
+
         <group position={threePos} quaternion={threeQuat}>
           <mesh>
-            <boxGeometry args={[0.4, 0.2, 0.2]} />
+            <boxGeometry args={[0.6, 0.16, 0.4]} />
             <meshStandardMaterial color="#00aaff" />
           </mesh>
           {Array.from({ length: 4 }).map((_, i) => {
-            // Each leg has 2 joints: upper and lower
-            const upperAngle = jointAngles[i * 2] || 0;
-            const lowerAngle = jointAngles[i * 2 + 1] || 0;
-            const side = i < 2 ? 1 : -1; // left/right
-            const frontBack = i % 2 === 0 ? 1 : -1; // front/back
+            // Joint mapping matches MuJoCo order: FL=0, FR=1, BL=2, BR=3
+            // Hip joints: indices 0-7 (hip_x, hip_y for each leg)
+            // Knee joints: indices 8-11 (one per leg)
+            const hipXAngle = jointAngles[i * 2] || 0;        // FL=0, FR=2, BL=4, BR=6
+            const hipYAngle = jointAngles[i * 2 + 1] || 0;    // FL=1, FR=3, BL=5, BR=7
+            const kneeAngle = jointAngles[8 + i] || 0;        // FL=8, FR=9, BL=10, BR=11
             
-            // Upper leg attachment point on torso
-            const upperAnchor = [0.2 * side, -0.05, 0.1 * frontBack];
+            // Leg positioning: FL, FR, BL, BR
+            const side = i < 2 ? 1 : -1; // left/right (FL/BL vs FR/BR)
+            const frontBack = i % 2 === 0 ? 1 : -1; // front/back (FL/FR vs BL/BR)
+            
+            // Updated leg attachment points (wider spacing to match MuJoCo)
+            const upperAnchor = [0.25 * side, -0.04, 0.15 * frontBack];
             
             return (
-              <group key={i} position={upperAnchor} rotation={[upperAngle, 0, 0]}>
-                {/* Upper leg */}
-                <mesh position={[0, -0.15, 0]} rotation={[0, 0, 0]}>
-                  <cylinderGeometry args={[0.05, 0.05, 0.3, 8]} />
-                  <meshStandardMaterial color="#ffaa00" />
-                </mesh>
-                
-                {/* Lower leg */}
-                <group position={[0, -0.3, 0]} rotation={[lowerAngle, 0, 0]}>
-                  <mesh position={[0, -0.15, 0]} rotation={[0, 0, 0]}>
-                    <cylinderGeometry args={[0.05, 0.05, 0.3, 8]} />
-                    <meshStandardMaterial color="#ffdd55" />
-                  </mesh>
-                  
-                  {/* Foot */}
-                  <mesh position={[0, -0.3, 0]}>
-                    <sphereGeometry args={[0.06, 8, 8]} />
-                    <meshStandardMaterial color="#ff6600" />
-                  </mesh>
+              <group key={i} position={upperAnchor}>
+                {/* Hip Y rotation (side-to-side) */}
+                <group rotation={[0, hipYAngle, 0]}>
+                  {/* Hip X rotation (up-down) */}
+                  <group rotation={[hipXAngle, 0, 0]}>
+                    {/* Upper leg segment */}
+                    <mesh position={[0, -0.06, 0]} rotation={[0, 0, 0]}>
+                      <cylinderGeometry args={[0.04, 0.04, 0.12, 8]} />
+                      <meshStandardMaterial color="#ffaa00" />
+                    </mesh>
+                    
+                    {/* Lower leg segment with knee rotation */}
+                    <group position={[0, -0.12, 0]} rotation={[kneeAngle, 0, 0]}>
+                      <mesh position={[0, -0.06, 0]} rotation={[0, 0, 0]}>
+                        <cylinderGeometry args={[0.04, 0.04, 0.12, 8]} />
+                        <meshStandardMaterial color="#ffdd55" />
+                      </mesh>
+                      
+                      {/* Foot */}
+                      <mesh position={[0, -0.12, 0]}>
+                        <sphereGeometry args={[0.05, 8, 8]} />
+                        <meshStandardMaterial color="#ff6600" />
+                      </mesh>
+                    </group>
+                  </group>
                 </group>
               </group>
             );
@@ -204,6 +237,17 @@ export default function CrawlerExample() {
         />
         <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
           Geometric reward combining speed alignment, heading alignment, uprightness, and yaw stability.
+        </div>
+        <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 8, borderTop: '1px solid #333', paddingTop: 4 }}>
+          Target Distance: {state.targetDistance ? state.targetDistance.toFixed(2) : 'N/A'}m<br/>
+          Target Position: ({state.targetPos ? state.targetPos.map(x => x.toFixed(1)).join(', ') : 'N/A'})<br/>
+          Direction: ({state.orientationForward ? state.orientationForward.map(x => x.toFixed(2)).join(', ') : 'N/A'})<br/>
+          Forward Velocity: {state.forwardVelocity ? state.forwardVelocity.toFixed(2) : 'N/A'} m/s<br/>
+          Heading Alignment: {state.headingAlignment ? state.headingAlignment.toFixed(2) : 'N/A'} (-1=opposite, +1=aligned)<br/>
+          <span style={{ color: state.uprightScore > 0.7 ? '#00ff00' : state.uprightScore > 0.3 ? '#ffaa00' : '#ff0000' }}>
+            Upright Score: {state.uprightScore ? state.uprightScore.toFixed(2) : 'N/A'} (1.0=upright, 0.0=sideways, -1.0=upside-down)
+          </span><br/>
+          Torso Height: {state.torsoHeight ? state.torsoHeight.toFixed(2) : 'N/A'}m (target: 0.25m)
         </div>
       </div>
 

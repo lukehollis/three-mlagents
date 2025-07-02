@@ -21,6 +21,16 @@ import mujoco
 import mujoco.viewer
 
 # -----------------------------------------------------------------------------------
+# Timing Configuration for Observation
+# -----------------------------------------------------------------------------------
+# For FASTEST training: Keep ENABLE_TRAINING_DELAYS = False
+# For OBSERVABLE training: Set ENABLE_TRAINING_DELAYS = True and adjust delays below
+ENABLE_TRAINING_DELAYS = False  # Set to True for slower, observable training
+TRAINING_DELAY = 0.02    # Reduced from 0.1 for faster training
+INFERENCE_DELAY = 0.03   # Reduced from 0.05 for slightly faster inference
+TRAINING_STREAM_FREQ = 8  # Increased from 4 to reduce update frequency
+
+# -----------------------------------------------------------------------------------
 # MJCF Model Definition
 # -----------------------------------------------------------------------------------
 
@@ -49,64 +59,64 @@ CRAWLER_XML = """
     <geom type="plane" size="50 50 0.1" material="ground"/>
     
     <!-- Torso (free floating) -->
-    <body name="torso" pos="0 0 0.45">
+    <body name="torso" pos="0 0 0.25">
       <freejoint name="root"/>
-      <geom name="torso" type="box" size="0.2 0.1 0.1" material="blue"/>
+      <geom name="torso" type="box" size="0.3 0.2 0.08" material="blue"/>
       <site name="torso_site" pos="0 0 0" size="0.01"/>
       
       <!-- Front Left Leg -->
-      <body name="fl_upper" pos="0.2 0.1 -0.1">
-        <joint name="fl_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="1"/>
-        <joint name="fl_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="1"/>
-        <geom name="fl_upper" type="capsule" size="0.05" fromto="0 0 0 0 0 -0.3" material="orange"/>
+      <body name="fl_upper" pos="0.25 0.15 -0.05">
+        <joint name="fl_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="3"/>
+        <joint name="fl_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="3"/>
+        <geom name="fl_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="orange"/>
         
-        <body name="fl_lower" pos="0 0 -0.3">
-          <joint name="fl_knee" type="hinge" axis="1 0 0" range="0 150" damping="0.5"/>
-          <geom name="fl_lower" type="capsule" size="0.05" fromto="0 0 0 0 0 -0.3" material="yellow"/>
-          <site name="fl_foot" pos="0 0 -0.3" size="0.06" type="sphere"/>
-          <geom name="fl_foot" type="sphere" pos="0 0 -0.3" size="0.06" material="red"/>
+        <body name="fl_lower" pos="0 0 -0.12">
+          <joint name="fl_knee" type="hinge" axis="1 0 0" range="0 150" damping="2"/>
+          <geom name="fl_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="yellow"/>
+          <site name="fl_foot" pos="0 0 -0.12" size="0.05" type="sphere"/>
+          <geom name="fl_foot" type="sphere" pos="0 0 -0.12" size="0.05" material="red"/>
         </body>
       </body>
       
       <!-- Front Right Leg -->
-      <body name="fr_upper" pos="-0.2 0.1 -0.1">
-        <joint name="fr_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="1"/>
-        <joint name="fr_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="1"/>
-        <geom name="fr_upper" type="capsule" size="0.05" fromto="0 0 0 0 0 -0.3" material="orange"/>
+      <body name="fr_upper" pos="-0.25 0.15 -0.05">
+        <joint name="fr_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="3"/>
+        <joint name="fr_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="3"/>
+        <geom name="fr_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="orange"/>
         
-        <body name="fr_lower" pos="0 0 -0.3">
-          <joint name="fr_knee" type="hinge" axis="1 0 0" range="0 150" damping="0.5"/>
-          <geom name="fr_lower" type="capsule" size="0.05" fromto="0 0 0 0 0 -0.3" material="yellow"/>
-          <site name="fr_foot" pos="0 0 -0.3" size="0.06" type="sphere"/>
-          <geom name="fr_foot" type="sphere" pos="0 0 -0.3" size="0.06" material="red"/>
+        <body name="fr_lower" pos="0 0 -0.12">
+          <joint name="fr_knee" type="hinge" axis="1 0 0" range="0 150" damping="2"/>
+          <geom name="fr_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="yellow"/>
+          <site name="fr_foot" pos="0 0 -0.12" size="0.05" type="sphere"/>
+          <geom name="fr_foot" type="sphere" pos="0 0 -0.12" size="0.05" material="red"/>
         </body>
       </body>
       
       <!-- Back Left Leg -->
-      <body name="bl_upper" pos="0.2 0.1 0.1">
-        <joint name="bl_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="1"/>
-        <joint name="bl_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="1"/>
-        <geom name="bl_upper" type="capsule" size="0.05" fromto="0 0 0 0 0 -0.3" material="orange"/>
+      <body name="bl_upper" pos="0.25 -0.15 -0.05">
+        <joint name="bl_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="3"/>
+        <joint name="bl_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="3"/>
+        <geom name="bl_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="orange"/>
         
-        <body name="bl_lower" pos="0 0 -0.3">
-          <joint name="bl_knee" type="hinge" axis="1 0 0" range="0 150" damping="0.5"/>
-          <geom name="bl_lower" type="capsule" size="0.05" fromto="0 0 0 0 0 -0.3" material="yellow"/>
-          <site name="bl_foot" pos="0 0 -0.3" size="0.06" type="sphere"/>
-          <geom name="bl_foot" type="sphere" pos="0 0 -0.3" size="0.06" material="red"/>
+        <body name="bl_lower" pos="0 0 -0.12">
+          <joint name="bl_knee" type="hinge" axis="1 0 0" range="0 150" damping="2"/>
+          <geom name="bl_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="yellow"/>
+          <site name="bl_foot" pos="0 0 -0.12" size="0.05" type="sphere"/>
+          <geom name="bl_foot" type="sphere" pos="0 0 -0.12" size="0.05" material="red"/>
         </body>
       </body>
       
       <!-- Back Right Leg -->
-      <body name="br_upper" pos="-0.2 0.1 0.1">
-        <joint name="br_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="1"/>
-        <joint name="br_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="1"/>
-        <geom name="br_upper" type="capsule" size="0.05" fromto="0 0 0 0 0 -0.3" material="orange"/>
+      <body name="br_upper" pos="-0.25 -0.15 -0.05">
+        <joint name="br_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="3"/>
+        <joint name="br_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="3"/>
+        <geom name="br_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="orange"/>
         
-        <body name="br_lower" pos="0 0 -0.3">
-          <joint name="br_knee" type="hinge" axis="1 0 0" range="0 150" damping="0.5"/>
-          <geom name="br_lower" type="capsule" size="0.05" fromto="0 0 0 0 0 -0.3" material="yellow"/>
-          <site name="br_foot" pos="0 0 -0.3" size="0.06" type="sphere"/>
-          <geom name="br_foot" type="sphere" pos="0 0 -0.3" size="0.06" material="red"/>
+        <body name="br_lower" pos="0 0 -0.12">
+          <joint name="br_knee" type="hinge" axis="1 0 0" range="0 150" damping="2"/>
+          <geom name="br_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="yellow"/>
+          <site name="br_foot" pos="0 0 -0.12" size="0.05" type="sphere"/>
+          <geom name="br_foot" type="sphere" pos="0 0 -0.12" size="0.05" material="red"/>
         </body>
       </body>
     </body>
@@ -115,20 +125,20 @@ CRAWLER_XML = """
   <!-- Actuators matching Unity's action space exactly -->
   <actuator>
     <!-- Upper leg actuators (2 per leg for X and Y) -->
-    <motor name="fl_hip_x_motor" joint="fl_hip_x" gear="150"/>
-    <motor name="fl_hip_y_motor" joint="fl_hip_y" gear="150"/>
-    <motor name="fr_hip_x_motor" joint="fr_hip_x" gear="150"/>
-    <motor name="fr_hip_y_motor" joint="fr_hip_y" gear="150"/>
-    <motor name="bl_hip_x_motor" joint="bl_hip_x" gear="150"/>
-    <motor name="bl_hip_y_motor" joint="bl_hip_y" gear="150"/>
-    <motor name="br_hip_x_motor" joint="br_hip_x" gear="150"/>
-    <motor name="br_hip_y_motor" joint="br_hip_y" gear="150"/>
+    <position name="fl_hip_x_motor" joint="fl_hip_x" kp="40" forcerange="-150 150"/>
+    <position name="fl_hip_y_motor" joint="fl_hip_y" kp="40" forcerange="-150 150"/>
+    <position name="fr_hip_x_motor" joint="fr_hip_x" kp="40" forcerange="-150 150"/>
+    <position name="fr_hip_y_motor" joint="fr_hip_y" kp="40" forcerange="-150 150"/>
+    <position name="bl_hip_x_motor" joint="bl_hip_x" kp="40" forcerange="-150 150"/>
+    <position name="bl_hip_y_motor" joint="bl_hip_y" kp="40" forcerange="-150 150"/>
+    <position name="br_hip_x_motor" joint="br_hip_x" kp="40" forcerange="-150 150"/>
+    <position name="br_hip_y_motor" joint="br_hip_y" kp="40" forcerange="-150 150"/>
     
     <!-- Lower leg actuators (1 per leg) -->
-    <motor name="fl_knee_motor" joint="fl_knee" gear="150"/>
-    <motor name="fr_knee_motor" joint="fr_knee" gear="150"/>
-    <motor name="bl_knee_motor" joint="bl_knee" gear="150"/>
-    <motor name="br_knee_motor" joint="br_knee" gear="150"/>
+    <position name="fl_knee_motor" joint="fl_knee" kp="40" forcerange="-150 150"/>
+    <position name="fr_knee_motor" joint="fr_knee" kp="40" forcerange="-150 150"/>
+    <position name="bl_knee_motor" joint="bl_knee" kp="40" forcerange="-150 150"/>
+    <position name="br_knee_motor" joint="br_knee" kp="40" forcerange="-150 150"/>
   </actuator>
   
   <!-- Sensors for ground contact -->
@@ -146,8 +156,8 @@ CRAWLER_XML = """
 # -----------------------------------------------------------------------------------
 
 OBS_SIZE = 172
-ACTION_SIZE = 20  # 12 joint angles + 8 strength scalars (matches Unity)
-MAX_EPISODE_STEPS = 1000
+ACTION_SIZE = 12
+MAX_EPISODE_STEPS = 500
 TARGET_SPEED = 1.0  # m/s
 
 
@@ -181,7 +191,7 @@ class CrawlerEnv:
         ]
         
         # Orientation cube state (simulated)
-        self.target_pos = np.array([10.0, 0.0, 0.45])
+        self.target_pos = np.array([10.0, 0.0, 0.25])  # Match new torso height
         self.orientation_forward = np.array([1.0, 0.0, 0.0])
         
         self.step_counter = 0
@@ -199,16 +209,16 @@ class CrawlerEnv:
         quat = np.array([np.cos(start_yaw/2), 0, 0, np.sin(start_yaw/2)])
         
         # Set initial position and orientation (qpos for freejoint: x,y,z,qw,qx,qy,qz)
-        self.data.qpos[0:3] = [0, 0, 0.45]  # position
+        self.data.qpos[0:3] = [0, 0, 0.25]  # position
         self.data.qpos[3:7] = [quat[0], quat[1], quat[2], quat[3]]  # quaternion (w,x,y,z)
         
-        # Set initial joint positions for stable stance
+        # Set initial joint positions for stable stance with shorter legs
         joint_init = [
-            -0.5, 0.0,  # fl_hip_x, fl_hip_y
-            -0.5, 0.0,  # fr_hip_x, fr_hip_y
-            -0.5, 0.0,  # bl_hip_x, bl_hip_y
-            -0.5, 0.0,  # br_hip_x, br_hip_y
-            1.2, 1.2, 1.2, 1.2  # all knees bent
+            -0.3, 0.0,  # fl_hip_x, fl_hip_y (less bent for shorter legs)
+            -0.3, 0.0,  # fr_hip_x, fr_hip_y
+            -0.3, 0.0,  # bl_hip_x, bl_hip_y
+            -0.3, 0.0,  # br_hip_x, br_hip_y
+            0.6, 0.6, 0.6, 0.6  # knees bent appropriately for new leg length
         ]
         
         for i, joint_id in enumerate(self.joint_ids):
@@ -222,6 +232,9 @@ class CrawlerEnv:
         self.step_counter = 0
         self._update_orientation_cube()
         
+        # Initialize distance tracking for reward calculation
+        self._last_distance = np.linalg.norm(self.target_pos - self.data.xpos[self.torso_id])
+        
         return self._get_obs()
     
     def _update_orientation_cube(self):
@@ -232,8 +245,17 @@ class CrawlerEnv:
         dir_to_target = self.target_pos - torso_pos
         dir_to_target[2] = 0  # Flatten on Z
         
-        if np.linalg.norm(dir_to_target) > 0:
-            self.orientation_forward = dir_to_target / np.linalg.norm(dir_to_target)
+        # Always point toward the target (even if close)
+        distance_to_target = np.linalg.norm(dir_to_target)
+        if distance_to_target > 0.1:  # Update direction if not very close
+            self.orientation_forward = dir_to_target / distance_to_target
+        
+        # If we're close to target, move the target further away
+        if distance_to_target < 2.0:
+            # Move target further in the same direction
+            current_direction = self.orientation_forward
+            self.target_pos = torso_pos + current_direction * 10.0
+            self.target_pos[2] = 0.25  # Keep target at torso height
     
     def _get_obs(self):
         """Generate observation matching Unity's format"""
@@ -243,10 +265,9 @@ class CrawlerEnv:
         torso_pos = self.data.xpos[self.torso_id]
         torso_quat = self.data.xquat[self.torso_id]
         
-        # Get torso velocity properly - use subtree_linvel for body velocities
-        mujoco.mj_subtreeVel(self.model, self.data)
-        torso_vel = self.data.subtree_linvel[self.torso_id]  # linear velocity
-        torso_angvel = self.data.subtree_angvel[self.torso_id]  # angular velocity
+        # Get torso velocity properly (6-vector per body: linear(3) | angular(3))
+        torso_vel = self.data.cvel[self.torso_id][:3]  # linear velocity
+        # angular velocity not used but available via self.data.cvel[self.torso_id][3:]
         
         # Get body forward direction (rotation matrix from quaternion)
         torso_xmat = self.data.xmat[self.torso_id * 9: (self.torso_id + 1) * 9].reshape(3, 3)
@@ -298,6 +319,22 @@ class CrawlerEnv:
             obs.append(self.data.qpos[qpos_addr])  # position
             obs.append(self.data.qvel[dof_addr])   # velocity
         
+        # 8. CLEAR DIRECTIONAL GUIDANCE (relative to agent's body orientation)
+        # Direction to target in agent's local coordinate system
+        target_dir_world = self.orientation_forward  # World direction to target
+        
+        # Transform to agent's local coordinates using rotation matrix
+        target_dir_local = np.dot(torso_xmat.T, target_dir_world)  # Transform to body coordinates
+        obs.extend(target_dir_local.tolist())  # [forward, right, up] relative to agent
+        
+        # How much should agent turn? (left=-1, straight=0, right=+1)
+        turn_amount = np.arctan2(target_dir_local[1], target_dir_local[0]) / np.pi  # Normalize to [-1,1]
+        obs.append(turn_amount)
+        
+        # Distance to target (normalized)
+        distance_to_target = np.linalg.norm(self.target_pos - torso_pos)
+        obs.append(min(distance_to_target / 10.0, 1.0))  # Normalize, cap at 1.0
+        
         # Pad to OBS_SIZE
         while len(obs) < OBS_SIZE:
             obs.append(0.0)
@@ -305,76 +342,82 @@ class CrawlerEnv:
         return np.array(obs[:OBS_SIZE], dtype=np.float32)
     
     def step(self, action: np.ndarray):
-        # Unity action mapping:
-        # 0-7: Upper leg rotations (2 per leg: X and Y)
-        # 8-11: Lower leg rotations (1 per leg: X only)
-        # 12-19: Strength values (2 per leg: upper and lower)
+        # Action mapping (12 values):
+        # 0-7  – Upper-leg joint targets (X then Y for each leg in order FL, FR, BL, BR)
+        # 8-11 – Knee joint targets (one DOF per leg in same order)
         
-        # Process actions and apply to motors
+        # Apply target angles to position actuators
         for i in range(12):
-            if i < 8:  # Upper leg joints (both X and Y)
-                # Map action from [-1, 1] to joint range
-                joint_id = self.joint_ids[i]
-                joint_range = self.model.jnt_range[joint_id]
-                
-                # Unity's SetJointTargetRotation expects normalized values
-                # Convert to actual angle
-                normalized_action = (action[i] + 1.0) * 0.5  # [0, 1]
-                target_angle = joint_range[0] + normalized_action * (joint_range[1] - joint_range[0])
-                
-                # Apply strength modulation
-                strength_idx = 12 + (i // 2)  # Upper leg strength
-                strength = (action[strength_idx] + 1.0) * 0.5
-                
-                # Set motor control (MuJoCo motors work with normalized control)
-                self.data.ctrl[i] = action[i] * strength
-                
-            else:  # Lower leg joints (knees)
-                knee_idx = i - 8
-                joint_id = self.joint_ids[i]
-                joint_range = self.model.jnt_range[joint_id]
-                
-                # Map action for knee
-                normalized_action = (action[8 + knee_idx] + 1.0) * 0.5
-                target_angle = joint_range[0] + normalized_action * (joint_range[1] - joint_range[0])
-                
-                # Apply strength modulation
-                strength_idx = 16 + knee_idx  # Lower leg strength
-                strength = (action[strength_idx] + 1.0) * 0.5
-                
-                # Set motor control
-                self.data.ctrl[i] = action[8 + knee_idx] * strength
+            joint_id = self.joint_ids[i]
+            joint_range = self.model.jnt_range[joint_id]
+            norm = (action[i] + 1.0) * 0.5  # [-1,1] → [0,1]
+            target_angle = joint_range[0] + norm * (joint_range[1] - joint_range[0])
+            self.data.ctrl[i] = target_angle  # position actuator takes angle in radians
         
-        # Step simulation
         mujoco.mj_step(self.model, self.data)
         self.step_counter += 1
         
-        # Update orientation
+        # Update orientation helper
         self._update_orientation_cube()
         
-        # Calculate reward (matching Unity exactly)
+        # Reward components (enhanced for better goal-seeking) ----------------
         torso_pos = self.data.xpos[self.torso_id]
-        torso_vel = self.data.cvel[self.torso_id * 6: self.torso_id * 6 + 3]
-        torso_xmat = self.data.xmat[self.torso_id * 9: (self.torso_id + 1) * 9].reshape(3, 3)
+        torso_vel = self.data.cvel[self.torso_id][:3]
+        torso_xmat = self.data.xmat[self.torso_id * 9:(self.torso_id + 1) * 9].reshape(3, 3)
         body_forward = torso_xmat[:, 0]
         
-        # Get average velocity (in MuJoCo, we can get velocity of all bodies if needed)
-        avg_velocity = torso_vel  # Simplified - just use torso velocity
-        
-        # Calculate matching velocity reward
         vel_goal = self.orientation_forward * TARGET_SPEED
-        vel_delta = np.clip(np.linalg.norm(avg_velocity - vel_goal), 0, TARGET_SPEED)
+        vel_delta = np.clip(np.linalg.norm(torso_vel - vel_goal), 0, TARGET_SPEED)
         match_speed_reward = (1 - (vel_delta / TARGET_SPEED) ** 2) ** 2
-        
-        # Calculate look at target reward
         look_at_reward = (np.dot(self.orientation_forward, body_forward) + 1) * 0.5
         
-        # Combined reward
-        reward = match_speed_reward * look_at_reward
+        # STRONG directional movement rewards
+        # 1. Reward velocity in the correct direction (dot product)
+        forward_velocity_reward = np.dot(torso_vel, self.orientation_forward)
+        forward_velocity_reward = max(0, forward_velocity_reward)  # Only positive movement
         
-        # Episode termination
-        done = self.step_counter >= MAX_EPISODE_STEPS or torso_pos[2] < 0.2
+        # 2. Penalty for moving in wrong direction
+        wrong_direction_penalty = min(0, np.dot(torso_vel, self.orientation_forward))
         
+        # 3. Strong heading alignment reward
+        heading_alignment = np.dot(self.orientation_forward, body_forward)  # -1 to 1
+        heading_reward = max(0, heading_alignment) ** 2  # Square to make it stronger
+        
+        # 4. CRITICAL STABILITY REWARDS - keep crawler upright!
+        # Check if torso is upright (Z-axis should point up)
+        up_vector = np.array([0, 0, 1])
+        torso_up = torso_xmat[:, 2]  # Z-axis of torso orientation
+        upright_reward = np.dot(torso_up, up_vector)  # 1.0 = perfectly upright, -1.0 = upside down
+        upright_reward = max(0, upright_reward) ** 2  # Square for stronger effect, only positive
+        
+        # Strong penalty for being upside down or on side
+        if upright_reward < 0.3:  # If significantly tilted
+            stability_penalty = -0.5  # Large penalty
+        else:
+            stability_penalty = 0.0
+        
+        # Height reward - encourage staying at proper height
+        target_height = 0.25
+        height_diff = abs(torso_pos[2] - target_height)
+        height_reward = max(0, 1.0 - height_diff * 2.0)  # Penalty for being too high or low
+        
+        # Combined reward with stability as priority
+        base_reward = match_speed_reward * look_at_reward
+        stability_component = upright_reward * 0.4 + height_reward * 0.1 + stability_penalty
+        directional_component = forward_velocity_reward * 0.2 + wrong_direction_penalty * 0.05 + heading_reward * 0.1
+        
+        reward = base_reward + stability_component + directional_component
+        
+        # Small alive bonus (only if upright)
+        if upright_reward > 0.5:  # Only if reasonably upright
+            reward += 0.02
+        
+        # Episode termination conditions
+        too_low = torso_pos[2] < 0.1  # Fallen down
+        too_tilted = upright_reward < 0.2  # Severely tilted/upside down
+        max_steps = self.step_counter >= MAX_EPISODE_STEPS
+        
+        done = max_steps or too_low or too_tilted
         return self._get_obs(), reward, done
     
     def get_state_for_viz(self):
@@ -382,18 +425,40 @@ class CrawlerEnv:
         torso_pos = self.data.xpos[self.torso_id]
         torso_quat = self.data.xquat[self.torso_id]
         
-        # Get joint angles for visualization (8 joints: 4 upper X, 4 lower)
+        # Get ALL joint angles for visualization (12 joints total)
         joint_angles = []
-        for joint_name in ['fl_hip_x', 'fr_hip_x', 'bl_hip_x', 'br_hip_x',
-                          'fl_knee', 'fr_knee', 'bl_knee', 'br_knee']:
+        for joint_name in self.joint_names:  # Use all 12 joints
             joint_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, joint_name)
             qpos_addr = self.model.jnt_qposadr[joint_id]
             joint_angles.append(float(self.data.qpos[qpos_addr]))
         
+        # Add debug info about target direction
+        target_distance = np.linalg.norm(self.target_pos - torso_pos)
+        
+        # Add directional debug info
+        torso_vel = self.data.cvel[self.torso_id][:3]
+        forward_velocity = np.dot(torso_vel, self.orientation_forward)
+        torso_xmat = self.data.xmat[self.torso_id * 9:(self.torso_id + 1) * 9].reshape(3, 3)
+        body_forward = torso_xmat[:, 0]
+        heading_alignment = np.dot(self.orientation_forward, body_forward)
+        
+        # Add stability debug info
+        up_vector = np.array([0, 0, 1])
+        torso_up = torso_xmat[:, 2]
+        upright_score = np.dot(torso_up, up_vector)
+        
         return {
             "basePos": torso_pos.tolist(),
             "baseOri": torso_quat.tolist(),
-            "jointAngles": joint_angles
+            "jointAngles": joint_angles,
+            "targetPos": self.target_pos.tolist(),
+            "targetDistance": float(target_distance),
+            "orientationForward": self.orientation_forward.tolist(),
+            "forwardVelocity": float(forward_velocity),
+            "headingAlignment": float(heading_alignment),
+            "bodyForward": body_forward.tolist(),
+            "uprightScore": float(upright_score),
+            "torsoHeight": float(torso_pos[2])
         }
 
 
@@ -406,7 +471,7 @@ class ActorCritic(nn.Module):
         super().__init__()
         self.shared = nn.Sequential(nn.Linear(OBS_SIZE, 256), nn.Tanh(), nn.Linear(256, 128), nn.Tanh())
         self.actor_mean = nn.Linear(128, ACTION_SIZE)
-        self.log_std = nn.Parameter(torch.full((ACTION_SIZE,), -1.5))
+        self.log_std = nn.Parameter(torch.full((ACTION_SIZE,), -0.8))  # Even higher exploration for directional learning
         self.critic = nn.Linear(128, 1)
 
     def forward(self, obs: torch.Tensor):  # type: ignore[override]
@@ -466,8 +531,8 @@ async def train_crawler(websocket: WebSocket):
         step_buffer.append({"obs": obs, "actions": actions, "logp": probs, "reward": rewards_t, "done": dones_t, "value": value})
         obs = next_obs
 
-        # stream first env every 2 steps for smoother preview
-        if len(step_buffer) % 2 == 0:
+        # stream first env every 4 steps for clearer observation
+        if len(step_buffer) % TRAINING_STREAM_FREQ == 0:
             e0 = envs[0]
             state = e0.get_state_for_viz()
             await websocket.send_json({
@@ -475,6 +540,9 @@ async def train_crawler(websocket: WebSocket):
                 "state": state,
                 "episode": ep_counter + 1,
             })
+            # Add delay to slow down training visualization (optional)
+            if ENABLE_TRAINING_DELAYS:
+                await asyncio.sleep(TRAINING_DELAY)
 
         # finish episode if any env done
         for i, dn in enumerate(dones):
@@ -555,7 +623,7 @@ def infer_action_crawler(obs: List[float], model_filename: str | None = None):
         obs_adj = obs[:OBS_SIZE]
     inp = np.array([obs_adj], dtype=np.float32)
     out = _ORT_CACHE[model_filename].run(None, {"input": inp})[0]
-    return out[0].tolist()  # return continuous 20-D vector
+    return out[0].tolist()  # return continuous 12-D vector
 
 
 async def run_crawler(websocket: WebSocket, model_filename: str | None = None):
@@ -574,6 +642,9 @@ async def run_crawler(websocket: WebSocket, model_filename: str | None = None):
             "state": state,
             "episode": episode + 1,
         })
+        
+        # Slow down inference for better observation
+        await asyncio.sleep(INFERENCE_DELAY)  # 30ms delay for smooth but visible movement
         
         if done:
             episode += 1
