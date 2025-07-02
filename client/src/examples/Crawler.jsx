@@ -30,10 +30,10 @@ function HeadingArrow({ heading }) {
 
 export default function CrawlerExample() {
   const [state, setState] = useState({
-    basePos: [0, 0, 0.25],
+    basePos: [0, 0, 0.5],
     baseOri: [0, 0, 0, 1],
     jointAngles: Array(12).fill(0), // 12 joints total: hip_x, hip_y, knee for each leg
-    targetPos: [10, 0, 0.25],
+    targetPos: [10, 0, 0.5],
     targetDistance: 10,
     orientationForward: [1, 0, 0]
   });
@@ -121,18 +121,21 @@ export default function CrawlerExample() {
   const threeQuat = baseOri ? bulletToThreeQuat(baseOri) : [0, 0, 0, 1];
   
   // Convert target position to Three.js coordinates
-  const targetThreePos = state.targetPos ? [state.targetPos[0], state.targetPos[2], -state.targetPos[1]] : [10, 0.25, 0];
+  const targetThreePos = state.targetPos ? [state.targetPos[0], state.targetPos[2], -state.targetPos[1]] : [10, 0.5, 0];
   const orientationForward = state.orientationForward || [1, 0, 0];
-  const targetDirection = Math.atan2(-orientationForward[1], orientationForward[0]); // Convert to heading angle
+  
+  // Convert MuJoCo direction [x, y, z] to Three.js direction [x, z, -y]
+  // Then calculate Y-axis rotation: atan2(threeZ, threeX) = atan2(-mujocoY, mujocoX)
+  const targetDirection = Math.atan2(-orientationForward[1], orientationForward[0]);
 
   return (
     <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom, #08081c, #03030a)' }}>
-      <Canvas camera={{ position: [0, 6, 8], fov: 50 }} style={{ background: 'transparent' }}>
+      <Canvas camera={{ position: [0, 8, 10], fov: 50 }} style={{ background: 'transparent' }}>
         <ambientLight intensity={0.5} />
         <directionalLight position={[5, 10, 5]} intensity={1} />
 
         {/* Wider floor grid for better spatial reference */}
-        <Grid args={[8, 8]} cellSize={1} position={[0, 0, 0]} />
+        <Grid args={[24, 24]} cellSize={1} position={[0, 0, 0]} />
 
         {/* Target position indicator */}
         <mesh position={targetThreePos}>
@@ -142,10 +145,18 @@ export default function CrawlerExample() {
         
         {/* Direction arrow from agent to target */}
         <group position={threePos}>
-          <mesh rotation={[0, targetDirection, 0]} position={[0, 0.4, 0]}>
-            <coneGeometry args={[0.1, 0.4, 8]} />
-            <meshStandardMaterial color="#ffff00" />
-          </mesh>
+          <group rotation={[0, targetDirection - Math.PI/2, 0]}>
+            {/* Arrow shaft pointing forward (+Z direction) */}
+            <mesh position={[0, 0.4, 0.2]} rotation={[Math.PI/2, 0, 0]}>
+              <cylinderGeometry args={[0.02, 0.02, 0.3, 8]} />
+              <meshStandardMaterial color="#ffff00" />
+            </mesh>
+            {/* Arrow head pointing forward */}
+            <mesh position={[0, 0.4, 0.4]} rotation={[Math.PI/2, 0, 0]}>
+              <coneGeometry args={[0.05, 0.15, 8]} />
+              <meshStandardMaterial color="#ffff00" />
+            </mesh>
+          </group>
         </group>
 
         <group position={threePos} quaternion={threeQuat}>
@@ -175,20 +186,20 @@ export default function CrawlerExample() {
                   {/* Hip X rotation (up-down) */}
                   <group rotation={[hipXAngle, 0, 0]}>
                     {/* Upper leg segment */}
-                    <mesh position={[0, -0.06, 0]} rotation={[0, 0, 0]}>
-                      <cylinderGeometry args={[0.04, 0.04, 0.12, 8]} />
+                    <mesh position={[0, -0.12, 0]} rotation={[0, 0, 0]}>
+                      <cylinderGeometry args={[0.04, 0.04, 0.24, 8]} />
                       <meshStandardMaterial color="#ffaa00" />
                     </mesh>
                     
                     {/* Lower leg segment with knee rotation */}
-                    <group position={[0, -0.12, 0]} rotation={[kneeAngle, 0, 0]}>
-                      <mesh position={[0, -0.06, 0]} rotation={[0, 0, 0]}>
-                        <cylinderGeometry args={[0.04, 0.04, 0.12, 8]} />
+                    <group position={[0, -0.24, 0]} rotation={[kneeAngle, 0, 0]}>
+                      <mesh position={[0, -0.12, 0]} rotation={[0, 0, 0]}>
+                        <cylinderGeometry args={[0.04, 0.04, 0.24, 8]} />
                         <meshStandardMaterial color="#ffdd55" />
                       </mesh>
                       
                       {/* Foot */}
-                      <mesh position={[0, -0.12, 0]}>
+                      <mesh position={[0, -0.24, 0]}>
                         <sphereGeometry args={[0.05, 8, 8]} />
                         <meshStandardMaterial color="#ff6600" />
                       </mesh>
@@ -247,9 +258,10 @@ export default function CrawlerExample() {
           <span style={{ color: state.uprightScore > 0.8 ? '#00ff00' : state.uprightScore > 0.6 ? '#ffaa00' : '#ff0000' }}>
             Upright Score: {state.uprightScore ? state.uprightScore.toFixed(2) : 'N/A'} (1.0=upright, 0.0=sideways, -1.0=upside-down)
           </span><br/>
-          Torso Height: {state.torsoHeight ? state.torsoHeight.toFixed(2) : 'N/A'}m (target: 0.25m)<br/>
+          Torso Height: {state.torsoHeight ? state.torsoHeight.toFixed(2) : 'N/A'}m (target: 0.5m)<br/>
           <div style={{ fontSize: 9, marginTop: 4, borderTop: '1px solid #444', paddingTop: 2 }}>
-            DEBUG - Body Axes vs Up: X={state.uprightX ? state.uprightX.toFixed(2) : 'N/A'}, Y={state.uprightY ? state.uprightY.toFixed(2) : 'N/A'}, Z={state.uprightZ ? state.uprightZ.toFixed(2) : 'N/A'}
+            DEBUG - Body Axes vs Up: X={state.uprightX ? state.uprightX.toFixed(2) : 'N/A'}, Y={state.uprightY ? state.uprightY.toFixed(2) : 'N/A'}, Z={state.uprightZ ? state.uprightZ.toFixed(2) : 'N/A'}<br/>
+            Target Direction: {orientationForward.map(x => x.toFixed(2)).join(', ')} → Angle: {(targetDirection * 180 / Math.PI).toFixed(1)}°
           </div>
         </div>
       </div>

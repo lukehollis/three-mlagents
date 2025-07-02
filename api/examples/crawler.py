@@ -26,7 +26,7 @@ import mujoco.viewer
 # For FASTEST training: Keep ENABLE_TRAINING_DELAYS = False
 # For OBSERVABLE training: Set ENABLE_TRAINING_DELAYS = True and adjust delays below
 ENABLE_TRAINING_DELAYS = True   # Enable for observable training
-TRAINING_DELAY = 0.01           # Very small delay - 10ms for light visualization
+TRAINING_DELAY = 0.03           # Very small delay - 10ms for light visualization
 INFERENCE_DELAY = 0.03          # Reduced from 0.05 for slightly faster inference
 TRAINING_STREAM_FREQ = 8        # Increased from 4 to reduce update frequency
 
@@ -68,13 +68,13 @@ CRAWLER_XML = """
       <body name="fl_upper" pos="0.25 0.15 -0.05">
         <joint name="fl_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="3"/>
         <joint name="fl_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="3"/>
-        <geom name="fl_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="orange"/>
+        <geom name="fl_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.24" material="orange"/>
         
-        <body name="fl_lower" pos="0 0 -0.12">
+        <body name="fl_lower" pos="0 0 -0.24">
           <joint name="fl_knee" type="hinge" axis="1 0 0" range="0 150" damping="2"/>
-          <geom name="fl_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="yellow"/>
-          <site name="fl_foot" pos="0 0 -0.12" size="0.05" type="sphere"/>
-          <geom name="fl_foot" type="sphere" pos="0 0 -0.12" size="0.05" material="red"/>
+          <geom name="fl_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.24" material="yellow"/>
+          <site name="fl_foot" pos="0 0 -0.24" size="0.05" type="sphere"/>
+          <geom name="fl_foot" type="sphere" pos="0 0 -0.24" size="0.05" material="red"/>
         </body>
       </body>
       
@@ -82,13 +82,13 @@ CRAWLER_XML = """
       <body name="fr_upper" pos="-0.25 0.15 -0.05">
         <joint name="fr_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="3"/>
         <joint name="fr_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="3"/>
-        <geom name="fr_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="orange"/>
+        <geom name="fr_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.24" material="orange"/>
         
-        <body name="fr_lower" pos="0 0 -0.12">
+        <body name="fr_lower" pos="0 0 -0.24">
           <joint name="fr_knee" type="hinge" axis="1 0 0" range="0 150" damping="2"/>
-          <geom name="fr_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="yellow"/>
-          <site name="fr_foot" pos="0 0 -0.12" size="0.05" type="sphere"/>
-          <geom name="fr_foot" type="sphere" pos="0 0 -0.12" size="0.05" material="red"/>
+          <geom name="fr_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.24" material="yellow"/>
+          <site name="fr_foot" pos="0 0 -0.24" size="0.05" type="sphere"/>
+          <geom name="fr_foot" type="sphere" pos="0 0 -0.24" size="0.05" material="red"/>
         </body>
       </body>
       
@@ -96,13 +96,13 @@ CRAWLER_XML = """
       <body name="bl_upper" pos="0.25 -0.15 -0.05">
         <joint name="bl_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="3"/>
         <joint name="bl_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="3"/>
-        <geom name="bl_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="orange"/>
+        <geom name="bl_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.24" material="orange"/>
         
-        <body name="bl_lower" pos="0 0 -0.12">
+        <body name="bl_lower" pos="0 0 -0.24">
           <joint name="bl_knee" type="hinge" axis="1 0 0" range="0 150" damping="2"/>
-          <geom name="bl_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="yellow"/>
-          <site name="bl_foot" pos="0 0 -0.12" size="0.05" type="sphere"/>
-          <geom name="bl_foot" type="sphere" pos="0 0 -0.12" size="0.05" material="red"/>
+          <geom name="bl_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.24" material="yellow"/>
+          <site name="bl_foot" pos="0 0 -0.24" size="0.05" type="sphere"/>
+          <geom name="bl_foot" type="sphere" pos="0 0 -0.24" size="0.05" material="red"/>
         </body>
       </body>
       
@@ -110,13 +110,13 @@ CRAWLER_XML = """
       <body name="br_upper" pos="-0.25 -0.15 -0.05">
         <joint name="br_hip_x" type="hinge" axis="1 0 0" range="-60 0" damping="3"/>
         <joint name="br_hip_y" type="hinge" axis="0 1 0" range="-20 20" damping="3"/>
-        <geom name="br_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="orange"/>
+        <geom name="br_upper" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.24" material="orange"/>
         
-        <body name="br_lower" pos="0 0 -0.12">
+        <body name="br_lower" pos="0 0 -0.24">
           <joint name="br_knee" type="hinge" axis="1 0 0" range="0 150" damping="2"/>
-          <geom name="br_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.12" material="yellow"/>
-          <site name="br_foot" pos="0 0 -0.12" size="0.05" type="sphere"/>
-          <geom name="br_foot" type="sphere" pos="0 0 -0.12" size="0.05" material="red"/>
+          <geom name="br_lower" type="capsule" size="0.04" fromto="0 0 0 0 0 -0.24" material="yellow"/>
+          <site name="br_foot" pos="0 0 -0.24" size="0.05" type="sphere"/>
+          <geom name="br_foot" type="sphere" pos="0 0 -0.24" size="0.05" material="red"/>
         </body>
       </body>
     </body>
@@ -191,7 +191,7 @@ class CrawlerEnv:
         ]
         
         # Orientation cube state (simulated)
-        self.target_pos = np.array([10.0, 0.0, 0.25])  # Match new torso height
+        self.target_pos = np.array([10.0, 0.0, 0.5])  # Match new torso height
         self.orientation_forward = np.array([1.0, 0.0, 0.0])
         
         self.step_counter = 0
@@ -209,16 +209,16 @@ class CrawlerEnv:
         quat = np.array([np.cos(start_yaw/2), 0, 0, np.sin(start_yaw/2)])
         
         # Set initial position and orientation (qpos for freejoint: x,y,z,qw,qx,qy,qz)
-        self.data.qpos[0:3] = [0, 0, 0.25]  # position
+        self.data.qpos[0:3] = [0, 0, 0.5]  # Higher position for longer legs
         self.data.qpos[3:7] = [quat[0], quat[1], quat[2], quat[3]]  # quaternion (w,x,y,z)
         
-        # Set initial joint positions for stable stance with shorter legs
+        # Set initial joint positions for stable stance with longer legs
         joint_init = [
-            -0.3, 0.0,  # fl_hip_x, fl_hip_y (less bent for shorter legs)
-            -0.3, 0.0,  # fr_hip_x, fr_hip_y
-            -0.3, 0.0,  # bl_hip_x, bl_hip_y
-            -0.3, 0.0,  # br_hip_x, br_hip_y
-            0.6, 0.6, 0.6, 0.6  # knees bent appropriately for new leg length
+            -0.2, 0.0,  # fl_hip_x, fl_hip_y (less bent for longer legs)
+            -0.2, 0.0,  # fr_hip_x, fr_hip_y
+            -0.2, 0.0,  # bl_hip_x, bl_hip_y
+            -0.2, 0.0,  # br_hip_x, br_hip_y
+            0.4, 0.4, 0.4, 0.4  # knees less bent for longer legs
         ]
         
         for i, joint_id in enumerate(self.joint_ids):
@@ -255,7 +255,7 @@ class CrawlerEnv:
             # Move target further in the same direction
             current_direction = self.orientation_forward
             self.target_pos = torso_pos + current_direction * 10.0
-            self.target_pos[2] = 0.25  # Keep target at torso height
+            self.target_pos[2] = 0.5  # Keep target at torso height
     
     def _get_obs(self):
         """Generate observation matching Unity's format"""
@@ -408,7 +408,7 @@ class CrawlerEnv:
             stability_penalty = 0.0
         
         # Height reward - encourage staying at proper height
-        target_height = 0.25
+        target_height = 0.5
         height_diff = abs(torso_pos[2] - target_height)
         height_reward = max(0, 1.0 - height_diff * 2.0)  # Penalty for being too high or low
         
@@ -424,7 +424,7 @@ class CrawlerEnv:
             reward += 0.02
         
         # Episode termination conditions
-        too_low = torso_pos[2] < 0.1  # Fallen down
+        too_low = torso_pos[2] < 0.2  # Fallen down (higher threshold for longer legs)
         too_tilted = upright_reward < 0.4  # Severely tilted/upside down (was 0.2)
         max_steps = self.step_counter >= MAX_EPISODE_STEPS
         
