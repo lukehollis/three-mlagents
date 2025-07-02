@@ -273,7 +273,7 @@ export default function ExamplesIndex() {
                 <Link to="/crawler" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
-                      src="/three-mlagents/crawler_example.jpg" 
+                      src="/three-mlagents/ant_example.jpg" 
                       alt="Crawler Example"
                       style={{
                         width: '100%',
@@ -288,11 +288,11 @@ export default function ExamplesIndex() {
               <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/crawler" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
-                    Crawler
+                    Ant (Crawler)
                   </Text>
                 </Link>
                 <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
-                  Move the crawler towards the goal while maintaining balance and direction.
+                  Move the ant towards the goal while maintaining balance and direction. (Ant-v5)
                 </Text>
                 <Link to="/crawler" style={{ textDecoration: 'none' }}>
                   <Button 
