@@ -244,10 +244,13 @@ export default function CrawlerExample() {
           Direction: ({state.orientationForward ? state.orientationForward.map(x => x.toFixed(2)).join(', ') : 'N/A'})<br/>
           Forward Velocity: {state.forwardVelocity ? state.forwardVelocity.toFixed(2) : 'N/A'} m/s<br/>
           Heading Alignment: {state.headingAlignment ? state.headingAlignment.toFixed(2) : 'N/A'} (-1=opposite, +1=aligned)<br/>
-          <span style={{ color: state.uprightScore > 0.7 ? '#00ff00' : state.uprightScore > 0.3 ? '#ffaa00' : '#ff0000' }}>
+          <span style={{ color: state.uprightScore > 0.8 ? '#00ff00' : state.uprightScore > 0.6 ? '#ffaa00' : '#ff0000' }}>
             Upright Score: {state.uprightScore ? state.uprightScore.toFixed(2) : 'N/A'} (1.0=upright, 0.0=sideways, -1.0=upside-down)
           </span><br/>
-          Torso Height: {state.torsoHeight ? state.torsoHeight.toFixed(2) : 'N/A'}m (target: 0.25m)
+          Torso Height: {state.torsoHeight ? state.torsoHeight.toFixed(2) : 'N/A'}m (target: 0.25m)<br/>
+          <div style={{ fontSize: 9, marginTop: 4, borderTop: '1px solid #444', paddingTop: 2 }}>
+            DEBUG - Body Axes vs Up: X={state.uprightX ? state.uprightX.toFixed(2) : 'N/A'}, Y={state.uprightY ? state.uprightY.toFixed(2) : 'N/A'}, Z={state.uprightZ ? state.uprightZ.toFixed(2) : 'N/A'}
+          </div>
         </div>
       </div>
 

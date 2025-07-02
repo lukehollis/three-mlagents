@@ -25,10 +25,10 @@ import mujoco.viewer
 # -----------------------------------------------------------------------------------
 # For FASTEST training: Keep ENABLE_TRAINING_DELAYS = False
 # For OBSERVABLE training: Set ENABLE_TRAINING_DELAYS = True and adjust delays below
-ENABLE_TRAINING_DELAYS = False  # Set to True for slower, observable training
-TRAINING_DELAY = 0.02    # Reduced from 0.1 for faster training
-INFERENCE_DELAY = 0.03   # Reduced from 0.05 for slightly faster inference
-TRAINING_STREAM_FREQ = 8  # Increased from 4 to reduce update frequency
+ENABLE_TRAINING_DELAYS = True   # Enable for observable training
+TRAINING_DELAY = 0.01           # Very small delay - 10ms for light visualization
+INFERENCE_DELAY = 0.03          # Reduced from 0.05 for slightly faster inference
+TRAINING_STREAM_FREQ = 8        # Increased from 4 to reduce update frequency
 
 # -----------------------------------------------------------------------------------
 # MJCF Model Definition
@@ -386,12 +386,23 @@ class CrawlerEnv:
         # 4. CRITICAL STABILITY REWARDS - keep crawler upright!
         # Check if torso is upright (Z-axis should point up)
         up_vector = np.array([0, 0, 1])
-        torso_up = torso_xmat[:, 2]  # Z-axis of torso orientation
-        upright_reward = np.dot(torso_up, up_vector)  # 1.0 = perfectly upright, -1.0 = upside down
-        upright_reward = max(0, upright_reward) ** 2  # Square for stronger effect, only positive
+        torso_x = torso_xmat[:, 0]  # Body X-axis (forward)
+        torso_y = torso_xmat[:, 1]  # Body Y-axis (left)
+        torso_z = torso_xmat[:, 2]  # Body Z-axis (up)
+        
+        # Check all three body axes to see which points up when upright
+        upright_x = np.dot(torso_x, up_vector)  # How much X-axis points up
+        upright_y = np.dot(torso_y, up_vector)  # How much Y-axis points up  
+        upright_z = np.dot(torso_z, up_vector)  # How much Z-axis points up
+        
+        # Revert back to Z-axis - Y-axis change caused spinning
+        upright_score = upright_z  # Back to Z-axis
+        
+        # But let's make the reward more forgiving to avoid spinning
+        upright_reward = max(0, upright_score)  # Only positive values
         
         # Strong penalty for being upside down or on side
-        if upright_reward < 0.3:  # If significantly tilted
+        if upright_reward < 0.6:  # If significantly tilted (was 0.3)
             stability_penalty = -0.5  # Large penalty
         else:
             stability_penalty = 0.0
@@ -409,12 +420,12 @@ class CrawlerEnv:
         reward = base_reward + stability_component + directional_component
         
         # Small alive bonus (only if upright)
-        if upright_reward > 0.5:  # Only if reasonably upright
+        if upright_reward > 0.7:  # Only if reasonably upright (was 0.5)
             reward += 0.02
         
         # Episode termination conditions
         too_low = torso_pos[2] < 0.1  # Fallen down
-        too_tilted = upright_reward < 0.2  # Severely tilted/upside down
+        too_tilted = upright_reward < 0.4  # Severely tilted/upside down (was 0.2)
         max_steps = self.step_counter >= MAX_EPISODE_STEPS
         
         done = max_steps or too_low or too_tilted
@@ -444,8 +455,20 @@ class CrawlerEnv:
         
         # Add stability debug info
         up_vector = np.array([0, 0, 1])
-        torso_up = torso_xmat[:, 2]
-        upright_score = np.dot(torso_up, up_vector)
+        torso_x = torso_xmat[:, 0]  # Body X-axis (forward)
+        torso_y = torso_xmat[:, 1]  # Body Y-axis (left)
+        torso_z = torso_xmat[:, 2]  # Body Z-axis (up)
+        
+        # Check all three body axes to see which points up when upright
+        upright_x = np.dot(torso_x, up_vector)  # How much X-axis points up
+        upright_y = np.dot(torso_y, up_vector)  # How much Y-axis points up  
+        upright_z = np.dot(torso_z, up_vector)  # How much Z-axis points up
+        
+        # Based on debug data: Back to Z-axis (Y-axis caused spinning)
+        upright_score = upright_z  # Back to Z-axis
+        
+        # Make it consistent with reward calculation  
+        upright_reward = max(0, upright_score)  # Only positive values
         
         return {
             "basePos": torso_pos.tolist(),
@@ -457,8 +480,11 @@ class CrawlerEnv:
             "forwardVelocity": float(forward_velocity),
             "headingAlignment": float(heading_alignment),
             "bodyForward": body_forward.tolist(),
-            "uprightScore": float(upright_score),
-            "torsoHeight": float(torso_pos[2])
+            "uprightScore": float(upright_reward),  # Use upright_reward for consistency
+            "torsoHeight": float(torso_pos[2]),
+            "uprightX": float(upright_x),
+            "uprightY": float(upright_y),
+            "uprightZ": float(upright_z)
         }
 
 
