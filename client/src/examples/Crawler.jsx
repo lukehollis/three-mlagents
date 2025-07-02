@@ -15,9 +15,9 @@ const WS_URL = `${config.WS_BASE_URL}/ws/ant`;
 
 export default function Crawler2Example() {
   const [state, setState] = useState({
-    basePos: [0, 0, 0.75],
-    baseOri: [1, 0, 0, 0],
-    jointAngles: Array(8).fill(0),
+    basePos: [0, 0, 0.45],
+    baseOri: [0, 0, 0, 1],
+    jointAngles: [0, 0.4, 0, 0.4, 0, 0.4, 0, 0.4],
   });
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
@@ -82,10 +82,15 @@ export default function Crawler2Example() {
     send({ cmd: 'run' });
   };
 
-  // 3-D helper conversions (same bullet→three as before)
-  const bulletToThreeQuat = (q) => [q[0], q[2], -q[1], q[3]];
+  // 3-D helper conversions to map MuJoCo's Z-up coordinate system to Three.js's Y-up.
+  // MuJoCo quaternion from server is [w, x, y, z]. Three.js expects [x, y, z, w].
+  // The mapping from MuJoCo's frame (x-forward, y-left, z-up) to
+  // Three.js's frame (x-right, y-up, z-forward) requires a coordinate swap.
+  // Position: (x, y, z)_mujoco -> (x, z, -y)_three
+  // Quaternion: (w, x, y, z)_mujoco -> (x, z, -y, w)_three
+  const mujocoToThreeQuat = (q) => [q[1], q[3], -q[2], q[0]];
   const threePos = state.basePos ? [state.basePos[0], state.basePos[2], -state.basePos[1]] : [0, 0, 0];
-  const threeQuat = state.baseOri ? bulletToThreeQuat(state.baseOri) : [0, 0, 0, 1];
+  const threeQuat = state.baseOri ? mujocoToThreeQuat(state.baseOri) : [0, 0, 0, 1];
 
   return (
     <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom, #08081c, #03030a)' }}>
@@ -115,17 +120,19 @@ export default function Crawler2Example() {
             const lowerLen = 0.3;
             return (
               <group key={i} position={hipPos}>
-                <group rotation={[hipAngle, 0, 0]}>
-                  {/* upper */}
-                  <mesh position={[0, -upperLen / 2, 0]}>
-                    <cylinderGeometry args={[0.05, 0.05, upperLen, 8]} />
-                    <meshStandardMaterial color="#ffaa00" />
-                  </mesh>
-                  <group position={[0, -upperLen, 0]} rotation={[kneeAngle, 0, 0]}>
-                    <mesh position={[0, -lowerLen / 2, 0]}>
-                      <cylinderGeometry args={[0.05, 0.05, lowerLen, 8]} />
-                      <meshStandardMaterial color="#ffdd55" />
+                <group rotation={[0, hipAngle, 0]}>
+                  <group rotation={[-Math.PI / 4 * frontBack, 0, Math.PI / 4 * side]}>
+                    {/* upper */}
+                    <mesh position={[0, -upperLen / 2, 0]}>
+                      <cylinderGeometry args={[0.05, 0.05, upperLen, 8]} />
+                      <meshStandardMaterial color="#ffaa00" />
                     </mesh>
+                    <group position={[0, -upperLen, 0]} rotation={[kneeAngle, 0, 0]}>
+                      <mesh position={[0, -lowerLen / 2, 0]}>
+                        <cylinderGeometry args={[0.05, 0.05, lowerLen, 8]} />
+                        <meshStandardMaterial color="#ffdd55" />
+                      </mesh>
+                    </group>
                   </group>
                 </group>
               </group>

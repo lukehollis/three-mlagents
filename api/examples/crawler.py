@@ -67,11 +67,21 @@ class AntEnvWrapper:
         # Base position and orientation (quaternion) from MuJoCo data
         pos = self.data.xpos[self.torso_id].copy()
         quat = self.data.xquat[self.torso_id].copy()
-        # Joint angles (8 joints) – order matches env.joint_names
+
+        # Joint names for the 8 actuated joints, in the order the frontend expects
+        # (front-left, front-right, back-left, back-right). This ensures the
+        # visualization matches the physical model.
+        joint_names = [
+            "hip_1", "angle_1", "hip_2", "angle_2",
+            "hip_3", "angle_3", "hip_4", "angle_4"
+        ]
+
         joint_qpos = []
-        for jid in range(self.model.njnt):
+        for name in joint_names:
+            jid = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
             addr = self.model.jnt_qposadr[jid]
             joint_qpos.append(float(self.data.qpos[addr]))
+
         return {
             "basePos": pos.tolist(),
             "baseOri": quat.tolist(),
