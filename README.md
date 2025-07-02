@@ -45,6 +45,29 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 
 
 
+### 3. Push-Block
+
+![push_block_example](https://github.com/user-attachments/assets/825b8437-45cc-47b7-ba90-6f17ed90385c)
+
+
+[Live demo](https://lukehollis.github.io/three-mlagents/push)
+
+
+### 4. Wall Jump 
+
+![wall_jump_example](https://github.com/user-attachments/assets/deb75a72-8a8a-4c94-9465-49c41c1b5f24)
+
+[Live demo](https://lukehollis.github.io/three-mlagents/walljump)
+
+
+### 5. Ant (Crawler)
+
+![ant_example](https://github.com/user-attachments/assets/81b7ca6b-e8db-4b7e-baf1-d9d7635fa6c1)
+
+[Live demo](https://lukehollis.github.io/three-mlagents/crawler)
+
+
+
 
 ## Project layout
 
