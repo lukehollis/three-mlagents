@@ -32,7 +32,7 @@ export default function CrawlerExample() {
   const [state, setState] = useState({
     basePos: [0, 0, 0.45],
     baseOri: [0, 0, 0, 1],
-    jointAngles: Array(8).fill(0),
+    jointAngles: Array(8).fill(0), // 8 joints total: 2 per leg
   });
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
@@ -132,23 +132,34 @@ export default function CrawlerExample() {
             <meshStandardMaterial color="#00aaff" />
           </mesh>
           {Array.from({ length: 4 }).map((_, i) => {
-            const upperAngle = jointAngles[i] || 0;
-            const lowerAngle = jointAngles[4 + i] || 0;
+            // Each leg has 2 joints: upper and lower
+            const upperAngle = jointAngles[i * 2] || 0;
+            const lowerAngle = jointAngles[i * 2 + 1] || 0;
             const side = i < 2 ? 1 : -1; // left/right
-            const upDown = i % 2 === 0 ? 1 : -1;
-            const upperAnchor = [0.2 * side, 0.05 * upDown, 0];
+            const frontBack = i % 2 === 0 ? 1 : -1; // front/back
+            
+            // Upper leg attachment point on torso
+            const upperAnchor = [0.2 * side, -0.05, 0.1 * frontBack];
+            
             return (
-              <group key={i} position={upperAnchor} rotation={[0, upperAngle, 0]}>
-                {/* upper */}
-                <mesh position={[0, 0, -0.15]} rotation={[Math.PI / 2, 0, 0]}>
+              <group key={i} position={upperAnchor} rotation={[upperAngle, 0, 0]}>
+                {/* Upper leg */}
+                <mesh position={[0, -0.15, 0]} rotation={[0, 0, 0]}>
                   <cylinderGeometry args={[0.05, 0.05, 0.3, 8]} />
                   <meshStandardMaterial color="#ffaa00" />
                 </mesh>
-                {/* lower */}
-                <group position={[0, 0, -0.3]} rotation={[0, lowerAngle, 0]}>
-                  <mesh position={[0, 0, -0.15]} rotation={[Math.PI / 2, 0, 0]}>
+                
+                {/* Lower leg */}
+                <group position={[0, -0.3, 0]} rotation={[lowerAngle, 0, 0]}>
+                  <mesh position={[0, -0.15, 0]} rotation={[0, 0, 0]}>
                     <cylinderGeometry args={[0.05, 0.05, 0.3, 8]} />
                     <meshStandardMaterial color="#ffdd55" />
+                  </mesh>
+                  
+                  {/* Foot */}
+                  <mesh position={[0, -0.3, 0]}>
+                    <sphereGeometry args={[0.06, 8, 8]} />
+                    <meshStandardMaterial color="#ff6600" />
                   </mesh>
                 </group>
               </group>

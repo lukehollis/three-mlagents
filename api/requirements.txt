@@ -32,4 +32,5 @@ uvicorn==0.25.0
 uvloop==0.21.0
 watchfiles==1.1.0
 websockets==15.0.1
-pybullet==3.2.5
+mujoco>=3.0.0
+dm-control>=1.0.0 
