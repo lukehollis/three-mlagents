@@ -28,28 +28,35 @@ const WormSegment = ({ segment, isHead }) => {
 
   return (
     <group position={threePos} quaternion={threeQuat}>
-      {/* Main capsule for the segment */}
-      <Capsule args={[radius, length, 16]}>
-        <meshStandardMaterial color="#00aaff" />
-      </Capsule>
+      {/*
+        Rotate group so capsule's Y axis aligns with Three.js's X axis.
+        Then, shift the capsule forward by half its length so its "start"
+        is at the group origin, allowing segments to connect end-to-end.
+      */}
+      <group rotation={[0, 0, -Math.PI / 2]} position={[0, length / 2, 0]}>
+        {/* Main capsule for the segment */}
+        <Capsule args={[radius, length, 16]}>
+          <meshStandardMaterial color="#00aaff" />
+        </Capsule>
       
-      {/* Head decorations */}
-      {isHead && (
-        <>
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <torusGeometry args={[radius + 0.01, 0.03, 8, 32]} />
-            <meshStandardMaterial color="#ffaa00" emissive="#331100" />
-          </mesh>
-          <mesh position={[radius * 0.7, length / 2, radius * 0.7]}>
-            <sphereGeometry args={[0.05, 12, 8]} />
-            <meshStandardMaterial color="white" />
-          </mesh>
-           <mesh position={[-radius * 0.7, length / 2, radius * 0.7]}>
-            <sphereGeometry args={[0.05, 12, 8]} />
-            <meshStandardMaterial color="white" />
-          </mesh>
-        </>
-      )}
+        {/* Head decorations (in the new rotated & shifted coordinate system) */}
+        {isHead && (
+          <>
+            <mesh rotation={[Math.PI / 2, 0, 0]}>
+              <torusGeometry args={[radius + 0.01, 0.03, 8, 32]} />
+              <meshStandardMaterial color="#ffaa00" emissive="#331100" />
+            </mesh>
+            <mesh position={[radius * 0.7, 0, radius * 0.7]}>
+              <sphereGeometry args={[0.05, 12, 8]} />
+              <meshStandardMaterial color="white" />
+            </mesh>
+            <mesh position={[-radius * 0.7, 0, radius * 0.7]}>
+              <sphereGeometry args={[0.05, 12, 8]} />
+              <meshStandardMaterial color="white" />
+            </mesh>
+          </>
+        )}
+      </group>
     </group>
   );
 };
