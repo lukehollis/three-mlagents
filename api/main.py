@@ -12,6 +12,7 @@ from examples.gridworld import train_gridworld, infer_action_gridworld
 from examples.push import train_push, infer_action_push
 from examples.walljump import train_walljump, infer_action_walljump
 from examples.crawler import train_ant, infer_action_ant, run_ant
+from examples.worm import train_worm, infer_action_worm, run_worm
 
 app = FastAPI(title="ML-Agents API")
 
@@ -168,4 +169,21 @@ async def websocket_ant(ws: WebSocket):
         elif cmd == "inference":
             obs = data.get("obs", [])  # raw 111-D observation
             act_vec = infer_action_ant(obs)
+            await ws.send_json({"type": "action", "action": act_vec})
+
+
+# WebSocket endpoint for Worm
+@app.websocket("/ws/worm")
+async def websocket_worm(ws: WebSocket):
+    await ws.accept()
+    async for message in ws.iter_text():
+        data = json.loads(message)
+        cmd = data.get("cmd")
+        if cmd == "train":
+            await train_worm(ws)
+        elif cmd == "run":
+            await run_worm(ws)
+        elif cmd == "inference":
+            obs = data.get("obs", [])  # raw 8-D observation
+            act_vec = infer_action_worm(obs)
             await ws.send_json({"type": "action", "action": act_vec}) 
