@@ -254,7 +254,13 @@ async def train_worm(websocket: WebSocket):
                     policy_loss2 = torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS) * mb_adv
                     policy_loss = -torch.min(policy_loss1, policy_loss2).mean()
                     
-                    value_loss = ((mb_ret - value) ** 2).mean()
+                    # Value clipping for more stable training
+                    mb_val_old = val_cat[mb_idx]
+                    v_clipped = mb_val_old + torch.clamp(value - mb_val_old, -CLIP_EPS, CLIP_EPS)
+                    v_loss_clipped = (v_clipped - mb_ret)**2
+                    v_loss_unclipped = (value - mb_ret)**2
+                    value_loss = torch.max(v_loss_unclipped, v_loss_clipped).mean()
+                    
                     loss = policy_loss + 0.5 * value_loss - ENT_COEF * entropy_bonus
 
                     optimizer.zero_grad()

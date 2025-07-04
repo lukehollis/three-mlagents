@@ -16,7 +16,15 @@ const WS_URL = `${config.WS_BASE_URL}/ws/worm`;
 
 // 3-D helper conversions to map MuJoCo's Z-up coordinate system to Three.js's Y-up.
 const mujocoToThreePos = (p) => (p ? [p[0], p[2], -p[1]] : [0, 0, 0]);
-const mujocoToThreeQuat = (q) => (q ? [q[1], q[3], -q[2], q[0]] : [0, 0, 0, 1]);
+const mujocoToThreeQuat = (q) => {
+  if (!q) return [0, 0, 0, 1];
+  // For Swimmer, rotation is only around the Z-axis in MuJoCo's world,
+  // which corresponds to the Y-axis in Three.js's world.
+  // MuJoCo quat is [w, x, y, z]. A pure Z-rotation has x=0, y=0.
+  // The resulting Three.js quat is [0, sin(angle/2), 0, cos(angle/2)],
+  // where sin comes from MuJoCo's z and cos from w.
+  return [0, q[3], 0, q[0]]; // [0, z, 0, w]
+};
 
 const WormSegment = ({ segment, isHead }) => {
   const threePos = mujocoToThreePos(segment.pos);
