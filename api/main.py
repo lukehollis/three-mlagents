@@ -13,6 +13,7 @@ from examples.push import train_push, infer_action_push
 from examples.walljump import train_walljump, infer_action_walljump
 from examples.crawler import train_ant, infer_action_ant, run_ant
 from examples.worm import train_worm, infer_action_worm, run_worm
+from examples.worm import WormEnvWrapper
 
 app = FastAPI(title="ML-Agents API")
 
@@ -176,6 +177,10 @@ async def websocket_ant(ws: WebSocket):
 @app.websocket("/ws/worm")
 async def websocket_worm(ws: WebSocket):
     await ws.accept()
+    # Send initial state so the frontend can render the worm before training or running
+    preview_env = WormEnvWrapper()
+    preview_state = preview_env.get_state_for_viz()
+    await ws.send_json({"type": "state", "state": preview_state, "episode": 0})
     async for message in ws.iter_text():
         data = json.loads(message)
         cmd = data.get("cmd")
