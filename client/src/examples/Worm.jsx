@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Capsule } from '@react-three/drei';
-import { Button, Text } from '@geist-ui/core';
+import { Button, Text, useMediaQuery } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
 import config from '../config.js';
-import DebugConsole from '../components/DebugConsole.jsx';
-import ChartPanel from '../components/ChartPanel.jsx';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import 'katex/dist/katex.min.css';
-import { BlockMath } from 'react-katex';
+import EquationPanel from '../components/EquationPanel.jsx';
+import InfoPanel from '../components/InfoPanel.jsx';
+import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 
 // WebSocket endpoint – exposed by worm.py routes
 const WS_URL = `${config.WS_BASE_URL}/ws/worm`;
@@ -76,6 +76,8 @@ export default function WormExample() {
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
+  const [homeHover, setHomeHover] = useState(false);
+  const isMobile = useMediaQuery('sm') || useMediaQuery('xs');
 
   const addLog = (txt) => {
     setLogs((l) => {
@@ -136,68 +138,81 @@ export default function WormExample() {
     send({ cmd: 'run' });
   };
 
+  const resetTraining = () => {
+    setTraining(false);
+    setTrained(false);
+    setModelInfo(null);
+    setChartState({ labels: [], rewards: [], losses: [] });
+    setState({ segments: [] });
+  };
+
   return (
-    <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom, #08081c, #03030a)' }}>
-      <Canvas camera={{ position: [0, 4, 8], fov: 50 }} style={{ background: 'transparent' }}>
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 10, 5]} intensity={1.5} />
-        <Grid args={[48, 48]} cellSize={1} fadeDistance={25} />
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        overflow: 'hidden',
+        outline: 'none',
+        background: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ flex: 1, position: 'relative' }}>
+        <Canvas camera={{ position: [0, 4, 8], fov: 50 }} style={{ background: 'transparent', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+          <ambientLight intensity={0.5} />
+          <directionalLight position={[5, 10, 5]} intensity={1.5} />
+          <Grid args={[48, 48]} cellSize={1} fadeDistance={25} />
 
-        {/* Worm body visualisation */}
-        <group>
-          {state.segments && state.segments.map((seg, i) => (
-            <WormSegment key={seg.name} segment={seg} isHead={i === 0} />
-          ))}
-        </group>
-        
-        <OrbitControls target={[0, 0.5, 0]} enablePan enableRotate enableZoom />
-      </Canvas>
+          {/* Worm body visualisation */}
+          <group>
+            {state.segments && state.segments.map((seg, i) => (
+              <WormSegment key={seg.name} segment={seg} isHead={i === 0} />
+            ))}
+          </group>
+          
+          <OrbitControls target={[0, 0.5, 0]} enablePan enableRotate enableZoom />
+        </Canvas>
 
-      {/* UI overlay */}
-      <div style={{ position: 'absolute', top: 10, left: 10, color: '#fff' }}>
-        <Link to="/" style={{ fontFamily: 'monospace', color: '#fff', textDecoration: 'underline' }}>Home</Link>
-        <Text h1 style={{ margin: '0 0 12px 0', color: '#fff' }}>Worm</Text>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-          <Button auto type="success" disabled={!trained} onClick={startRun}>Run</Button>
+        {/* UI overlay */}
+        <div
+          style={{
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            color: '#fff',
+            textShadow: '0 0 4px #000',
+            zIndex: 1,
+          }}
+        >
+          <Link
+            to="/"
+            style={{
+              fontFamily: 'monospace',
+              color: '#fff',
+              textDecoration: homeHover ? 'none' : 'underline',
+              display: 'inline-block',
+              fontSize: isMobile ? '12px' : '14px',
+            }}
+            onMouseEnter={() => setHomeHover(true)}
+            onMouseLeave={() => setHomeHover(false)}
+          >
+            Home
+          </Link>
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : 'inherit' }}>
+            Worm
+          </Text>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
+            <Button auto type="success" disabled={!trained} onClick={startRun}>Run</Button>
+            {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
+          </div>
+          <ModelInfoPanel modelInfo={modelInfo} />
         </div>
+        <EquationPanel equation="L^{CLIP}(\theta) = \hat{\mathbb{E}}_t[\min(r_t(\theta)\hat{A}_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t)]" description="PPO-clip objective: encourages the policy ratio to stay within a small interval around 1." />
+        <InfoPanel logs={logs} chartState={chartState} />
+        <ButtonForkOnGithub position={{ top: '10px', right: '10px' }} />
       </div>
-
-      {/* PPO loss & description */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 10,
-          left: 10,
-          width: 'auto',
-          maxWidth: '420px',
-          background: 'rgba(0,0,0,0.95)',
-          color: '#fff',
-          padding: '6px 8px',
-          fontSize: 14,
-          textAlign: 'left',
-          justifyContent: 'flex-start',
-        }}
-      >
-        <BlockMath
-          math={
-            '\\displaystyle L^{\\text{CLIP}}(\\theta)=\\mathbb{E}_t\\bigl[\\min\\bigl(r_t(\\theta)\\hat{A}_t,\\;\\text{clip}(r_t(\\theta),1\\! -\\!\\varepsilon,1\\! +\\!\\varepsilon)\\hat{A}_t\\bigr)\\bigr]'
-          }
-          style={{ textAlign: 'left' }}
-        />
-        <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
-          PPO clipped-objective: rₜ is the probability ratio
-          π<sub>θ</sub>(aₜ|sₜ)/π<sub>θ<sup>old</sup></sub>(aₜ|sₜ), 
-          ĤAₜ advantage, ε clip range.
-        </div>
-      </div>
-
-      <div style={{ position: 'absolute', bottom: 160, right: 10, width: '30%', height: '180px', background: 'rgba(255,255,255,0.05)', padding: 4 }}>
-        <ChartPanel labels={chartState.labels} rewards={chartState.rewards} losses={chartState.losses} />
-      </div>
-
-      <DebugConsole logs={logs} />
-      <ButtonForkOnGithub position={{ top: '20px', right: '20px' }} />
     </div>
   );
 } 

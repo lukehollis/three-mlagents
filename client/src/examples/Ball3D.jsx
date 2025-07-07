@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Stars, Grid } from '@react-three/drei';
-import DebugConsole from '../components/DebugConsole.jsx';
-import ChartPanel from '../components/ChartPanel.jsx';
 import config from '../config.js';
 import 'katex/dist/katex.min.css';
-import { BlockMath } from 'react-katex';
-import { Text, Button } from '@geist-ui/core';
+import { Text, Button, useMediaQuery } from '@geist-ui/core';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
+import EquationPanel from '../components/EquationPanel.jsx';
+import InfoPanel from '../components/InfoPanel.jsx';
+import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import { Link } from 'react-router-dom';
 
 const ROWS = 3;
@@ -46,6 +46,7 @@ export default function Ball3DExample() {
 
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const [homeHover, setHomeHover] = useState(false);
+  const isMobile = useMediaQuery('sm') || useMediaQuery('xs');
 
   const envRef = useRef({ rotX: 0, rotZ: 0, ballX: 0, ballZ: 0, velX: 0, velZ: 0 });
 
@@ -200,88 +201,88 @@ export default function Ball3DExample() {
   };
 
   return (
-    <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom, #1a1a2e, #16213e)' }}>
-      <Canvas camera={{ position: [0, 25, 35], fov: 50 }} style={{ background: 'transparent' }}>
-        <ambientLight intensity={0.4} />
-        <directionalLight position={[10, 20, 10]} intensity={1.1} />
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        overflow: 'hidden',
+        outline: 'none',
+        background: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ flex: 1, position: 'relative' }}>
+        <Canvas camera={{ position: [0, 25, 35], fov: 50 }} style={{ background: 'transparent', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+          <ambientLight intensity={0.4} />
+          <directionalLight position={[10, 20, 10]} intensity={1.1} />
 
-        <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
+          <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
 
-        {/* Grid helper underneath platforms */}
-        <Grid
-          position={[0, -0.26, 0]}
-          args={[60, 60]}
-          cellSize={1}
-          cellThickness={0.4}
-          cellColor="#444"
-          sectionSize={5}
-          sectionThickness={1}
-          sectionColor="#666"
-          fadeDistance={40}
-          fadeStrength={1}
-        />
+          {/* Grid helper underneath platforms */}
+          <Grid
+            position={[0, -0.26, 0]}
+            args={[60, 60]}
+            cellSize={1}
+            cellThickness={0.4}
+            cellColor="#444"
+            sectionSize={5}
+            sectionThickness={1}
+            sectionColor="#666"
+            fadeDistance={40}
+            fadeStrength={1}
+          />
 
-        {states.map((s, idx) => (
-          <PlatformAndBall key={idx} state={s} position={positions[idx]} />
-        ))}
+          {states.map((s, idx) => (
+            <PlatformAndBall key={idx} state={s} position={positions[idx]} />
+          ))}
 
-        <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
-      </Canvas>
+          <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
+        </Canvas>
 
-      {/* UI overlay */}
-      <div style={{ position: 'absolute', top: 10, left: 10, color: '#fff' }}>
-
-        {/* Home link */}
-        <Link
-          to="/"
+        {/* UI overlay */}
+        <div
           style={{
-            fontFamily: 'monospace',
+            position: 'absolute',
+            top: 10,
+            left: 10,
             color: '#fff',
-            textDecoration: homeHover ? 'none' : 'underline',
-            display: 'inline-block',
+            textShadow: '0 0 4px #000',
+            zIndex: 1,
           }}
-          onMouseEnter={() => setHomeHover(true)}
-          onMouseLeave={() => setHomeHover(false)}
         >
-          Home
-        </Link>
 
-        <Text h1 style={{ margin: '0 0 12px 0', color: '#fff' }}>
-          Ball 3D Example
-        </Text>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-          <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-          <Button auto type="success" disabled={!trained || autoRun} onClick={startRun}>Run</Button>
-          {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
-        </div>
+          {/* Home link */}
+          <Link
+            to="/"
+            style={{
+              fontFamily: 'monospace',
+              color: '#fff',
+              textDecoration: homeHover ? 'none' : 'underline',
+              display: 'inline-block',
+              fontSize: isMobile ? '12px' : '14px',
+            }}
+            onMouseEnter={() => setHomeHover(true)}
+            onMouseLeave={() => setHomeHover(false)}
+          >
+            Home
+          </Link>
 
-        {modelInfo && (
-          <div style={{ marginTop: '8px', fontSize: '12px', background: 'rgba(0,255,0,0.1)', padding: '4px 8px', borderRadius: '4px', border: '1px solid rgba(0,255,0,0.3)' }}>
-            <div><strong>Model:</strong> {modelInfo.filename}</div>
-            <div><strong>Trained:</strong> {modelInfo.timestamp.replace(/(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/, '$1-$2-$3 $4:$5:$6')}</div>
-            <div><strong>Session:</strong> {modelInfo.sessionUuid}</div>
-            <a href={`${config.API_BASE_URL}${modelInfo.fileUrl}`} download style={{ color: '#4CAF50', textDecoration: 'underline' }}>Download Policy</a>
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : 'inherit' }}>
+            Ball 3D Example
+          </Text>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
+            <Button auto type="success" disabled={!trained || autoRun} onClick={startRun}>Run</Button>
+            {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
           </div>
-        )}
-      </div>
 
-      {/* Chart */}
-      <div style={{ position: 'absolute', bottom: 160, right: 10, width: '30%', height: '180px', background: 'rgba(255,255,255,0.05)', padding: 4 }}>
-        <ChartPanel labels={chartState.labels} rewards={chartState.rewards} losses={chartState.losses} />
-      </div>
-
-      {/* PPO-style update equation (bottom-left) */}
-      <div style={{ position: 'absolute', bottom: 10, left: 10, width: 'auto', maxWidth: '420px', background: 'rgba(0,0,0,0.95)', color: '#fff', padding: '6px 8px', fontSize: 14, textAlign: 'left', justifyContent: 'flex-start' }}>
-        <BlockMath math={'\\theta \\leftarrow \\theta - \\alpha \\nabla_{\\theta} \\frac{1}{2}\\left( Q_{\\theta}(s_t, a_t) - \\left[ r_t + \\gamma \\max_{a^{\\prime}} Q_{\\theta}(s_{t+1}, a^{\\prime}) \\right] \\right)^{2}'} />
-        <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
-          Gradient TD-error update (DQN-style): α learning rate, γ discount factor.
+          <ModelInfoPanel modelInfo={modelInfo} />
         </div>
+        <EquationPanel equation="L^{CLIP}(\theta) = \hat{\mathbb{E}}_t[\min(r_t(\theta)\hat{A}_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t)]" description="PPO-clip objective: encourages the policy ratio to stay within a small interval around 1." />
+        <InfoPanel logs={logs} chartState={chartState} />
+        <ButtonForkOnGithub position={{ top: '10px', right: '10px' }} />
       </div>
-
-      <DebugConsole logs={logs} />
-
-      {/* Fork link (top-right) */}
-      <ButtonForkOnGithub position={{ top: '20px', right: '20px' }} />
     </div>
   );
 } 

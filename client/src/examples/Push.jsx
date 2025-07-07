@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Stars } from '@react-three/drei';
 import config from '../config.js';
-import { Text, Button } from '@geist-ui/core';
+import { Text, Button, useMediaQuery } from '@geist-ui/core';
 import 'katex/dist/katex.min.css';
-import { BlockMath } from 'react-katex';
-import DebugConsole from '../components/DebugConsole.jsx';
-import ChartPanel from '../components/ChartPanel.jsx';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import { Link } from 'react-router-dom';
+import EquationPanel from '../components/EquationPanel.jsx';
+import InfoPanel from '../components/InfoPanel.jsx';
+import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/push`;
 const CELL_SIZE = 1;
@@ -73,6 +73,7 @@ export default function PushExample() {
   const [modelInfo, setModelInfo] = useState(null);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const [homeHover, setHomeHover] = useState(false);
+  const isMobile = useMediaQuery('sm') || useMediaQuery('xs');
 
   const envRef = useRef({ ...state, steps: 0 });
   const wsRef = useRef(null);
@@ -290,101 +291,86 @@ export default function PushExample() {
   const half = (gridSize - 1) / 2;
 
   return (
-    <div style={{ width: '100%', height: '100%', background: 'linear-gradient(to bottom, #0c0c28, #060614)' }}>
-      <Canvas camera={{ position: [0, 10, 10], fov: 50 }} style={{ background: 'transparent' }}>
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 10, 5]} intensity={1} />
+    <div
+      style={{
+        width: '100vw',
+        height: '100vh',
+        overflow: 'hidden',
+        outline: 'none',
+        background: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ flex: 1, position: 'relative' }}>
+        <Canvas camera={{ position: [0, 10, 10], fov: 50 }} style={{ background: 'transparent', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+          <ambientLight intensity={0.5} />
+          <directionalLight position={[5, 10, 5]} intensity={1} />
 
-        <Grid args={[gridSize, gridSize]} cellSize={1} position={[0, 0, 0]} />
+          <Grid args={[gridSize, gridSize]} cellSize={1} position={[0, 0, 0]} />
 
-        {Array.from({ length: gridSize }).map((_, x) =>
-          Array.from({ length: gridSize }).map((_, y) => (
-            <CellFloor key={`${x}-${y}`} position={[x - half, 0, y - half]} />
-          ))
-        )}
-
-        <GoalStrip gridSize={gridSize} half={half} />
-
-        <Box position={[boxX - half, boxY - half]} />
-        <Agent position={[agentX - half, agentY - half]} />
-
-        <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
-        <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
-      </Canvas>
-
-      <div style={{ position: 'absolute', top: 10, left: 10, color: '#fff' }}>
-        <Link
-          to="/"
-          style={{
-            fontFamily: 'monospace',
-            color: '#fff',
-            textDecoration: homeHover ? 'none' : 'underline',
-            display: 'inline-block',
-          }}
-          onMouseEnter={() => setHomeHover(true)}
-          onMouseLeave={() => setHomeHover(false)}
-        >
-          Home
-        </Link>
-        <Text h1 style={{ margin: '0 0 12px 0', color: '#fff' }}>
-          Push-Block Example
-        </Text>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>
-            Train
-          </Button>
-          <Button auto type="success" disabled={!trained} onClick={startRun}>
-            Run
-          </Button>
-          {trained && (
-            <Button auto type="error" onClick={resetTraining}>
-              Reset
-            </Button>
+          {Array.from({ length: gridSize }).map((_, x) =>
+            Array.from({ length: gridSize }).map((_, y) => (
+              <CellFloor key={`${x}-${y}`} position={[x - half, 0, y - half]} />
+            ))
           )}
+
+          <GoalStrip gridSize={gridSize} half={half} />
+
+          <Box position={[boxX - half, boxY - half]} />
+          <Agent position={[agentX - half, agentY - half]} />
+
+          <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
+          <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
+        </Canvas>
+
+        <div
+          style={{
+            position: 'absolute',
+            top: 10,
+            left: 10,
+            color: '#fff',
+            textShadow: '0 0 4px #000',
+            zIndex: 1,
+          }}
+        >
+          <Link
+            to="/"
+            style={{
+              fontFamily: 'monospace',
+              color: '#fff',
+              textDecoration: homeHover ? 'none' : 'underline',
+              display: 'inline-block',
+              fontSize: isMobile ? '12px' : '14px',
+            }}
+            onMouseEnter={() => setHomeHover(true)}
+            onMouseLeave={() => setHomeHover(false)}
+          >
+            Home
+          </Link>
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : 'inherit' }}>
+            Push-Block Example
+          </Text>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>
+              Train
+            </Button>
+            <Button auto type="success" disabled={!trained} onClick={startRun}>
+              Run
+            </Button>
+            {trained && (
+              <Button auto type="error" onClick={resetTraining}>
+                Reset
+              </Button>
+            )}
+          </div>
+          <ModelInfoPanel modelInfo={modelInfo} />
         </div>
+
+        <EquationPanel equation="Q(s, a) \leftarrow Q(s, a) + \alpha [r + \gamma \max_{a'} Q(s', a') - Q(s, a)]" description="Q-learning update:&nbsp;Q(s,a) is the action-value,&nbsp;α the learning rate,&nbsp;γ the discount factor,&nbsp;r the reward,&nbsp;s' the next state." />
+        <InfoPanel logs={logs} chartState={chartState} />
+        <ButtonForkOnGithub position={{ top: '10px', right: '10px' }} />
       </div>
-
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 10,
-          left: 10,
-          width: 'auto',
-          maxWidth: '420px',
-          background: 'rgba(0,0,0,0.95)',
-          color: '#fff',
-          padding: '6px 8px',
-          fontSize: 14,
-          textAlign: 'left',
-          justifyContent: 'flex-start',
-        }}
-      >
-        <BlockMath
-          math={"Q(s,a) \\leftarrow Q(s,a) + \\alpha\\, \\bigl( r + \\gamma (1 - d) \\max_{a'} Q(s',a') - Q(s,a) \\bigr)"}
-          style={{ textAlign: 'left' }}
-        />
-        <div style={{ fontSize: 10, fontFamily: 'monospace', marginTop: 4 }}>
-          Q-learning update: α learning rate, γ discount factor, d done flag (1 if terminal), r reward, a′ next action, s′ next state.
-        </div>
-      </div>
-
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 160,
-          right: 10,
-          width: '30%',
-          height: '180px',
-          background: 'rgba(255,255,255,0.05)',
-          padding: 4,
-        }}
-      >
-        <ChartPanel labels={chartState.labels} rewards={chartState.rewards} losses={chartState.losses} />
-      </div>
-
-      <DebugConsole logs={logs} />
-
-      <ButtonForkOnGithub position={{ top: '20px', right: '20px' }} />
     </div>
   );
 } 

@@ -1,20 +1,14 @@
 import React, { useState } from 'react';
-import { Button, useMediaQuery } from '@geist-ui/core';
+import { Button } from '@geist-ui/core';
 import { BlockMath } from 'react-katex';
-import { ChevronsDown, ChevronsUp } from '@geist-ui/icons';
-import { Function } from '@geist-ui/icons'
+import { ChevronsDown } from '@geist-ui/icons';
+import { Function } from '@geist-ui/icons';
+import { useResponsive } from '../hooks/useResponsive';
 
 
 export default function EquationPanel({ equation, description }) {
-  let defaultOpen = true;
-  if (window.innerWidth < 768) {
-    defaultOpen = false;
-  }
-
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  const isMediumOrSmaller = useMediaQuery('md');
-
-
+  const { isMobile } = useResponsive();
+  const [isOpen, setIsOpen] = useState(!isMobile);
 
   if (!isOpen) {
     return (
@@ -37,11 +31,11 @@ export default function EquationPanel({ equation, description }) {
         position: 'absolute',
         bottom: 10,
         left: 10,
-        width: isMediumOrSmaller ? '45%' : 'calc(100vw - 54px)',
+        width: isMobile ? 'calc(100vw - 54px)' : '45%',
         background: 'rgba(0,0,0,0.95)',
         color: '#fff',
         padding: '12px 16px',
-        fontSize: isMediumOrSmaller ? 12 : 14,
+        fontSize: isMobile ? 12 : 14,
         borderRadius: '8px',
         border: '1px solid rgba(255,255,255,0.2)',
         zIndex: 10,
@@ -58,9 +52,9 @@ export default function EquationPanel({ equation, description }) {
           top: 5,
           right: 5,
           zIndex: 2,
+          backgroundColor: 'transparent',
+          border: 'none',
         }}
-        type="ghost"
-        ghost
       />
 
       <div style={{ overflowX: 'scroll' }}>
@@ -68,7 +62,7 @@ export default function EquationPanel({ equation, description }) {
           math={equation}
         />
       </div>
-      <div style={{ fontSize: isMediumOrSmaller ? 8 : 10, fontFamily: 'monospace', marginTop: 4 }}>
+      <div style={{ fontSize: isMobile ? 8 : 10, fontFamily: 'monospace', marginTop: 4 }}>
         {description}
       </div>
     </div>

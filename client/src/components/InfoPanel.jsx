@@ -1,17 +1,13 @@
 import React, { useState } from 'react';
-import { Button, useMediaQuery } from '@geist-ui/core';
+import { Button } from '@geist-ui/core';
 import { Line } from 'react-chartjs-2';
 import DebugConsole from './DebugConsole.jsx';
 import { ChevronsDown, ChevronsUp, Activity } from '@geist-ui/icons';
+import { useResponsive } from '../hooks/useResponsive';
 
 export default function InfoPanel({ chartState, logs }) {
-  let defaultOpen = true;
-  if (window.innerWidth < 768) {
-    defaultOpen = false;
-  }
-
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  const isMediumOrSmaller = useMediaQuery('md'); 
+  const { isMobile } = useResponsive();
+  const [isOpen, setIsOpen] = useState(!isMobile);
 
   if (!isOpen) {
     return (
@@ -29,7 +25,7 @@ export default function InfoPanel({ chartState, logs }) {
         position: 'absolute',
         bottom: 10,
         right: 10,
-        width: isMediumOrSmaller ? '45%' : 'calc(100% - 20px)',
+        width: isMobile ? 'calc(100% - 20px)' : '45%',
         display: 'flex',
         flexDirection: 'column',
         gap: '10px',
@@ -48,11 +44,11 @@ export default function InfoPanel({ chartState, logs }) {
       >
         <Button
           auto
-          type="secondary"
           scale={0.5}
           icon={<ChevronsDown />}
           onClick={() => setIsOpen(false)}
           style={{ position: 'absolute', top: 5, right: 5, zIndex: 10 }}
+          type="abort"
         />
         <Line
           data={{
