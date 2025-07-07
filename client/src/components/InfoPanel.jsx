@@ -30,6 +30,7 @@ export default function InfoPanel({ chartState, logs }) {
         flexDirection: 'column',
         gap: '10px',
         zIndex: 10,
+        maxWidth: '420px',
       }}
     >
       <div
