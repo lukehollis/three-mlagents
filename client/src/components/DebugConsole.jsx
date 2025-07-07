@@ -1,7 +1,9 @@
 import React, { useEffect, useRef } from 'react';
+import { useMediaQuery } from '@geist-ui/core';
 
 export default function DebugConsole({ logs }) {
   const containerRef = useRef(null);
+  const isMobile = useMediaQuery('sm');
 
   useEffect(() => {
     const el = containerRef.current;
@@ -14,17 +16,16 @@ export default function DebugConsole({ logs }) {
     <div
       ref={containerRef}
       style={{
-        position: 'absolute',
-        bottom: 10,
-        right: 10,
-        width: '30%',
+        width: '100%',
         height: '140px',
         overflowY: 'scroll',
         background: 'rgba(0,0,0,0.95)',
         color: '#0f0',
         fontFamily: 'monospace',
-        fontSize: 10,
-        padding: 4,
+        fontSize: isMobile ? 8 : 10,
+        padding: '8px',
+        borderRadius: '8px',
+        border: '1px solid rgba(255,255,255,0.2)',
       }}
     >
       {logs.map((ln, i) => {

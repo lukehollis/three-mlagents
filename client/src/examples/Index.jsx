@@ -1,27 +1,35 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Page, Grid, Card, Text, Spacer, Button } from '@geist-ui/core';
+import { Page, Grid, Card, Text, Spacer, Button, useMediaQuery } from '@geist-ui/core';
 import { Play } from 'geist-icons';
 import { Github } from '@geist-ui/icons';
 import TronBackground from '../components/TronBackground.jsx';
 
 export default function ExamplesIndex() {
+  const isXs = useMediaQuery('xs');
   return (
     <>
       <TronBackground />
 
-      <Page style={{ backgroundColor: 'transparent', minHeight: '100vh' }}>
-        <Page.Header style={{ backgroundColor: 'transparent', position: 'relative', zIndex: 1, padding: '3rem 0 1rem 0' }}>
-          <Text h1 style={{ color: '#fff', marginBottom: '8px', textShadow: '0 0 10px rgba(0, 255, 255, 0.5)' }}>Three ML-Agents Examples</Text>
-          <Text p style={{ color: '#ccc' }}>Interactive reinforcement learning environments in the browser. Learn more about the project and fork on <a href="https://github.com/lukehollis/three-mlagents" target="_blank" rel="noopener noreferrer" style={{ color: '#00ffff', textDecoration: 'none' }}>GitHub</a>. Built by <a href="https://github.com/lukehollis" target="_blank" rel="noopener noreferrer" style={{ color: '#00ffff', textDecoration: 'none' }}>Luke Hollis</a>.</Text>
+      <Page style={{ backgroundColor: 'transparent', minHeight: '100vh', padding: isXs ? '0 1rem' : undefined, margin: '0 auto', maxWidth: '1200px', width: '100vw' }}>
+        <Page.Header style={{ backgroundColor: 'transparent', position: 'relative', zIndex: 1, padding: isXs ? '1.5rem 0 1rem' : '3rem 1rem 1rem', textAlign: 'center' }}>
+          <Text h1 style={{ 
+            color: '#fff', 
+            marginBottom: '1rem', 
+            textShadow: '0 0 10px rgba(0, 255, 255, 0.5)',
+            fontSize: isXs ? '2.2rem' : '3rem',
+            lineHeight: isXs ? '2.8rem' : '3.5rem',
+          }}>Three ML-Agents Examples</Text>
+          <Text p style={{ color: '#ccc', maxWidth: '600px', margin: 'auto' }}>Interactive reinforcement learning environments in the browser. Learn more about the project and fork on <a href="https://github.com/lukehollis/three-mlagents" target="_blank" rel="noopener noreferrer" style={{ color: '#00ffff', textDecoration: 'none' }}>GitHub</a>. Built by <a href="https://github.com/lukehollis" target="_blank" rel="noopener noreferrer" style={{ color: '#00ffff', textDecoration: 'none' }}>Luke Hollis</a>.</Text>
         </Page.Header>
         
         <Page.Content style={{ backgroundColor: 'transparent', position: 'relative', zIndex: 1 }}>
-        <Grid.Container gap={2} justify="center">
+        <Grid.Container gap={isXs ? 1.5 : 2} justify="center">
           <Grid xs={24} sm={16} md={12} lg={8}>
             <Card 
               hoverable 
               style={{ 
+                width: '100%',
                 backgroundColor: 'rgba(17, 17, 17, 0.8)', 
                 boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -45,13 +53,13 @@ export default function ExamplesIndex() {
                   </div>
                 </Link>
               </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/basic" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
                     Basic Environment
                   </Text>
                 </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
                   1-D Move-To-Goal - Agent learns to reach targets for rewards
                 </Text>
                 <Link to="/basic" style={{ textDecoration: 'none' }}>
@@ -70,6 +78,7 @@ export default function ExamplesIndex() {
             <Card 
               hoverable 
               style={{ 
+                width: '100%',
                 backgroundColor: 'rgba(17, 17, 17, 0.8)', 
                 boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -93,13 +102,13 @@ export default function ExamplesIndex() {
                   </div>
                 </Link>
               </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/ball3d" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
                     3DBall Balance
                   </Text>
                 </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
                   Tilt the platform to keep the ball from falling off the edge.
                 </Text>
                 <Link to="/ball3d" style={{ textDecoration: 'none' }}>
@@ -118,6 +127,7 @@ export default function ExamplesIndex() {
             <Card 
               hoverable 
               style={{ 
+                width: '100%',
                 backgroundColor: 'rgba(17, 17, 17, 0.8)', 
                 boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -141,13 +151,13 @@ export default function ExamplesIndex() {
                   </div>
                 </Link>
               </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/gridworld" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
                     GridWorld Navigation
                   </Text>
                 </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
                   Navigate to the correct goal while avoiding incorrect ones.
                 </Text>
                 <Link to="/gridworld" style={{ textDecoration: 'none' }}>
@@ -166,6 +176,7 @@ export default function ExamplesIndex() {
             <Card 
               hoverable 
               style={{ 
+                width: '100%',
                 backgroundColor: 'rgba(17, 17, 17, 0.8)', 
                 boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -189,13 +200,13 @@ export default function ExamplesIndex() {
                   </div>
                 </Link>
               </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/push" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
                     Push-Block
                   </Text>
                 </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
                   Push the box to the goal strip while learning optimal manoeuvres.
                 </Text>
                 <Link to="/push" style={{ textDecoration: 'none' }}>
@@ -214,6 +225,7 @@ export default function ExamplesIndex() {
             <Card 
               hoverable 
               style={{ 
+                width: '100%',
                 backgroundColor: 'rgba(17, 17, 17, 0.8)', 
                 boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -237,13 +249,13 @@ export default function ExamplesIndex() {
                   </div>
                 </Link>
               </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/walljump" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
                     Wall Jump
                   </Text>
                 </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
                   Learn to jump over walls to reach the goal and avoid other obstacles in your path.
                 </Text>
                 <Link to="/walljump" style={{ textDecoration: 'none' }}>
@@ -262,6 +274,7 @@ export default function ExamplesIndex() {
             <Card 
               hoverable 
               style={{ 
+                width: '100%',
                 backgroundColor: 'rgba(17, 17, 17, 0.8)', 
                 boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -285,13 +298,13 @@ export default function ExamplesIndex() {
                   </div>
                 </Link>
               </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/crawler" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
                     Ant (Crawler)
                   </Text>
                 </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
                   Move the ant towards the goal while maintaining balance and direction. (Ant-v5)
                 </Text>
                 <Link to="/crawler" style={{ textDecoration: 'none' }}>
@@ -310,6 +323,7 @@ export default function ExamplesIndex() {
             <Card 
               hoverable 
               style={{ 
+                width: '100%',
                 backgroundColor: 'rgba(17, 17, 17, 0.8)', 
                 boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -333,13 +347,13 @@ export default function ExamplesIndex() {
                   </div>
                 </Link>
               </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
                 <Link to="/worm" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
                     Worm
                   </Text>
                 </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5' }}>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
                   Learn to swim and move towards a goal direction. (Swimmer-v5)
                 </Text>
                 <Link to="/worm" style={{ textDecoration: 'none' }}>
@@ -366,11 +380,11 @@ export default function ExamplesIndex() {
         rel="noopener noreferrer"
         style={{
           position: 'fixed',
-          right: '20px',
-          bottom: '20px',
+          right: isXs ? '10px' : '20px',
+          bottom: isXs ? '10px' : '20px',
           backgroundColor: 'rgba(17, 17, 17, 0.8)',
           color: '#fff',
-          padding: '10px 16px',
+          padding: isXs ? '8px 12px' : '10px 16px',
           borderRadius: '6px',
           fontWeight: 500,
           textDecoration: 'none',
