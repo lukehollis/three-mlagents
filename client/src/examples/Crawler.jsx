@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
-import { Button, Text, useMediaQuery } from '@geist-ui/core';
+import { Button, Text } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
@@ -9,6 +9,7 @@ import 'katex/dist/katex.min.css';
 import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import { useResponsive } from '../hooks/useResponsive.js';
 
 // WebSocket endpoint – exposed by crawler2.py routes (assumed to be /ws/ant)
 const WS_URL = `${config.WS_BASE_URL}/ws/ant`;
@@ -26,7 +27,7 @@ export default function Crawler2Example() {
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
   const [homeHover, setHomeHover] = useState(false);
-  const isMobile = useMediaQuery('sm') || useMediaQuery('xs');
+  const { isMobile } = useResponsive();
 
   const addLog = (txt) => {
     setLogs((l) => {

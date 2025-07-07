@@ -3,12 +3,13 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Stars, Grid } from '@react-three/drei';
 import config from '../config.js';
 import 'katex/dist/katex.min.css';
-import { Text, Button, useMediaQuery } from '@geist-ui/core';
+import { Text, Button } from '@geist-ui/core';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import { Link } from 'react-router-dom';
+import { useResponsive } from '../hooks/useResponsive.js';
 
 const ROWS = 3;
 const COLS = 4;
@@ -46,7 +47,7 @@ export default function Ball3DExample() {
 
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const [homeHover, setHomeHover] = useState(false);
-  const isMobile = useMediaQuery('sm') || useMediaQuery('xs');
+  const { isMobile } = useResponsive();
 
   const envRef = useRef({ rotX: 0, rotZ: 0, ballX: 0, ballZ: 0, velX: 0, velZ: 0 });
 

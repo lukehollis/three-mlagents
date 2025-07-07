@@ -2,13 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid, Stars } from '@react-three/drei';
 import config from '../config.js';
-import { Text, Button, useMediaQuery } from '@geist-ui/core';
+import { Text, Button } from '@geist-ui/core';
 import 'katex/dist/katex.min.css';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import { Link } from 'react-router-dom';
 import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import { useResponsive } from '../hooks/useResponsive.js';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/push`;
 const CELL_SIZE = 1;
@@ -73,7 +74,7 @@ export default function PushExample() {
   const [modelInfo, setModelInfo] = useState(null);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const [homeHover, setHomeHover] = useState(false);
-  const isMobile = useMediaQuery('sm') || useMediaQuery('xs');
+  const { isMobile } = useResponsive();
 
   const envRef = useRef({ ...state, steps: 0 });
   const wsRef = useRef(null);

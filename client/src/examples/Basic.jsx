@@ -10,12 +10,13 @@ import {
 } from 'chart.js';
 import config from '../config.js';
 import 'katex/dist/katex.min.css';
-import { Text, Button, useMediaQuery } from '@geist-ui/core';
+import { Text, Button } from '@geist-ui/core';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import { Link } from 'react-router-dom';
+import { useResponsive } from '../hooks/useResponsive.js';
 
 ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale);
 
@@ -62,7 +63,7 @@ export default function BasicExample() {
 
   // Add hover state for Home link
   const [homeHover, setHomeHover] = useState(false);
-  const isMobile = useMediaQuery('sm') || useMediaQuery('xs');
+  const { isMobile } = useResponsive();
 
   const step = useCallback((direction) => {
     setPos((prev) => {
