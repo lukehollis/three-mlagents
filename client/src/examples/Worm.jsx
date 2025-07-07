@@ -200,7 +200,7 @@ export default function WormExample() {
           >
             Home
           </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : 'inherit' }}>
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
             Worm
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>

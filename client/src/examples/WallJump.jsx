@@ -296,8 +296,8 @@ export default function WallJumpExample() {
           >
             Home
           </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : 'inherit' }}>
-            Wall Jump Example
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+            Wall Jump
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>

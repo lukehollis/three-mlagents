@@ -288,7 +288,7 @@ export default function BasicExample() {
           >
             Home
           </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : 'inherit' }}>
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
             Basic Example - 1-D Move-To-Goal
           </Text>
           <Text h3 style={{ margin: '0 0 12px 0', color: '#fff', fontSize: isMobile ? '12px' : 'inherit' }}>
