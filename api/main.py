@@ -193,3 +193,4 @@ async def websocket_worm(ws: WebSocket):
             act_vec = infer_action_worm(obs)
             await ws.send_json({"type": "action", "action": act_vec})
 
+
