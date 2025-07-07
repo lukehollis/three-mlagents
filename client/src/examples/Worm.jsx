@@ -31,39 +31,38 @@ const WormSegment = ({ segment, isHead }) => {
   const threePos = mujocoToThreePos(segment.pos);
   const threeQuat = mujocoToThreeQuat(segment.quat);
   
-  // MuJoCo size is [radius, half-height]. Drei Capsule length is the cylinder part.
+  // MuJoCo size is [radius, half-height].
   const radius = segment.size ? segment.size[0] : 0.15;
-  const length = segment.size ? segment.size[1] : 0.2;
+  // This is half of the segment's total length (from joint to end-cap).
+  const halfLength = segment.size ? segment.size[1] : 0.2;
+  // The cylinder part of the Drei capsule is the total length minus the two hemi-spherical caps.
+  const cylinderLength = 2 * halfLength - 2 * radius;
+
+  // The head/torso's position is its center; child segments' positions are their parent joints.
+  // Therefore, only child segments need to be offset from their origin.
+  const positionOffset = isHead ? [0, 0, 0] : [0, halfLength, 0];
 
   return (
     <group position={threePos} quaternion={threeQuat}>
-      {/*
-        Rotate the geometry so the capsule's default Y-axis aligns with
-        the MuJoCo body's X-axis, which is the primary axis for length.
-      */}
+      {/* Rotate geometry to align capsule's Y-axis with MuJoCo's X-axis. */}
       <group rotation={[0, 0, Math.PI / 2]}>
-        {/* Main capsule for the segment */}
-        <Capsule args={[radius, length, 16]}>
-          <meshStandardMaterial color="#00aaff" />
-        </Capsule>
+        {/* Apply the conditional offset. */}
+        <group position={positionOffset}>
+          <Capsule args={[radius, cylinderLength, 16]}>
+            <meshStandardMaterial color="#00aaff" />
+          </Capsule>
       
-        {/* Head decorations (in the new rotated & shifted coordinate system) */}
-        {isHead && (
-          <group position={[-length / 2, 0, 0]}>
-            <mesh rotation={[Math.PI / 2, 0, 0]} position={[length / 2, 0, 0]}>
-              <torusGeometry args={[radius + 0.01, 0.03, 8, 32]} />
-              <meshStandardMaterial color="#ffaa00" emissive="#331100" />
-            </mesh>
-            <mesh position={[length / 2 + radius * 0.7, 0, radius * 0.7]}>
-              <sphereGeometry args={[0.05, 12, 8]} />
-              <meshStandardMaterial color="white" />
-            </mesh>
-            <mesh position={[length / 2 + radius * 0.7, 0, -radius * 0.7]}>
-              <sphereGeometry args={[0.05, 12, 8]} />
-              <meshStandardMaterial color="white" />
-            </mesh>
-          </group>
-        )}
+          {/* Head decorations are positioned relative to the capsule's center. */}
+          {isHead && (
+            // The capsule's tip is at y = halfLength from its center.
+            <group position={[0, halfLength -0.3, 0]}>
+              <mesh rotation={[Math.PI / 2, 0, 0]}>
+                <torusGeometry args={[radius + 0.01, 0.03, 8, 32]} />
+                <meshStandardMaterial color="#ffaa00" emissive="#331100" />
+              </mesh>
+            </group>
+          )}
+        </group>
       </group>
     </group>
   );
