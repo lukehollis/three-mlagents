@@ -193,8 +193,3 @@ async def websocket_worm(ws: WebSocket):
             act_vec = infer_action_worm(obs)
             await ws.send_json({"type": "action", "action": act_vec})
 
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(app, host="0.0.0.0", port=8001) 
