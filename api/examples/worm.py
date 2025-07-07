@@ -108,13 +108,14 @@ class ActorCritic(nn.Module):
             nn.Linear(obs_size, 256), nn.Tanh(),
             nn.Linear(256, 128), nn.Tanh()
         )
-        self.actor_mean = nn.Linear(128, ACTION_SIZE)
+        self.actor_mean = nn.Sequential(nn.Linear(128, ACTION_SIZE), nn.Tanh())
         self.log_std = nn.Parameter(torch.full((ACTION_SIZE,), -0.5))
         self.critic = nn.Linear(128, 1)
 
     def forward(self, obs: torch.Tensor):  # type: ignore[override]
         h = self.shared(obs)
-        return self.actor_mean(h), self.log_std.expand_as(self.actor_mean(h)), self.critic(h)
+        mean = self.actor_mean(h)
+        return mean, self.log_std.expand_as(mean), self.critic(h)
 
 # Training hyper-parameters (kept identical to other examples for now)
 POLICIES_DIR = "policies"
