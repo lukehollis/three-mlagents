@@ -66,7 +66,11 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 
 [Live demo](https://lukehollis.github.io/three-mlagents/crawler)
 
+### 6. Swimmer / Worm
 
+![worm_example](https://github.com/user-attachments/assets/6ae84aac-ef38-4e79-a2e9-b4079b61bb8e)
+
+[Live demo](https://lukehollis.github.io/three-mlagents/worm)
 
 
 ## Project layout
