@@ -368,6 +368,55 @@ export default function ExamplesIndex() {
               </Card.Footer>
             </Card>
           </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/brickbreak" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/push_block_example.jpg" 
+                      alt="BrickBreak Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/brickbreak" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    BrickBreak
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  Destroy all the bricks with a ball and paddle.
+                </Text>
+                <Link to="/brickbreak" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
         </Grid.Container>
         
               </Page.Content>

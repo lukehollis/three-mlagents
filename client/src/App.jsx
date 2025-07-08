@@ -8,6 +8,7 @@ import PushExample from './examples/Push.jsx';
 import WallJumpExample from './examples/WallJump.jsx';
 import CrawlerExample from './examples/Crawler.jsx';
 import WormExample from './examples/Worm.jsx';
+import BrickBreakExample from './examples/BrickBreak.jsx';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/walljump" element={<WallJumpExample />} />
         <Route path="/crawler" element={<CrawlerExample />} />
         <Route path="/worm" element={<WormExample />} />
+        <Route path="/brickbreak" element={<BrickBreakExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
