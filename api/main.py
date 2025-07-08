@@ -14,6 +14,7 @@ from examples.walljump import train_walljump, infer_action_walljump
 from examples.crawler import train_ant, infer_action_ant, run_ant
 from examples.worm import train_worm, infer_action_worm, run_worm
 from examples.worm import WormEnvWrapper
+from examples.brick_break import train_brick_break, run_brick_break, BrickBreakEnv
 
 app = FastAPI(title="ML-Agents API")
 
@@ -192,5 +193,23 @@ async def websocket_worm(ws: WebSocket):
             obs = data.get("obs", [])  # raw 8-D observation
             act_vec = infer_action_worm(obs)
             await ws.send_json({"type": "action", "action": act_vec})
+
+
+# WebSocket endpoint for BrickBreak
+@app.websocket("/ws/brickbreak")
+async def websocket_brick_break(websocket: WebSocket):
+    await websocket.accept()
+    preview_env = BrickBreakEnv()
+    preview_state = preview_env.get_state_for_viz()
+    await websocket.send_json({"type": "state", "state": preview_state, "episode": 0})
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data['cmd'] == 'train':
+                await train_brick_break(websocket)
+            elif data['cmd'] == 'run':
+                await run_brick_break(websocket)
+    except Exception as e:
+        print(f"BrickBreak websocket disconnected: {e}")
 
 
