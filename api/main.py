@@ -15,6 +15,7 @@ from examples.crawler import train_ant, infer_action_ant, run_ant
 from examples.worm import train_worm, infer_action_worm, run_worm
 from examples.worm import WormEnvWrapper
 from examples.brick_break import train_brick_break, run_brick_break, BrickBreakEnv
+from examples.food_collector import train_food_collector, run_food_collector, FoodCollectorEnv
 
 app = FastAPI(title="ML-Agents API")
 
@@ -212,4 +213,21 @@ async def websocket_brick_break(websocket: WebSocket):
     except Exception as e:
         print(f"BrickBreak websocket disconnected: {e}")
 
+
+# WebSocket endpoint for FoodCollector
+@app.websocket("/ws/foodcollector")
+async def websocket_food_collector(websocket: WebSocket):
+    await websocket.accept()
+    preview_env = FoodCollectorEnv()
+    preview_state = preview_env.get_state_for_viz()
+    await websocket.send_json({"type": "state", "state": preview_state, "episode": 0})
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data['cmd'] == 'train':
+                await train_food_collector(websocket)
+            elif data['cmd'] == 'run':
+                await run_food_collector(websocket)
+    except Exception as e:
+        print(f"FoodCollector websocket disconnected: {e}")
 

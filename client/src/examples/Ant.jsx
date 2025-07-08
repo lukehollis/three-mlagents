@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Grid } from '@react-three/drei';
-import { Button, Text } from '@geist-ui/core';
+import { Button, Text, useMediaQuery } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
@@ -14,7 +14,7 @@ import { useResponsive } from '../hooks/useResponsive.js';
 // WebSocket endpoint – exposed by crawler2.py routes (assumed to be /ws/ant)
 const WS_URL = `${config.WS_BASE_URL}/ws/ant`;
 
-export default function Crawler2Example() {
+export default function AntExample() {
   const [state, setState] = useState({
     basePos: [0, 0, 0.45],
     baseOri: [0, 0, 0, 1],
@@ -48,8 +48,8 @@ export default function Crawler2Example() {
       } catch {
         return;
       }
-      if (parsed.type === 'train_step' || parsed.type === 'run_step') {
-        setState((prev) => ({ ...prev, ...parsed.state }));
+      if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state') {
+        setState(prev => ({ ...prev, ...parsed.state }));
       }
       if (parsed.type === 'progress') {
         setChartState((prev) => ({
@@ -108,21 +108,11 @@ export default function Crawler2Example() {
   const threeQuat = state.baseOri ? mujocoToThreeQuat(state.baseOri) : [0, 0, 0, 1];
 
   return (
-    <div
-      style={{
-        width: '100vw',
-        height: '100vh',
-        overflow: 'hidden',
-        outline: 'none',
-        background: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
+    <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', outline: 'none', background: '#000011', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, position: 'relative' }}>
-        <Canvas camera={{ position: [0, 6, 10], fov: 50 }} style={{ background: 'transparent', width: '100vw', height: '100vh', overflow: 'hidden' }}>
+        <Canvas camera={{ position: [5, 5, 5], fov: 60 }} style={{ background: 'transparent' }}>
           <ambientLight intensity={0.5} />
-          <directionalLight position={[5, 10, 5]} intensity={1} />
+          <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
           <Grid args={[24, 24]} cellSize={1} />
 
           {/* Ant body visualisation */}
@@ -136,8 +126,8 @@ export default function Crawler2Example() {
             {Array.from({ length: 4 }).map((_, i) => {
               const hipAngle = state.jointAngles[i * 2] || 0; // hip
               const kneeAngle = state.jointAngles[i * 2 + 1] || 0; // knee
-              const isLeft = i % 2 === 0; // 0,2 are left
-              const isFront = i < 2; // 0,1 front
+              const isLeft = i % 2 === 0;
+              const isFront = i < 2;
               const side = isLeft ? 1 : -1;
               const frontBack = isFront ? 1 : -1;
 
@@ -168,30 +158,8 @@ export default function Crawler2Example() {
 
           <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
         </Canvas>
-
-        {/* UI overlay */}
-        <div
-          style={{
-            position: 'absolute',
-            top: 10,
-            left: 10,
-            color: '#fff',
-            textShadow: '0 0 4px #000',
-            zIndex: 1,
-          }}
-        >
-          <Link
-            to="/"
-            style={{
-              fontFamily: 'monospace',
-              color: '#fff',
-              textDecoration: homeHover ? 'none' : 'underline',
-              display: 'inline-block',
-              fontSize: isMobile ? '12px' : '14px',
-            }}
-            onMouseEnter={() => setHomeHover(true)}
-            onMouseLeave={() => setHomeHover(false)}
-          >
+        <div style={{ position: 'absolute', top: 10, left: 10, color: '#fff', textShadow: '0 0 4px #000', zIndex: 1 }}>
+          <Link to="/" style={{ fontFamily: 'monospace', color: '#fff', textDecoration: homeHover ? 'none' : 'underline', display: 'inline-block', fontSize: isMobile ? '12px' : '14px' }} onMouseEnter={() => setHomeHover(true)} onMouseLeave={() => setHomeHover(false)}>
             Home
           </Link>
           <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>

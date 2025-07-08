@@ -6,9 +6,10 @@ import Ball3DExample from './examples/Ball3D.jsx';
 import GridWorldExample from './examples/GridWorld.jsx';
 import PushExample from './examples/Push.jsx';
 import WallJumpExample from './examples/WallJump.jsx';
-import CrawlerExample from './examples/Crawler.jsx';
+import AntExample from './examples/Ant.jsx';
 import WormExample from './examples/Worm.jsx';
 import BrickBreakExample from './examples/BrickBreak.jsx';
+import FoodCollectorExample from './examples/FoodCollector.jsx';
 
 export default function App() {
   return (
@@ -25,9 +26,10 @@ export default function App() {
         <Route path="/gridworld" element={<GridWorldExample />} />
         <Route path="/push" element={<PushExample />} />
         <Route path="/walljump" element={<WallJumpExample />} />
-        <Route path="/crawler" element={<CrawlerExample />} />
+        <Route path="/crawler" element={<AntExample />} />
         <Route path="/worm" element={<WormExample />} />
         <Route path="/brickbreak" element={<BrickBreakExample />} />
+        <Route path="/foodcollector" element={<FoodCollectorExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
