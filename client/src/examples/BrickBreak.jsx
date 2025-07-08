@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Box, Sphere } from '@react-three/drei';
+import { OrbitControls, Box, Sphere, Stars } from '@react-three/drei';
 import { Button, Text } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
+// import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import 'katex/dist/katex.min.css';
@@ -17,21 +18,21 @@ const WS_URL = `${config.WS_BASE_URL}/ws/brickbreak`;
 // Helper to map 2D environment coords to 3D plane
 const to3D = (pos, y = 0) => [pos[0], y, pos[1]];
 
-const Brick = ({ position, size }) => (
-  <Box args={[size[0], 2, size[1]]} position={to3D(position, 1)}>
-    <meshStandardMaterial color="#ffaa00" />
+const Brick = ({ pos, size }) => (
+  <Box args={[size[0], 2, size[1]]} position={to3D(pos, 1)}>
+    <meshStandardMaterial color="#00ffaa" emissive="#00ffaa" emissiveIntensity={0.5} />
   </Box>
 );
 
-const Paddle = ({ position, size }) => (
-  <Box args={[size[0], 2, size[1]]} position={to3D(position, 1)}>
-    <meshStandardMaterial color="#00aaff" />
+const Paddle = ({ pos, size }) => (
+  <Box args={[size[0], 2, size[1]]} position={to3D(pos, 1)}>
+    <meshStandardMaterial color="#ff00ff" emissive="#ff00ff" emissiveIntensity={0.5} />
   </Box>
 );
 
-const Ball = ({ position, radius }) => (
-  <Sphere args={[radius, 16, 16]} position={to3D(position, 1)}>
-    <meshStandardMaterial color="#ffffff" />
+const Ball = ({ pos, radius }) => (
+  <Sphere args={[radius, 32, 32]} position={to3D(pos, 1)}>
+    <meshStandardMaterial color="#ffffff" emissive="#00ffff" emissiveIntensity={2} />
   </Sphere>
 );
 
@@ -119,17 +120,18 @@ export default function BrickBreakExample() {
         height: '100vh',
         overflow: 'hidden',
         outline: 'none',
-        background: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
+        background: '#000011',
         display: 'flex',
         flexDirection: 'column',
       }}
     >
       <div style={{ flex: 1, position: 'relative' }}>
         <Canvas camera={{ position: [width / 2, 80, height / 2], fov: 50 }} style={{ background: 'transparent', width: '100vw', height: '100vh', overflow: 'hidden' }}>
-          <ambientLight intensity={0.8} />
-          <directionalLight position={[0, 40, 20]} intensity={1.5} />
+          <ambientLight intensity={0.2} />
+          <directionalLight position={[0, 40, 20]} intensity={0.5} />
+          <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
           
-          <group position={[-width / 2, 0, -height / 2]}>
+          <group position={[0, 0, height]} scale={[1, 1, -1]}>
             {state.ball && <Ball {...state.ball} />}
             {state.paddle && <Paddle {...state.paddle} />}
             {state.bricks.map((brick, i) => (
@@ -137,13 +139,15 @@ export default function BrickBreakExample() {
             ))}
 
             {/* Walls */}
-            <Box position={[width / 2, 1, -5]} args={[width, 2, 2]}><meshStandardMaterial color="#444" /></Box>
-            <Box position={[width / 2, 1, height + 5]} args={[width, 2, 2]}><meshStandardMaterial color="#444" /></Box>
-            <Box position={[-5, 1, height/2]} args={[2, 2, height]}><meshStandardMaterial color="#444" /></Box>
-            <Box position={[width+5, 1, height/2]} args={[2, 2, height]}><meshStandardMaterial color="#444" /></Box>
+            <Box position={[width / 2, 1, -5]} args={[width, 2, 2]}><meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={0.1} /></Box>
+            <Box position={[width / 2, 1, height + 5]} args={[width, 2, 2]}><meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={0.1} /></Box>
+            <Box position={[-5, 1, height/2]} args={[2, 2, height]}><meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={0.1} /></Box>
+            <Box position={[width+5, 1, height/2]} args={[2, 2, height]}><meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={0.1} /></Box>
 
           </group>
-
+          {/* <EffectComposer>
+            <Bloom intensity={0.6} luminanceThreshold={0.1} luminanceSmoothing={0.9} />
+          </EffectComposer> */}
           <OrbitControls target={[width / 2, 0, height / 2]} enablePan={false} />
         </Canvas>
 
