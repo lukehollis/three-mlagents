@@ -159,7 +159,7 @@ class ActorCritic(nn.Module):
 POLICIES_DIR = "policies"
 BATCH_SIZE = 2048
 MINI_BATCH = 256
-EPOCHS = 4
+EPOCHS = 8
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 CLIP_EPS = 0.2
@@ -209,7 +209,7 @@ async def train_brick_break(websocket: WebSocket):
     ep_counter = 0
     step_buffer: list[dict] = []
 
-    while ep_counter < 1000:
+    while ep_counter < 4000:
         with torch.no_grad():
             dist, value = model(obs)
             actions = dist.sample()
