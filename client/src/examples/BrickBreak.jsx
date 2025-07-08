@@ -4,7 +4,7 @@ import { OrbitControls, Box, Sphere, Stars } from '@react-three/drei';
 import { Button, Text } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
-// import { EffectComposer, Bloom } from '@react-three/postprocessing';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import 'katex/dist/katex.min.css';
@@ -26,7 +26,7 @@ const Brick = ({ pos, size }) => (
 
 const Paddle = ({ pos, size }) => (
   <Box args={[size[0], 2, size[1]]} position={to3D(pos, 1)}>
-    <meshStandardMaterial color="#ff00ff" emissive="#ff00ff" emissiveIntensity={0.5} />
+    <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={0.5} />
   </Box>
 );
 
@@ -145,9 +145,9 @@ export default function BrickBreakExample() {
             <Box position={[width+5, 1, height/2]} args={[2, 2, height]}><meshStandardMaterial color="#00ffff" emissive="#00ffff" emissiveIntensity={0.1} /></Box>
 
           </group>
-          {/* <EffectComposer>
+          <EffectComposer>
             <Bloom intensity={0.6} luminanceThreshold={0.1} luminanceSmoothing={0.9} />
-          </EffectComposer> */}
+          </EffectComposer>
           <OrbitControls target={[width / 2, 0, height / 2]} enablePan={false} />
         </Canvas>
 

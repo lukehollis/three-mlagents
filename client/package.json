@@ -18,6 +18,7 @@
     "@geist-ui/icons": "^1.0.2",
     "@react-three/drei": "^9.107.0",
     "@react-three/fiber": "^8.16.8",
+    "@react-three/postprocessing": "2.19.1",
     "chart.js": "^4.5.0",
     "geist-icons": "^1.2.3",
     "katex": "^0.16.22",

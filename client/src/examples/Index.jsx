@@ -384,7 +384,7 @@ export default function ExamplesIndex() {
                 <Link to="/brickbreak" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
-                      src="/three-mlagents/push_block_example.jpg" 
+                      src="/three-mlagents/brick_break_example.jpg" 
                       alt="BrickBreak Example"
                       style={{
                         width: '100%',
