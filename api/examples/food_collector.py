@@ -93,7 +93,20 @@ class FoodCollectorEnv:
             self.agents_pos[i] += self.agents_vel[i]
 
             # Wall collision
-            self.agents_pos[i] = np.clip(self.agents_pos[i], AGENT_RADIUS, AREA_SIZE - AGENT_RADIUS)
+            bounce_factor = -0.5
+            if self.agents_pos[i, 0] < AGENT_RADIUS:
+                self.agents_pos[i, 0] = AGENT_RADIUS
+                self.agents_vel[i, 0] *= bounce_factor
+            elif self.agents_pos[i, 0] > self.width - AGENT_RADIUS:
+                self.agents_pos[i, 0] = self.width - AGENT_RADIUS
+                self.agents_vel[i, 0] *= bounce_factor
+
+            if self.agents_pos[i, 1] < AGENT_RADIUS:
+                self.agents_pos[i, 1] = AGENT_RADIUS
+                self.agents_vel[i, 1] *= bounce_factor
+            elif self.agents_pos[i, 1] > self.height - AGENT_RADIUS:
+                self.agents_pos[i, 1] = self.height - AGENT_RADIUS
+                self.agents_vel[i, 1] *= bounce_factor
             
             if disc_action == 1: # Shoot
                 is_shooting[i] = True
