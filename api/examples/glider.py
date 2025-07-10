@@ -30,6 +30,11 @@ class GliderEnv:
         self.CD_k = 0.05 # Induced drag factor
         self.dt = 0.02
 
+        # Waypoints for navigation task
+        self.waypoints = [np.array([-80.0, 0.0, 70.0]), np.array([80.0, 0.0, 70.0])]
+        self.current_waypoint_index = 0
+        self.waypoint_threshold = 15.0 # How close to get to a waypoint
+
         # Wind model (sigmoid profile from the paper)
         self.wind_C1 = 15.0  # max wind speed
         self.wind_C2 = 0.1   # gradient thickness
@@ -58,6 +63,7 @@ class GliderEnv:
         self.vel = np.array([20.0, 0.0, -1.0])
         self.rot = np.zeros(3)
         self.ang_vel = np.random.uniform(-0.1, 0.1, 3)
+        self.current_waypoint_index = np.random.randint(0, len(self.waypoints))
         self.steps = 0
         return self._get_obs()
 
@@ -66,9 +72,13 @@ class GliderEnv:
 
         # --- Control inputs ---
         # Actions: 0:none, 1:roll_left, 2:roll_right, 3:pitch_up, 4:pitch_down
-        roll_torque, pitch_torque = 0.0, 0.0
-        if action == 1: roll_torque = -15.0
-        elif action == 2: roll_torque = 15.0
+        roll_torque, pitch_torque, yaw_torque = 0.0, 0.0, 0.0
+        if action == 1: 
+            roll_torque = -15.0
+            yaw_torque = 4.0 # Coordinated turn
+        elif action == 2: 
+            roll_torque = 15.0
+            yaw_torque = -4.0 # Coordinated turn
         elif action == 3: pitch_torque = 10.0
         elif action == 4: pitch_torque = -10.0
         
@@ -76,6 +86,7 @@ class GliderEnv:
         # Simplified rotational dynamics
         self.ang_vel[0] += roll_torque * self.dt
         self.ang_vel[1] += pitch_torque * self.dt
+        self.ang_vel[2] += yaw_torque * self.dt
         self.ang_vel *= 0.95 # damping
         self.rot += self.ang_vel * self.dt
 
@@ -120,11 +131,30 @@ class GliderEnv:
 
         # --- Termination & Reward ---
         done = False
-        reward = 0.0
         
-        # Reward for staying alive and high
-        reward += 0.1  # survival bonus
-        reward += self.pos[2] * 0.01 # altitude bonus
+        # Waypoint navigation logic
+        target_waypoint = self.waypoints[self.current_waypoint_index]
+        vec_to_target = target_waypoint - self.pos
+        dist_to_target = np.linalg.norm(vec_to_target)
+
+        if dist_to_target < self.waypoint_threshold:
+            self.current_waypoint_index = (self.current_waypoint_index + 1) % len(self.waypoints)
+
+        # Reward based on heading and energy
+        vel_dir = self.vel / (np.linalg.norm(self.vel) + 1e-8)
+        target_dir = vec_to_target / (dist_to_target + 1e-8)
+        heading_alignment = np.dot(vel_dir, target_dir)
+        
+        # Scale to [0, 1]
+        H = (heading_alignment + 1) / 2
+
+        v_mag = np.linalg.norm(self.vel)
+        # Scale velocity to a reasonable range for energy metric
+        E = np.clip(v_mag / 30.0, 0, 2.0)
+        
+        # Paper's mixed reward: R = E * (H - E + 1)
+        # This incentivizes high energy when heading is good, and energy seeking when it's low
+        reward = E * (H - E + 1)
 
         # Penalty for crashing
         if self.pos[2] < 5.0:
@@ -133,6 +163,11 @@ class GliderEnv:
         
         # Penalty for stalling
         if abs(aoa) > self.max_aoa:
+            reward = -50.0
+            done = True
+
+        # Penalty for flying too far away from the action
+        if dist_to_target > 300: # If it's more than 2x the waypoint separation
             reward = -50.0
             done = True
         
@@ -144,14 +179,23 @@ class GliderEnv:
 
     def _get_obs(self):
         # Observations for the agent
-        return np.array([
-            self.vel[2],            # vertical speed
-            self.pos[2] - self.wind_C3, # height relative to wind layer
-            self.rot[0],            # roll
-            self.rot[1],            # pitch
-            self.ang_vel[0],        # roll rate
-            self.ang_vel[1],        # pitch rate
-            *self.vel,
+        target_waypoint = self.waypoints[self.current_waypoint_index]
+        vec_to_target = target_waypoint - self.pos
+        dist_to_target = np.linalg.norm(vec_to_target)
+        dir_to_target = vec_to_target / (dist_to_target + 1e-8)
+
+        return np.concatenate([
+            np.array([
+                self.vel[2] / 10.0,            # vertical speed (normalized)
+                (self.pos[2] - self.wind_C3) / 50.0, # height relative to wind layer (normalized)
+                self.rot[0],                   # roll
+                self.rot[1],                   # pitch
+                self.ang_vel[0],               # roll rate
+                self.ang_vel[1],               # pitch rate
+            ]),
+            self.vel / 20.0, # velocity (normalized)
+            dir_to_target, # direction to target
+            [dist_to_target / 100.0] # distance to target (normalized)
         ])
 
     def get_state_for_viz(self) -> Dict[str, Any]:
@@ -159,7 +203,9 @@ class GliderEnv:
             "pos": self.pos.tolist(),
             "rot": self.rot.tolist(), # roll, pitch, yaw
             "wind_params": [self.wind_C1, self.wind_C2, self.wind_C3],
-            "bounds": [200, 200]
+            "bounds": [200, 200],
+            "waypoints": [w.tolist() for w in self.waypoints],
+            "current_waypoint_index": self.current_waypoint_index
         }
 
 # -----------------------------------------------------------------------------------
@@ -238,7 +284,7 @@ async def train_glider(websocket: WebSocket):
     
     total_steps = 0
 
-    while ep_counter < 8000:
+    while ep_counter < 1000:
         with torch.no_grad():
             dist, value = model(obs)
             actions = dist.sample()

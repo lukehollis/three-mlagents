@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Box, Cylinder, Stars, Plane, Grid } from '@react-three/drei';
 import { Button, Text } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
@@ -14,6 +14,43 @@ import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/glider`;
+
+const Waypoint = ({ position, isTarget }) => {
+  const ref = useRef();
+  useFrame(() => {
+    if (ref.current && isTarget) {
+      ref.current.rotation.y += 0.01;
+      ref.current.rotation.x += 0.01;
+    }
+  });
+  return (
+    <mesh ref={ref} position={position}>
+      <boxGeometry args={isTarget? [4,4,4] : [2, 2, 2]} />
+      <meshStandardMaterial
+        color={isTarget ? '#ff00ff' : '#ffffff'}
+        emissive={isTarget ? '#ff00ff' : '#ffffff'}
+        emissiveIntensity={isTarget ? 0.8 : 0.2}
+        wireframe
+        toneMapped={false}
+      />
+    </mesh>
+  );
+};
+
+const Waypoints = ({ waypoints, currentWaypointIndex }) => {
+  if (!waypoints) return null;
+  return (
+    <group>
+      {waypoints.map((wp, i) => (
+        <Waypoint
+          key={i}
+          position={[wp[0], wp[2], -wp[1]]} // Same coordinate transform as glider
+          isTarget={i === currentWaypointIndex}
+        />
+      ))}
+    </group>
+  );
+};
 
 const Glider = ({ state }) => {
   const { pos, rot } = state;
@@ -93,6 +130,37 @@ const Wind = ({ windParams }) => {
       <pointsMaterial size={0.15} color="#44ffff" transparent opacity={0.6} />
     </points>
   );
+};
+
+const CameraController = ({ state, controlsRef }) => {
+  const { camera } = useThree();
+
+  useFrame(() => {
+    if (state && controlsRef.current) {
+      const controls = controlsRef.current;
+      // Current glider position in the 3D scene
+      const gliderPosition = new THREE.Vector3(state.pos[0], state.pos[2], -state.pos[1]);
+
+      // The point the camera should be looking at
+      const targetPosition = new THREE.Vector3().copy(gliderPosition);
+
+      // Smoothly move the OrbitControls target to the glider's position
+      controls.target.lerp(targetPosition, 0.1);
+
+      // We don't want to just teleport the camera. We want it to follow smoothly.
+      // We calculate where the camera *should* be based on its current offset from the target.
+      const idealOffset = camera.position.clone().sub(controls.target);
+      const idealPosition = new THREE.Vector3().copy(targetPosition).add(idealOffset);
+
+      // And smoothly move the camera to that ideal position.
+      camera.position.lerp(idealPosition, 0.1);
+
+      // We must call update after manually changing the camera.
+      controls.update();
+    }
+  });
+
+  return null;
 };
 
 
@@ -194,6 +262,7 @@ export default function GliderExample() {
           
           {state && <Glider state={state} />}
           {state && state.wind_params && <Wind windParams={state.wind_params} />}
+          {state && <Waypoints waypoints={state.waypoints} currentWaypointIndex={state.current_waypoint_index} />}
           
           <Grid args={[width*2, height*2]} cellSize={5} sectionSize={20} sectionColor={"#4488ff"} sectionThickness={1.5} fadeDistance={250} />
           <Plane args={[width*2, height*2]} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]}>
@@ -203,7 +272,8 @@ export default function GliderExample() {
           <EffectComposer>
             <Bloom intensity={0.8} luminanceThreshold={0.1} luminanceSmoothing={0.9} toneMapped={false} />
           </EffectComposer>
-          <OrbitControls ref={controlsRef} target={state ? [state.pos[0], state.pos[2], -state.pos[1]] : [0,50,0]} />
+          <OrbitControls ref={controlsRef} />
+          <CameraController state={state} controlsRef={controlsRef} />
         </Canvas>
 
         {/* UI overlay */}
