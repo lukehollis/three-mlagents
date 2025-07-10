@@ -171,52 +171,66 @@ const Wind = ({ windParams }) => {
   if (!windParams || windParams.length < 7) return null;
   const [C1, C2, C3, waveFreq, waveMag, waveFreq2, waveMag2] = windParams;
   const particlesRef = useRef();
+  const lifetimesRef = useRef([]);
+
+  const PARTICLE_COUNT = 8000;
+  const MAX_LIFE = 600; // frames
 
   const particles = useMemo(() => {
     const temp = [];
-    // Increase particle count and spread for a wider, denser field
-    for (let i = 0; i < 8000; i++) {
+    lifetimesRef.current = [];
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
       const x = THREE.MathUtils.randFloatSpread(800);
       const y = THREE.MathUtils.randFloat(0, 150);
       const z = THREE.MathUtils.randFloatSpread(800);
       temp.push(x, y, z);
+      lifetimesRef.current.push(Math.random() * MAX_LIFE);
     }
     return new Float32Array(temp);
   }, []);
 
-  useFrame(({ clock }) => {
-    if (particlesRef.current) {
-      const positions = particlesRef.current.geometry.attributes.position.array;
-      for (let i = 0; i < positions.length / 3; i++) {
-        const i3 = i * 3;
-        
-        const three_x = positions[i3];
-        const three_y = positions[i3 + 1];
-        const three_z = positions[i3 + 2];
+  useFrame(() => {
+    if (!particlesRef.current) return;
 
-        const world_y = -three_z;
-        const world_z = three_y;
+    const positions = particlesRef.current.geometry.attributes.position.array;
+    for (let i = 0; i < PARTICLE_COUNT; i++) {
+      const i3 = i * 3;
 
-        // Calculate wind vector with two superimposed sine waves
-        const baseWindSpeed = C1 / (1 + Math.exp(-C2 * (world_z - C3)));
-        const angle1 = Math.sin(world_y * waveFreq * 2 * Math.PI) * waveMag;
-        const angle2 = Math.sin(world_y * waveFreq2 * 2 * Math.PI) * waveMag2;
-        const totalAngleVariation = angle1 + angle2;
-        
-        const wind_x = baseWindSpeed * Math.cos(totalAngleVariation);
-        const wind_y = baseWindSpeed * Math.sin(totalAngleVariation);
+      // Increment lifetime
+      lifetimesRef.current[i] += 1;
 
-        positions[i3] += wind_x * 0.02;
-        positions[i3 + 2] -= wind_y * 0.02;
+      const three_x = positions[i3];
+      const three_y = positions[i3 + 1];
+      const three_z = positions[i3 + 2];
 
-        // If particle goes off screen, reset it to the beginning with a new random lateral position
-        if (positions[i3] > 400 || positions[i3] < -400 || positions[i3 + 2] > 400 || positions[i3 + 2] < -400) {
-          positions[i3] = -400;
-          positions[i3 + 2] = THREE.MathUtils.randFloatSpread(800);
-        }
+      const world_y = -three_z;
+      const world_z = three_y;
+
+      const baseWindSpeed = C1 / (1 + Math.exp(-C2 * (world_z - C3)));
+      const angle1 = Math.sin(world_y * waveFreq * 2 * Math.PI) * waveMag;
+      const angle2 = Math.sin(world_y * waveFreq2 * 2 * Math.PI) * waveMag2;
+      const totalAngle = angle1 + angle2;
+
+      const wind_x = baseWindSpeed * Math.cos(totalAngle);
+      const wind_y = baseWindSpeed * Math.sin(totalAngle);
+
+      positions[i3] += wind_x * 0.02;
+      positions[i3 + 2] -= wind_y * 0.02;
+
+      const outOfBounds =
+        positions[i3] > 400 || positions[i3] < -400 ||
+        positions[i3 + 2] > 400 || positions[i3 + 2] < -400;
+
+      if (outOfBounds || lifetimesRef.current[i] > MAX_LIFE) {
+        // Reset the particle at a completely random location within the volume
+        positions[i3] = THREE.MathUtils.randFloatSpread(800);
+        positions[i3 + 1] = THREE.MathUtils.randFloat(0, 150);
+        positions[i3 + 2] = THREE.MathUtils.randFloatSpread(800);
+        lifetimesRef.current[i] = 0;
       }
-      particlesRef.current.geometry.attributes.position.needsUpdate = true;
     }
+
+    particlesRef.current.geometry.attributes.position.needsUpdate = true;
   });
 
   return (
