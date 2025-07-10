@@ -10,6 +10,7 @@ import AntExample from './examples/Ant.jsx';
 import WormExample from './examples/Worm.jsx';
 import BrickBreakExample from './examples/BrickBreak.jsx';
 import FoodCollectorExample from './examples/FoodCollector.jsx';
+import BicycleExample from './examples/Bicycle.jsx';
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
         <Route path="/worm" element={<WormExample />} />
         <Route path="/brickbreak" element={<BrickBreakExample />} />
         <Route path="/foodcollector" element={<FoodCollectorExample />} />
+        <Route path="/bicycle" element={<BicycleExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
