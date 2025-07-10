@@ -300,7 +300,7 @@ async def train_glider(websocket: WebSocket):
     
     total_steps = 0
 
-    while ep_counter < 1000:
+    while ep_counter < 3000:
         with torch.no_grad():
             dist, value = model(obs)
             actions = dist.sample()
