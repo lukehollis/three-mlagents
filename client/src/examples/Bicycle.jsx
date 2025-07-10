@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Box, Cylinder, Stars, Plane } from '@react-three/drei';
+import { OrbitControls, Box, Cylinder, Stars, Plane, Grid } from '@react-three/drei';
 import { Button, Text } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
@@ -27,44 +27,50 @@ const Bicycle = ({ state }) => {
   });
 
   const wheelRadius = 0.35;
-  const frameColor = "#cccccc";
-  const wheelColor = "#555555";
+  const frameColor = "#00ffff";
+  const wheelColor = "#ff00ff";
 
   return (
     <group ref={groupRef}>
-      <group rotation={[0,0,phi]}>
+      <group rotation={[phi, 0, 0]}>
         {/* Rear Wheel */}
-        <Cylinder args={[wheelRadius, wheelRadius, 0.1, 32]} rotation={[0, 0, Math.PI / 2]} position={[0, wheelRadius, 0]}>
-          <meshStandardMaterial color={wheelColor} />
+        <Cylinder args={[wheelRadius, wheelRadius, 0.1, 32]} rotation={[Math.PI / 2, 0, 0]} position={[0, wheelRadius, 0]}>
+          <meshStandardMaterial color={wheelColor} emissive={wheelColor} emissiveIntensity={0.6} toneMapped={false} wireframe />
         </Cylinder>
         {/* Frame */}
         <Box args={[wheelbase, 0.1, 0.1]} position={[wheelbase / 2, wheelRadius + 0.2, 0]}>
-          <meshStandardMaterial color={frameColor} />
+          <meshStandardMaterial color={frameColor} emissive={frameColor} emissiveIntensity={0.4} toneMapped={false} />
         </Box>
         <Box args={[0.1, 0.4, 0.1]} position={[wheelbase, wheelRadius, 0]} rotation={[0,0,-Math.PI/8]}>
-           <meshStandardMaterial color={frameColor} />
+           <meshStandardMaterial color={frameColor} emissive={frameColor} emissiveIntensity={0.4} toneMapped={false} />
         </Box>
          <Box args={[0.1, 0.4, 0.1]} position={[0, wheelRadius, 0]} rotation={[0,0,Math.PI/8]}>
-           <meshStandardMaterial color={frameColor} />
+           <meshStandardMaterial color={frameColor} emissive={frameColor} emissiveIntensity={0.4} toneMapped={false} />
         </Box>
         
         {/* Front wheel assembly */}
         <group position={[wheelbase, wheelRadius, 0]} rotation={[0, delta, 0]}>
-          <Cylinder args={[wheelRadius, wheelRadius, 0.1, 32]} rotation={[0, 0, Math.PI / 2]} position={[0, 0, 0]}>
-            <meshStandardMaterial color={wheelColor} />
+          <Cylinder args={[wheelRadius, wheelRadius, 0.1, 32]} rotation={[Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+            <meshStandardMaterial color={wheelColor} emissive={wheelColor} emissiveIntensity={0.6} toneMapped={false} wireframe />
           </Cylinder>
           {/* Handlebars */}
           <Box args={[0.1, 0.5, 0.1]} position={[0, 0.2, 0]}>
-            <meshStandardMaterial color={frameColor} />
+            <meshStandardMaterial color={frameColor} emissive={frameColor} emissiveIntensity={0.4} toneMapped={false} />
           </Box>
           <Box args={[0.6, 0.1, 0.1]} position={[0, 0.7, 0]}>
-            <meshStandardMaterial color={frameColor} />
+            <meshStandardMaterial color={frameColor} emissive={frameColor} emissiveIntensity={0.4} toneMapped={false} />
           </Box>
         </group>
       </group>
     </group>
   );
 };
+
+const Goal = ({ position }) => (
+  <Cylinder args={[0.5, 0.5, 2, 16]} position={[position[0], 1, position[1]]}>
+    <meshStandardMaterial color="#ffff00" emissive="#ffff00" emissiveIntensity={1} toneMapped={false} wireframe />
+  </Cylinder>
+);
 
 
 export default function BicycleExample() {
@@ -164,12 +170,11 @@ export default function BicycleExample() {
           <Stars radius={200} depth={50} count={5000} factor={6} saturation={0} fade speed={1} />
           
           {state && <Bicycle state={state} />}
-          <Plane args={[width, height]} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
-             <meshStandardMaterial color="#222222" />
-          </Plane>
+          {state && state.goal_pos && <Goal position={state.goal_pos} />}
+          <Grid args={[width, height]} cellSize={1} fadeDistance={40} />
 
           <EffectComposer>
-            <Bloom intensity={0.4} luminanceThreshold={0.1} luminanceSmoothing={0.9} />
+            <Bloom intensity={0.8} luminanceThreshold={0.1} luminanceSmoothing={0.9} toneMapped={false} />
           </EffectComposer>
           <OrbitControls target={state ? [state.pos[0], 0.5, state.pos[1]] : [0,0,0]} />
         </Canvas>

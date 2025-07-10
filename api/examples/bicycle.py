@@ -39,6 +39,10 @@ class BicycleEnv:
         self.max_delta = np.pi / 6 # max steering angle
 
         self.steps = 0
+        
+        self.goal_pos = np.zeros(2)
+        self.dist_to_goal = 0.0
+
         self.reset()
 
     def reset(self):
@@ -50,6 +54,13 @@ class BicycleEnv:
         self.phi_dot = np.random.uniform(-0.1, 0.1)
         self.delta = 0.0
         self.steps = 0
+
+        # Set a new random goal in front of the agent
+        goal_radius = np.random.uniform(15, 25)
+        goal_angle = np.random.uniform(-np.pi / 4, np.pi / 4)
+        self.goal_pos = np.array([goal_radius * np.cos(goal_angle), goal_radius * np.sin(goal_angle)])
+
+        self.dist_to_goal = np.linalg.norm(self.goal_pos - np.array([self.x, self.z]))
         return self._get_obs()
 
     def step(self, action: int):
@@ -79,25 +90,55 @@ class BicycleEnv:
         self.x += self.v * np.cos(self.theta) * self.dt
         self.z += self.v * np.sin(self.theta) * self.dt
 
-        # Termination
+        # Termination & Reward
         done = False
-        reward = 1.0  # Reward for surviving
+
+        new_dist_to_goal = np.linalg.norm(self.goal_pos - np.array([self.x, self.z]))
+        
+        # 1. Reward for making progress towards the goal
+        progress_reward = (self.dist_to_goal - new_dist_to_goal) * 10.0
+        self.dist_to_goal = new_dist_to_goal
+
+        # 2. Reward for staying upright
+        upright_reward = (1.0 - (abs(self.phi) / self.max_phi)**0.5) * 0.2
+
+        # 3. Reward for heading towards the goal
+        heading_vector = np.array([np.cos(self.theta), np.sin(self.theta)])
+        goal_vector = (self.goal_pos - np.array([self.x, self.z]))
+        norm_goal_vector = goal_vector / (new_dist_to_goal if new_dist_to_goal > 0 else 1.0)
+        heading_reward = np.dot(heading_vector, norm_goal_vector) * 0.3
+        
+        # 4. Small penalty for steering to encourage straight riding
+        steering_penalty = -(abs(self.delta) / self.max_delta) * 0.1
+        
+        reward = progress_reward + upright_reward + heading_reward + steering_penalty
+
         if abs(self.phi) > self.max_phi:
             reward = -10.0
             done = True
         
         if self.steps > 2000:
             done = True
+        
+        if new_dist_to_goal < 2.0:
+            reward = 50.0
+            done = True
 
         return self._get_obs(), reward, done
 
     def _get_obs(self):
+        vec_to_goal = self.goal_pos - np.array([self.x, self.z])
+        dist = np.linalg.norm(vec_to_goal)
+        norm_vec_to_goal = vec_to_goal / dist if dist > 0 else np.zeros(2)
+
         return np.array([
             self.phi,
             self.phi_dot,
             self.delta,
             np.cos(self.theta),
-            np.sin(self.theta)
+            np.sin(self.theta),
+            norm_vec_to_goal[0],
+            norm_vec_to_goal[1],
         ])
 
     def get_state_for_viz(self) -> Dict[str, Any]:
@@ -107,7 +148,8 @@ class BicycleEnv:
             "phi": self.phi,
             "delta": self.delta,
             "wheelbase": self.L,
-            "bounds": [100, 100] # For camera
+            "goal_pos": self.goal_pos.tolist(),
+            "bounds": [60, 60] # For camera
         }
 
 # -----------------------------------------------------------------------------------
