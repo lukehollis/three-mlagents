@@ -39,6 +39,10 @@ class GliderEnv:
         self.wind_C1 = 15.0  # max wind speed
         self.wind_C2 = 0.1   # gradient thickness
         self.wind_C3 = 50.0  # height of max gradient
+        self.wind_wave_freq = 1.0 / 70.0  # spatial frequency of y-variation
+        self.wind_wave_mag = np.pi / 9    # magnitude of y-variation in radians (+/- 20 deg)
+        self.wind_wave_freq2 = 1.0 / 250.0 # spatial frequency of a second wave
+        self.wind_wave_mag2 = np.pi / 6   # magnitude of second wave (+/- 30 deg)
 
         # State variables
         self.pos = np.zeros(3)  # x, y, z
@@ -53,10 +57,22 @@ class GliderEnv:
         self.steps = 0
         self.reset()
 
-    def _wind_model(self, z):
-        # Wind blows along positive x direction
-        wind_speed = self.wind_C1 / (1 + np.exp(-self.wind_C2 * (z - self.wind_C3)))
-        return np.array([wind_speed, 0, 0])
+    def _wind_model(self, pos: np.ndarray) -> np.ndarray:
+        # Wind blows along positive x direction, with sinusoidal variance in y
+        z, y = pos[2], pos[1]
+        
+        # Base sigmoid wind profile based on height
+        base_wind_speed = self.wind_C1 / (1 + np.exp(-self.wind_C2 * (z - self.wind_C3)))
+        
+        # Superimpose two sine waves for a more complex, non-uniform pattern
+        angle_variation1 = np.sin(y * self.wind_wave_freq * 2 * np.pi) * self.wind_wave_mag
+        angle_variation2 = np.sin(y * self.wind_wave_freq2 * 2 * np.pi) * self.wind_wave_mag2
+        total_angle_variation = angle_variation1 + angle_variation2
+        
+        wind_dir_x = np.cos(total_angle_variation)
+        wind_dir_y = np.sin(total_angle_variation)
+        
+        return np.array([base_wind_speed * wind_dir_x, base_wind_speed * wind_dir_y, 0.0])
 
     def reset(self):
         self.pos = np.array([0.0, 0.0, 60.0])
@@ -95,7 +111,7 @@ class GliderEnv:
         self.rot[1] = np.clip(self.rot[1], -self.max_pitch, self.max_pitch)
 
         # Get forces
-        wind = self._wind_model(self.pos[2])
+        wind = self._wind_model(self.pos)
         v_air = self.vel - wind
         v_air_mag = np.linalg.norm(v_air)
         
@@ -202,7 +218,7 @@ class GliderEnv:
         return {
             "pos": self.pos.tolist(),
             "rot": self.rot.tolist(), # roll, pitch, yaw
-            "wind_params": [self.wind_C1, self.wind_C2, self.wind_C3],
+            "wind_params": [self.wind_C1, self.wind_C2, self.wind_C3, self.wind_wave_freq, self.wind_wave_mag, self.wind_wave_freq2, self.wind_wave_mag2],
             "bounds": [200, 200],
             "waypoints": [w.tolist() for w in self.waypoints],
             "current_waypoint_index": self.current_waypoint_index
