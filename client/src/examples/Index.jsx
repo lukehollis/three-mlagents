@@ -482,7 +482,7 @@ export default function ExamplesIndex() {
                 <Link to="/bicycle" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
-                      src="/three-mlagents/ant_example.jpg" 
+                      src="/three-mlagents/bicycle_example.jpg" 
                       alt="Bicycle Balance Example"
                       style={{
                         width: '100%',
