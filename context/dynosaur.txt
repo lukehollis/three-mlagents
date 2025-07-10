@@ -1,0 +1,818 @@
+A Framework for Developing Robust, Autonomous, Power
+Managed Dynamic Soaring Flight Controllers Using Deep
+Reinforcement Learning
+Milo F. DiPaola∗
+and Tyler F. Barkin †
+Dynamic soaring is a biologically inspired flight strategy that could be used to extend the
+operational time and range of small unmanned aerial vehicles. Developing an autonomous flight
+controller that can take advantage of the energy in the wind has proven to be difficult. Recent
+advancements in the fields of artificial intelligence and deep reinforcement learning have shown
+promising results in continuous control problems with long time horizons. In this paper, we will
+demonstrate a framework for developing control policies that can perform power-supplemented
+dynamic soaring, managing mechanical the and electrical energy of a powered virtual flight
+vehicle in a simulated environment.
+I. Nomenclature
+.
+𝑑𝑡 = simulation time step
+𝑚 = mass
+𝐼 = moment of inertia
+𝑝 = position: [𝑝𝑥, 𝑝𝑦, 𝑝𝑧 ]
+𝑞𝑏 = world to body quaternion: [𝑞1, 𝑞2, 𝑞3, 𝑞4]
+𝑣 = linear velocity: [𝑣𝑥, 𝑣𝑦, 𝑣𝑧 ]
+𝜔 = angular velocity: [𝜔𝑥, 𝜔𝑦, 𝜔𝑧 ]
+𝑌 = aircraft state: [𝑥, 𝑞, 𝑣, 𝛼]
+𝜌 = air density
+𝑁 = station points
+Γ = circulation over the wing (
+𝑚2
+𝑠
+)
+𝐶𝐿 = 3D lift coefficent
+𝐴𝑅 = aspect ratio
+𝛼0 = freestream angle of attack (𝑟𝑎𝑑)
+𝛼∞ = base angle of attack (𝑟𝑎𝑑)
+𝛼𝑔𝑒𝑜 = twist induced angle of attack (𝑟𝑎𝑑)
+𝛼𝑐𝑡𝑟 𝑙 = control surface angle of attack (𝑟𝑎𝑑)
+𝛼 = total angle of attack (𝑟𝑎𝑑)
+𝑉∞ = freestream velocity (
+𝑚
+𝑠
+)
+𝐶𝐷𝑖 = induced drag coefficient
+𝑒 = planform efficiency factor
+𝐶𝑙 = 2D lift coefficent (
+𝑢𝑖𝑛𝑡𝑠
+𝑚
+)
+𝛾 = 2D circulation at a section (
+𝑚
+𝑠
+)
+𝑐 = chord length of the local station
+𝛼𝑔𝑒𝑜 = local geometric twist of the wing
+𝛼0 = zero-lift angle of attack of a station
+𝐶𝑙𝛼 = 2D lift coefficent slope (
+𝑢𝑛𝑖𝑡
+𝑚·𝑟 𝑎𝑑 )
+𝛼𝑖 = the change in angle of attack due to downwash
+𝜔𝑖 = the local downwash velocity
+𝐿ˆ = lift distribution
+𝐷ˆ = drag distribution
+𝑠 = semi span
+() ⊙ () = Hadamard Product
+¯
+() = unit vector
+ˆ
+() = tensor
+∗Professor, Engineer, 647 Revere Beach Boulevard
+†Electrical Engineer, 87 Cove Road, Oyster Bay, NY, 11771, AIAA # 1406268
+1
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046
+ AIAA AVIATION 2023 Forum
+ 12-16 June 2023, San Diego, CA and Online
+ 10.2514/6.2023-4046
+ Copyright © 2023 by the American Institute of Aeronautics and Astronautics, Inc. All rights reserved.
+ AIAA AVIATION Forum 
+II. Introduction
+T
+he drone industry is expected to continue its rapid growth over the next 15 years. Drones are being used for a
+wide range of commercial applications, from agriculture and construction to delivery and security. As technology
+improves and regulations become more accommodating, we can expect to see even more industries adopting drones.
+Advances in artificial intelligence and machine learning will enable drones to operate autonomously, without the need
+for a human pilot. This will increase the efficiency and scalability of drone operations, as well as lower the barrier to
+entry for new drone users. New drone technologies will emerge: As the drone industry continues to evolve, we can
+expect to see new technologies emerge that push the boundaries of what is possible with drones. For example, we may
+see drones that can fly for longer periods of time, carry heavier payloads, or operate in more extreme environments.The
+use of dynamic soaring techniques by drones to extend their range is an active area of research and development in the
+field of unmanned aerial systems. While there are currently no commercially available drones that can fully replicate
+the flight capabilities of an albatross, researchers and engineers are working on developing drones that can use similar
+techniques to increase their flight time and range.
+The purpose of this effort is to show that deep reinforcement learning algorithms are capable of tuning control
+polices for dynamic soaring in a variety of conditions, including real time management of power systems. This tuning
+process can be initialized using a basis policy that contains randomly generated parameters. This means that no expert
+data, trajectories, or flight vehicle properties are inherent to the controller. This “model-free” approach (from the
+perspective of the controller) necessitates a virtual model of the environment, as it is not practical to use physical models
+for the training of flight vehicle maneuverability tasks at scale. In this paper a fast, vectorized, multi-flight-vehicle model
+is used to learn control polices that are capable of a variety of flight behaviors, including powered flight, un-powered
+dynamic soaring, and power-supplemented dynamic soaring between way-point targets.
+A SUAV that is capable of dynamic soaring can be used in a variety of applications:
+Mapping and Surveying Mapping and Surveying: Dynamic soaring drones can cover large areas quickly and
+accurately, making them ideal for mapping and surveying applications. These drones can collect high-resolution imagery
+and data from hard-to-reach locations, making it easier to survey large areas for environmental monitoring, construction
+planning, and land management.
+Agriculture: Drones equipped with dynamic soaring technology can be used for crop monitoring, plant health
+assessments, and precision agriculture. These drones can capture high-resolution images of fields and crops, providing
+farmers with valuable insights to help optimize crop yields and reduce waste.
+Search and Rescue: Dynamic soaring drones can be used in search and rescue missions to quickly cover large
+areas and locate missing persons or objects. These drones can be equipped with thermal imaging cameras to detect heat
+signatures, making it easier to locate people or objects in low-light or obscured conditions.
+Environmental Monitoring: Drones equipped with dynamic soaring technology can be used to monitor the environment
+and collect data on air quality, water quality, and wildlife populations. These drones can access hard-to-reach areas and
+collect data more frequently and at a lower cost than traditional monitoring methods.
+Security and Surveillance: Dynamic soaring SUAVs can be used for security and surveillance applications, such as
+monitoring borders, critical infrastructure, and public events. These drones can fly for extended periods, providing
+continuous surveillance and real-time monitoring capabilities.
+2
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+III. Background
+Dynamic soaring is used notably by albatrosses, ospreys, and petrels, which are adapted to living and flying
+over open oceans. Skilled glider pilots have also developed the necessary flying techniques to harness the power of the
+wind gradient. Thermal soaring, also known as thermal gliding, is a type of soaring that uses rising air currents called
+thermals to gain altitude. Thermals are created by the uneven heating of the Earth’s surface, which causes pockets
+of warm air to rise. Gliders can use these thermals to gain altitude and stay aloft for extended periods of time. Slope
+soaring is another type of gliding that takes advantage of the wind blowing against a hill or slope. As the wind hits the
+slope, it is forced upwards, creating an updraft that a glider can use to stay aloft. Slope soaring is commonly practiced
+near coastal cliffs, mountains, and other geographic features that create suitable wind conditions.
+In dynamic soaring, the energy source is the wind gradient, which is usually present when there is wind near a
+surface. This means that the soaring flight can be sustained over larger areas compared to thermal or slope soaring,
+where the energy source is more localized.
+One of the main challenges with developing a SUAV that can use dynamic soaring is the complex control mechanisms
+involved in the technique. Dynamic soaring requires the flier to maneuver in specific patterns with respect to the wind,
+constantly adjusting its altitude and speed to take advantage of changes in wind speed and direction. This requires
+advanced control algorithms and sensors to allow the drone to navigate and adjust in real-time.
+Reinforcement learning and trajectory optimization are two different approaches for solving control problems in
+autonomous systems. Reinforcement learning algorithms can adapt to changing environmental conditions and learn
+from experience, while trajectory optimization relies on a predetermined model of the environment. In dynamic soaring,
+wind conditions can change rapidly, making it difficult to use a fixed trajectory. Reinforcement learning algorithms can
+explore the state space more thoroughly than trajectory optimization. This is important in dynamic soaring, where
+there may be many possible trajectories that are difficult to predict. Reinforcement learning algorithms can scale well
+to large state and action spaces, which is important in dynamic soaring where there may be many possible actions at
+each time step. Reinforcement learning algorithms can learn robust policies that are less sensitive to disturbances and
+perturbations in the environment7,8
+. This is important in dynamic soaring, where the aircraft may experience turbulence
+and other disturbances. Deep reinforcement learning has been applied to the autonomous dynamic soaring control
+problem with encouraging results14,15,17,18
+.
+However, there are also some advantages of trajectory optimization over reinforcement learning for dynamic soaring
+control. For example, trajectory optimization can often provide more precise control and can guarantee certain
+performance bounds. Additionally, trajectory optimization may be computationally more efficient for certain types of
+problems, especially if the dynamics of the system are well understood. TO has been applied autonomous dynamic
+soaring control problem and can yield simplified and in some cases, interpretable results1,16
+.
+3
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+IV. Methodology
+The theoretical power limit for a wind turbine with swept area A and windspeed V is known as the Betz limit. The Betz
+limit states that the maximum possible efficiency of a wind turbine is 59.3%:
+𝐶𝑝𝐵𝑒𝑡 𝑧 = 16/27 (1)
+of the kinetic energy of the wind that passes through the rotor disk.
+Producing power creates thrust on the rotor in the direction of the wind. When considering a SUAV making power from
+the wind by windmilling its rotor, making power from the oncoming wind will cause considerable drag and reduce the
+kinetic energy of the vehicle. This is essentially a form of regenerative breaking. Wind power is regularly used by aircraft
+of all sizes, usually in emergency situations, such as engine or power failure. Wind power is used to restart propeller
+engines as well as large, high-bypass jet engines. However, this use of wind power and associated drag and speed loss
+is unsustainable and is usually driven by sacrificing potential energy, and therefore height, for kinetic energy and airspeed.
+The amount of energy that can be extracted from the wind using dynamic soaring is limited by several factors,
+these include the vehicle’s lift to drag ratio, wing loading capability, and the achievable wind differential during the
+dynamic soaring cycle.
+Fig. 1 Steady sigmoid wind profile and classical crosswind dynamic soaring trajectory: 1-Windward climb,
+2-Low-speed turn, 3-Leeward descent, 4-High-speed turn.
+Consider an unpowered glider in quiescent air. The glider executes a 180-degree turn while maintaining a fixed altitude.
+The ratio of the glider speed immediately after the turn to before turn speed is a type of coefficient of restitution:
+𝑒 = 𝑉2/𝑉1 (2)
+Now consider a sudden wind increase in direction opposing the vehicle’s flight at the end of the 180-degree turn. The
+vehicle experiences a rapid increase in airspeed. The vehicle again executes another fixed height, 180-degree turn. In
+the reference frame of the wind, we can evaluate a coefficient of restitution. At the end of the second turn the wind
+becomes quiescent again. In this idealized scenario, the speed and energy lost to drag, can be overcome with sufficiently
+4
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+small coefficients of restitution for a given wind speed difference. In order for dynamic soaring to be sustained the
+following conditions must be met:
+𝑉𝑒𝑛𝑡𝑟 𝑦 <
+Δ𝑉
+1 − 𝑒
+(3)
+𝑒 > 1 −
+Δ𝑉
+𝑉𝑒𝑛𝑡𝑟 𝑦
+(4)
+Δ𝑉 > 𝑉𝑒𝑛𝑡𝑟 𝑦 · (1 − 𝑒) (5)
+Assuming a constant lift to drag ratio and maximum turning efficiency, an upper bound for the coefficient of restitution
+can be related to the lift to drag ratio by:
+𝑒𝑚𝑎𝑥 =
+√︂
+1 −
+2𝜋
+𝐿𝑜𝐷
+(6)
+In a more practical scenario, the vehicle would need to maneuver to different locations to experience appreciable wind
+speed differences. This lengthens the trajectory along which the vehicle loses energy to drag. If power is being generated
+during flight, a backwards thrust will be produced, further increasing the demand for efficient gliding, and increased
+achievable wind speed differences.
+For a dynamic soaring SUAV, favorable conditions allow for continuous dynamic soaring while generating energy and incurring windmill drag. Unfavorable conditions do not allow for sustained dynamic soaring for a given aircraft,
+even when no energy is being generated. A battery should be sized such that flight can be sustained for long enough
+to tolerate intermittent wind conditions or return to safety. Rotor design and proper motor pairing are also critical
+for achieving this goal. The blades should be designed such that the rotor operates at appropriate efficiencies during
+powered flight and energy generation. This is a difficult task, as these scenarios typically represent drastically different
+operating points in tip speed ratio. It is possible to achieve reasonable efficiencies in both regimes simultaneously by
+sacrificing maximum individual efficiencies. The precise balance of appropriate efficiencies for an optimal dynamic
+soaring blade will depend on the flight vehicle characteristics and the expected wind conditions. Optimization of the
+rotor for this use case is not addressed in this paper.
+A. Environment Model
+The environment model is comprised of rigid body inertia, aerodynamic forces, rotor/motor forces, and a wind
+model. Each of these components will be outlined in this section. The purpose of the environment model is to generate
+reasonable state transitions that can be used for reinforcement learning of various flight vehicle maneuvering tasks. The
+environment model takes in vehicle state vectors and action vectors and computes the next set vehicle states:
+𝑠𝑡𝑎𝑡𝑒𝑖 = 𝐸𝑛𝑣(𝑠𝑡𝑎𝑡𝑒𝑖−1, 𝑎𝑐𝑡𝑖𝑜𝑛𝑠𝑖−1) (7)
+The states are reduced to a set of observations by the function 𝐹:
+𝑜𝑏𝑠𝑒𝑟𝑣𝑎𝑡𝑖𝑜𝑛𝑠𝑖 = 𝐹(𝑠𝑡𝑎𝑡𝑒𝑖) (8)
+The neural net, 𝐺 𝑁 𝑒𝑡, transforms observations into actions:
+𝑎𝑐𝑡𝑖𝑜𝑛𝑠𝑖 = 𝐺 𝑁 𝑒𝑡(𝑜𝑏𝑠𝑒𝑟𝑣𝑎𝑡𝑖𝑜𝑛𝑠𝑖) (9)
+The environment model is entirely vectorized, allowing for many simulation environments to run concurrently on a
+single computer. Vectorization is a key feature of the environment model. All components of the environment model
+were created with vectorization in mind. Compared to a serialized environment model running on multiple CPU
+cores, proper GPU vectorization drastically increases the amount of training data generated. Vectorization requires that
+all environments are represented in each variable. Iterative or serialized routines were be refactored into tensor operations.
+A test aircraft planform with favorable gliding characteristics was chosen for this work. The weight distribution and wing positions with respect to CG were loosely based on hobby grade 1.5-2m wingspan remote control power
+5
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+gliders. The test glider weighs approximately 1kg and has a V-tail configuration. The vehicle can achieve a glide ratio
+of 15/1. The wing spans 2 meters and has an aspect ratio of 14.5. The motor is modeled has a speed constant of 1510
+𝑟 𝑝𝑚
+𝑉
+and has a 25 cm diameter two-blade collective pitch rotor mounted to it. For demonstrative purposes, the modeled
+battery has a limited capacity of 1000J ( 40mAh at 7.4V) and weighs 50g, which is similar to a 2-cell 860mAh battery.
+The aircraft has four control surfaces, two ailerons and two “ruddervators”. The control inputs to these surfaces are
+mixed from roll and pitch inputs. The remaining control inputs are blade pitch and throttle, the latter of which takes the
+form of a requested torqued as a percentage of a theoretical maximum torque. The virtual aircraft is equipped with
+a range of virtual sensors. In this work, idealized virtual sensors are used. These virtual sensors are not necessarily
+modeling physical sensors, and these observations could be measured using a variety of different techniques. Sensor
+fusion should be used to incorporate information from various sensors. The idealized sensors observe ground velocity,
+air speed, and height, as well as roll, pitch, and yaw angles.
+The moment of inertia tensor is computed using a point-and-stick model. Here, the fuselage, wings, and blades are
+represented as sticks with respective linear densities. The motor, battery, flight controller, servos, sensors, and other
+miscellanies components are represented as point masses. This approach is sufficient for preliminary investigation.
+Additionally, this approach allows for practical randomization of the planform and weight distribution, which will be
+useful in future work.
+B. Conventions
+The aircraft coordinate system origin is located at the aircraft’s center of mass with the X+ axis towards the rear of
+the vehicle and the Y+ axis towards the right wing.
+Fig. 2 Local Coordinate Convention
+6
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+C. Planform specification
+Fig. 3 Wing locations, orientations Fig. 4 Physical planform comparison to display model
+D. Flight Vehicle Model
+Aerodynamic forces on the wings are computed using a lifting line method.
+"∑︁∞
+𝑛=1
+
+𝐴𝑛 · sin (𝑛 · 𝜃𝑛)
+
+sin (𝜃𝑛) +
+𝑐𝑛 · 𝐶𝑙𝛼
+· 𝑛
+8 · 𝑠
+  = sin (𝜃𝑛)
+𝑐𝑛 · 𝐶𝑙𝛼
+8 · 𝑠
+·
+
+𝛼∞ + 𝛼𝑔𝑒𝑜𝑛 − 𝛼0 + 𝛼𝑐𝑡𝑟 𝑙𝑛
+
+#
+(10)
+The infinite Fourier sum is truncated at n = N, where N is the number of station points per wing.
+"∑︁
+𝑁
+𝑛=1
+
+𝐴𝑛 · sin (𝑛 · 𝜃𝑛)
+
+sin (𝜃𝑛) +
+𝑐𝑛 · 𝐶𝑙𝛼
+· 𝑛
+8 · 𝑠
+  = sin (𝜃𝑛)
+𝑐𝑛 · 𝐶𝑙𝛼
+8 · 𝑠
+·
+
+𝛼∞ + 𝛼𝑔𝑒𝑜𝑛 − 𝛼0 + 𝛼𝑐𝑡𝑟 𝑙𝑛
+
+#
+(11)
+After rearranging for tensor computations
+
+𝑇ˆ
+0
+
+[𝑤,𝑛,𝑛]
+·
+
+𝐴ˆ
+
+[𝑤,𝑛,𝑚]
+=
+
+𝑅𝐻𝑆 ˆ
+
+[𝑤,𝑛,𝑚]
+(12)
+Solving for the tensor of Fourier coefficients
+
+𝐴ˆ
+
+[𝑤,𝑛,𝑚]
+=
+
+𝑇ˆ
+0
+
+[𝑤,𝑛,𝑛]
+·
+
+𝑅𝐻𝑆 ˆ
+
+[𝑤,𝑛,𝑚]
+(13)
+Where
+
+𝑅𝐻𝑆 ˆ
+
+[𝑤,𝑛,𝑚]
+=
+
+𝑇ˆ
+1
+
+[𝑤,𝑛,1]
+· (𝛼ˆ)[𝑤,𝑛,𝑚]
+(14)
+
+𝑇ˆ
+0
+
+[𝑤,𝑛,𝑛]
+= sin 
+
+𝑇ˆ
+2
+
+[𝑤,𝑛,𝑛]
+
+⊙
+©
+­
+­
+«
+sin 
+
+𝜃ˆ
+
+[𝑤,𝑛,1]
+
++
+(𝑐ˆ)[𝑤,𝑛,1] ⊙
+
+𝐶ˆ
+𝑙𝛼
+
+[𝑤,𝑛,1]
+⊙ (𝑛ˆ)[1,1,𝑛]
+8 · (𝑠ˆ)[𝑤,1,1]
+ª
+®
+®
+¬
+(15)
+7
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.20
+
+𝑇ˆ
+1
+
+[𝑤,𝑛,1]
+= sin 
+
+𝜃ˆ
+
+[𝑤,𝑛,1]
+
+⊙
+(𝑐ˆ)[𝑤,𝑛,1] ⊙
+
+𝐶ˆ
+𝑙𝛼
+
+[𝑤,𝑛,1]
+8 · (𝑠ˆ)[𝑤,1,1]
+(16)
+
+𝑇ˆ
+2
+
+[𝑤,𝑛,1]
+=
+
+𝜃ˆ
+
+[𝑤,𝑛,1]
+⊙ (𝑛ˆ)[1,1,𝑛]
+(17)
+(𝛼ˆ)[𝑤,𝑛,𝑚] = (𝛼ˆ 0)[𝑤,1,𝑚] + (𝛼ˆ ∞)[𝑤,1,𝑚] +
+
+𝛼ˆ 𝑔𝑒𝑜
+[𝑤,𝑛,𝑚]
++ (𝛼ˆ 𝑐𝑡𝑟 𝑙)[𝑤,𝑛,𝑚]
+(18)
+Lift and drag distributions along the spans 𝑁
+𝑚
+
+𝐿ˆ
+
+[𝑤,𝑛,𝑚]
+= (𝛾ˆ)[𝑤,𝑛,𝑚] ⊙
+
+𝑉ˆ∞
+
+[𝑤,𝑛,𝑚]
+· 𝜌𝑎𝑖𝑟 (19)
+
+𝐷ˆ
+
+[𝑤,𝑛,𝑚]
+=
+
+𝐿ˆ
+
+[𝑤,𝑛,𝑚]
+⊙ (𝛼ˆ𝑖)[𝑤,𝑛,𝑚]
+(20)
+Where
+(𝛾ˆ)[𝑤,𝑛,𝑚] =
+
+4 + (𝑠ˆ)[𝑤,1,1] ⊙ sin 𝑇ˆ
+2)[𝑤,𝑛,𝑛]
+ ·
+
+𝐴ˆ
+
+[𝑤,𝑛,𝑚]
+
+(21)
+(𝛼ˆ𝑖)[𝑤,𝑛,𝑚] =
+
+𝑇ˆ
+2
+
+[𝑤,𝑛,𝑛]
+·
+©
+­
+­
+«
+
+𝐴ˆ
+
+[𝑤,𝑛,𝑚]
+⊙
+(𝑛ˆ)[1,𝑛,1]
+sin 
+
+𝜃ˆ
+
+[𝑤,𝑛,1]
+
+ª
+®
+®
+¬
+(22)
+These distributions are integrated with a trapezoid rule to compute the forces and moments
+8
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514
+Fig. 5 Force distributions from lifting line model plotted on wings, lift in yellow, induced drag in red.
+E. Control Mixer
+The aircraft model is able to independently modify the angle of attack of each wing within an operation window. In
+order to simplify flying for both humans and the AI, a control mixer is used. The mixer accepts two input actions, a roll
+and pitch signal in range [-1, 1], and outputs four angle of attack signals.
+Fig. 6 Coordinate Convention
+F. Propulsion Model
+The propulsion model consists of a rotor model, a DC motor model, and a battery model.
+1. Rotor
+The rotor model is a essentially a look up table. A blade element momentum (BEM) tool was used to generate
+thrust and torque values over a range of rotor operating conditions. Torque and thrust were chosen over Cm and Ct for
+several reasons. First, it moves calculations that would have been done in real time into the look up table, decreasing the
+9
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+computational load, and it flattens the landscape of values in the table, which makes the data more friendly for fitting,
+particularly in regions of low wind speed and high rpm, where the thrust and torque coefficients are large to compensate
+for small squared velocity values. The ranges used here are:
+Wind Speed: 0→30 degrees in 0.5-m/s increments
+RPM: 250→40,000 rpm in 100-rpm increments
+Pitch: -30→30 degrees in 0.5-degree increments
+The resulting table contains over 1 million data points, some of which have anomalous, non-physical values. This is
+related to the nonlinearity of the BEM equation set and the iterative methods that are used to solve them. These are cases
+where the iterative solution procedure failed to convergence. These points are obvious outliers and should be removed
+from the dataset. Regular data is ideal for efficient data lookup and interpolation, however, after the removal of outliers,
+missing data must be interpolated to fill in the gaps. For this application, look-up and interpolation performance across
+thousands of environments is critical. Through testing, it was determined that approximating the thrust and torque table
+data with a shallow, double-headed neural basis function yielded sufficiently accurate results and was considerably
+more performant at scale than interpolation schemes. In this framework, data point removal is accomplished through
+masking during the fitting process, values are automatically interpolated from nearby data during the fitting process. All
+input and output data are normalized prior to fitting. During inference, wind speed, RPM, and pitch are normalized by
+scaling constants before being fed into the look-up-network (LUN). The normalized output values are then unscaled to
+their physical values. Input values that are outside the range of the original data are clamped to the edge of that range.
+The thrust produced by the rotor is applied to the vehicle’s center of mass and summed with the aerodynamic forces.
+Depending on the rotor position and orientation, thrust can impart a moment on the vehicle as well.
+2. Motor
+The motor model has electrical and mechanical components. The electrical model is a model of a simple DC motor.
+Using speed constant 𝑘𝑛 [𝑟 𝑝𝑚/𝑉], or generator constant 𝑘𝑔 [𝑉/𝑟 𝑝𝑚], the induced voltage 𝑈𝑖𝑛𝑑 is computed as:
+𝑈𝑖𝑛𝑑 =
+𝑛
+𝑘𝑛
+= 𝑘𝑔 · 𝑛 (23)
+Where 𝑛 is the rotational rate in RPM. The terminal voltage, 𝑈𝑡
+, is:
+𝑈𝑡 = 𝑈𝑖𝑛𝑑 − 𝑅𝑚𝑜𝑡 · 𝐼𝐿 (24)
+Where 𝐼𝐿 is the load current. Mechanical torque, 𝑀 is then:
+𝑀 = 𝑘𝑀 · (𝐼𝐿 + 𝐼0) (25)
+Where 𝐼0 is the no load current. Electrical and mechanical power are computed as:
+𝑃𝑒𝑙 = 𝑈𝑡
+· 𝐼𝐿 = (
+𝑛
+𝑘𝑛
+− 𝑅𝑚𝑜𝑡 · 𝐼𝐿) · 𝐼𝐿 (26)
+𝑃𝑚𝑒𝑐ℎ =
+𝜋
+30
+· 𝑛 · 𝑘𝑚 · (𝐼𝐿 + 𝐼0) (27)
+Where 𝑘𝑚 is the motor constant [𝑚𝑁𝑚/𝐴]. Here the equations are written in “generator form”, where positive 𝐼𝐿
+produces a torque that opposes forward motion when 𝑛 is positive. In this model, the requested current is clamped
+within a window of available current. A “soft-clamp” is employed to prevent the current and associated torque operating
+point from becoming unstable and bouncing off the available current limits. This is essentially a low pass filter on the
+delivered current:
+𝐴𝑑𝑒𝑙𝑖𝑣𝑒𝑟 𝑒𝑑𝑖 = (𝑐𝑙𝑎𝑚 𝑝(𝐴𝑟 𝑒𝑞𝑢𝑒𝑠𝑡𝑒𝑑𝑖
+, 𝐴𝑙𝑜𝑤𝑒𝑟𝑖
+, 𝐴𝑢 𝑝 𝑝𝑒𝑟𝑖
+) + 𝐴𝑑𝑒𝑙𝑖𝑣𝑒𝑟 𝑒𝑑𝑖−1
+)/2 (28)
+Mechanical torques produced by the motor are imparted on the aircraft.
+10
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+3. Battery
+The battery is simply an energy storage unit. Its attributes are its weight, capacity, voltage, and position in the aircraft.
+Motoring will produce a negative power rate, reducing the energy in the battery while windmilling to generate power
+will produce a positive power rate, increasing the energy in the battery:
+𝐸𝐵𝑎𝑡 𝑡𝑒𝑟 𝑦𝑖 = 𝐸𝐵𝑎𝑡 𝑡𝑒𝑟 𝑦𝑖−1 + 𝑃𝑡𝑜𝑡 𝑎𝑙 · Δ𝑡 (29)
+Where 𝑃𝑡𝑜𝑡 𝑎𝑙 is the sum of the motor electrical power, 𝑃𝑒𝑙, and parasitic energy losses 𝑃0.
+G. Sensors
+In this work, the observations model idealized sensors such as a GPS, Barometer, pitot tube, gyroscope, and a
+magnetometer, as well as the encoders on the servos and electric motor.
+H. Wind Model
+In this work, the wind profile is derived from the sigmoid function:
+𝜎(𝑧) =
+1
+1 + 𝑒
+−𝑧
+(30)
+By inserting some scaling parameters, the above function is used to represent a wind profile that varies with height:
+𝑉(𝑧) =
+𝐶1
+1 + 𝑒
+𝐶2 · (𝐶3−𝑧)
+(31)
+Where 𝐶1 is the free stream wind speed, 𝑉∞, 𝐶2 is a parameter that controls the thickness of the profile, 𝐶3 is the location
+of center of the profile thickness, and 𝑧 is the height. The windspeed profile can be efficiently scaled and rotated on-the-fly.
+Fig. 7 Sample Wind Profile, 𝐶1 = 20.0, 𝐶2 = 0.25, 𝐶3 = 25.0
+I. Numerical Integration
+Explicit, first-order numerical integration was sufficient for this work. A time step of Δ𝑡 = 0.02 was chosen to achieve
+11
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+numerical stability for the flight vehicle model. As stated previously, soft clamping and low-pass filtering were used to
+increase stability in other aspects of the model, such as rapidly oscillating currents. Through experimenting, it was
+determined that higher order numerical integration schemes, such as RK4 and adaptive RKDP (equivalent to ODE45
+in MATLAB) did not yield computational savings over larger stable step sizes when compared to first order explicit
+forward Euler integration.
+J. Policy Training
+Several python-based software tools were used in this work. NVIDIA Isaac Gym is a set of rigid body simulation tools,
+visualization tools, and reinforcement learning tools that target the rapid development of control policies for applications
+in robotics8
+. RL-Games is a Python-based reinforcement learning package that is included in NVIDIA Isaac Gym. It is
+similar in function to Stable Baselines3. In this work, NVIDIA Isaac Gym is being used primarily as a visualization
+tool and as an interface to RL-games. The aerodynamic forces, moments and state updates are computed using the
+environment model outlined in the above sections.
+Proximal Policy Optimization (PPO) was used to refine the control policy. PPO is a RL algorithm that is related to Advantage Actor Critic (A2C)21, it notably includes a clipped objective function. Clipping is a technique used
+to limit the magnitude of the policy update during training. The goal of clipping is to prevent large policy updates that
+could lead to the policy "jumping around" and destabilizing the learning process. In PPO22, the policy is updated by
+computing the ratio of the probability of the action taken under the new policy and the old policy, and then multiplying
+this ratio by an advantage estimate. The update is then constrained by a clipping parameter, typically set to 0.2. This
+means that the update is capped at 20% above or below the current policy. By constraining the policy update, clipping
+ensures that the new policy is not too far from the old policy, which helps maintain stability and prevent the policy from
+changing too rapidly. Compared to A2C, PPO tends to improve the efficiency of the learning process and lead to better
+overall performance of the agent.
+Deep-Dense-RL (D2RL) refers to a neural network architecture where inputs are “fed-forward” to each layer of
+the network. Policy and value networks benefit significantly from dense connections and deeper networks, across
+a suite of manipulation and locomotion tasks, for both proprioceptive and image-based observations13. For actor
+networks the states are passed forward, for Q-networks the actions and states are appended and passed forward.
+Fig. 8 Diagram of Deep-Dense-RL (D2RL). Observations are appended to actor model, 𝜋𝜙 (𝑠𝑡), latent layer
+outputs, observations and actions are appended to critic model, 𝑄𝜃 (𝑎𝑡
+, 𝑠𝑡), latent layer outputs
+The following table contains relevant PPO training parameters:
+12
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+Activation ELU
+Number of Envs 32768
+Batch Size 65536
+ERB Size 786432
+Units [256, 128, 64]
+𝛾 .99
+𝜏 0.95
+𝑒𝑐𝑙𝑖 𝑝 0.2
+Learning Rate 3.e-4
+KL Threshold 0.008
+Horizon Length 24
+Minibatch Size 65536
+Mini Epochs 5
+Critic Coefficient 2
+Bounds Loss Coefficient 0.001
+Table 1 Relevant PPO training parameters
+K. Initialization
+The initialization used here attempts to set the vehicle in a state that could be along a successful trajectory for the
+current task. This is a hard task when trajectories are not known a priori. In future work this will be addressed by using
+high scoring training and reference trajectories to seed the initialization and resetting of the states. Currently, when an
+environment is initialized or reset, some components of the agent’s initial states are chosen from ranges of random
+values:
+Height 1𝑚 −→ 5𝑚
+Roll −60◦ −→ 60◦
+Pitch −15◦ −→ 15◦
+Yaw −180◦ −→ 180◦
+Airspeed 10𝑚/𝑠 −→ 20𝑚/𝑠
+Table 2 Variables initialization ranges
+Other state variables are initialized at constant values:
+Roll, Pitch, Yaw Rates 0.0
+Battery Energy 50% = 500J
+𝜔𝑅𝑜𝑡𝑜𝑟 500 RPM
+Table 3 Variables that are initialized at constant values
+The ground frame velocity vector is determined from the generated airspeed and orientation such that the aircraft has
+zero slip at initialization.
+𝑉𝐺𝑙𝑜𝑏𝑎𝑙 = 𝑉𝑎 𝑝 𝑝𝑎𝑟 𝑒𝑛𝑡 + 𝑉𝑤𝑖𝑛𝑑 (32)
+13
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+L. Rewards and Episode Termination
+The following reward components and episode termination conditions were used in this work:
+Heading Alignment 0.0
+Energy 50% = 500J
+Wing loading 500 RPM
+Orientation 500 RPM
+Rotor force limits 500 RPM
+Table 4 Reward Components
+Height 0.0
+Charge 50% = 500J
+Stall 500 RPM
+Timeout Timeout
+Table 5 Episode Termination Conditions
+V. Results
+A. Task I: Dynamic Soaring between waypoints in steady gradient Field
+Vehicle uses dynamic soaring to navigate between waypoints in steady wind profile. Here the agent observations and
+actions are:
+𝑂𝑏𝑠𝑒𝑟𝑣𝑎𝑡𝑖𝑜𝑛𝑠 = [𝑢𝑣𝑤𝑔𝑙𝑜𝑏𝑎𝑙, 𝑎𝑖𝑟 𝑠𝑝𝑒𝑒𝑑, ℎ𝑒𝑖𝑔ℎ𝑡, 𝛼𝛽𝛾, 𝐷𝑡 𝑎𝑟𝑔𝑒𝑡, 𝑉𝑒𝑐𝑡 𝑎𝑟𝑔𝑒𝑡] (33)
+𝐴𝑐𝑡𝑖𝑜𝑛𝑠 = [𝑟𝑜𝑙𝑙𝑖𝑛 𝑝𝑢𝑡, 𝑝𝑖𝑡𝑐ℎ𝑖𝑛 𝑝𝑢𝑡] (34)
+For this task, the heading and energy rewards are mixed as follows:
+𝑅𝑚𝑖𝑥𝑒𝑑 = 𝐸 · (1 − 𝐸) + 𝐸 · 𝐻 = 𝐸 · (𝐻 − 𝐸 + 1) (35)
+This mixing approach increases the relative weight of the heading reward when energy is high while increasing the
+relative weight of the energy reward when energy is low. The episode is terminated if the flight vehicle drops below a
+height threshold or exceeds a maximum absolute angle of attack of 5
+◦
+.
+Fig. 9 Dynamic Soaring Upwind Trajectory, green
+marker: start data, red marker: end data
+Fig. 10 Dynamic Soaring Downwind Trajectory, green
+marker: start data, red marker: end data
+14
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+Fig. 11 Dynamic Soaring Crosswind Trajectory (Right),
+green marker: start data, red marker: end data
+Fig. 12 Dynamic Soaring Crosswind Trajectory (Left),
+green marker: start data, red marker: end data
+Fig. 13 Dynamic Soaring Upwind and Downwind Trajectories, green marker: start data, red marker: end
+data
+Fig. 14 Dynamic Soaring Crosswind Trajectories, green
+marker: start data, red marker: end data
+The policies trained here were trained on a random waypoint task. Here, two waypoints exist at fixed locations,
+the target waypoint switches back and forth as the agent reaches the target. This experiment was performed in
+windward/leeward and crosswind orientations. In both cases, the agent is capable of maneuvering between the waypoints
+indefinitely using only wind power. Figures 9, 10, 11, and 12 show upwind, downwind and both crosswind portions of
+the flights. Longer trajectories can be seen in figures 13 and 14.
+B. Task II: Powered Flight in Steady Gradient Field
+Vehicle uses battery power to navigate between waypoints in steady wind profile. Agent has all observations and
+actions:
+𝑂𝑏𝑠𝑒𝑟𝑣𝑎𝑡𝑖𝑜𝑛𝑠 = [𝑢𝑣𝑤𝑔𝑙𝑜𝑏𝑎𝑙, 𝑎𝑖𝑟 𝑠𝑝𝑒𝑒𝑑, ℎ𝑒𝑖𝑔ℎ𝑡, 𝛼𝛽𝛾, 𝐷𝑡 𝑎𝑟𝑔𝑒𝑡, 𝑉𝑒𝑐𝑡 𝑎𝑟𝑔𝑒𝑡, 𝜔𝑅𝑜𝑡𝑜𝑟 ] (36)
+𝐴𝑐𝑡𝑖𝑜𝑛𝑠 = [𝑟𝑜𝑙𝑙𝑖𝑛 𝑝𝑢𝑡, 𝑝𝑖𝑡𝑐ℎ𝑖𝑛𝑝𝑢𝑡, 𝑡ℎ𝑟𝑜𝑡𝑡𝑙𝑒𝑖𝑛 𝑝𝑢𝑡, 𝑝𝑖𝑡𝑐ℎ𝑅𝑜𝑡𝑜𝑟𝑖𝑛𝑝𝑢𝑡 ] (37)
+Here, the agent is rewarded for aligning its heading vector with the target vector and penalized for exceeding the roll
+angle threshold. The episode is terminated if the flight vehicle drops below a height threshold or exceeds a maximum
+absolute angle of attack.
+15
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+Fig. 15 Trajectory, up and downwind, no battery rewards
+Fig. 16 Trajectory, crosswind, no battery rewards
+Fig. 17 Vehicle energy, upwind, no battery rewards Fig. 18 Vehicle energy, downwind, no battery rewards
+Fig. 19 Vehicle energy, crosswind-left, no battery rewards
+Fig. 20 Vehicle energy, crosswind-right, no battery
+rewards
+16
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+Fig. 21 Power, upwind, no battery rewards Fig. 22 Power, downwind, no battery rewards
+Fig. 23 Power, crosswind-left, no battery rewards Fig. 24 Power, crosswind-right, no battery rewards
+Fig. 25 State, upwind, no battery rewards Fig. 26 State, downwind, no battery rewards
+17
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+Fig. 27 States, crosswind-left, no battery rewards Fig. 28 States, crosswind-right, no battery rewards
+Here, the agent has infinite electrical energy. However, the vehicle is still somewhat power-limited by the motor and
+prescribed battery voltage. What is particularly interesting here is that the agent uses the wind as an additional source of
+power. This is likely related to the energy reward equation that rewards more energetic and therefore faster flight.
+C. Task III: Battery Charging while Dynamic Soaring
+For task 3, the agent receives the same observations as in task 2, but now a battery power observation is also included:
+𝑂𝑏𝑠𝑒𝑟𝑣𝑎𝑡𝑖𝑜𝑛𝑠 = [𝑢𝑣𝑤𝑔𝑙𝑜𝑏𝑎𝑙, 𝑎𝑖𝑟 𝑠𝑝𝑒𝑒𝑑, ℎ𝑒𝑖𝑔ℎ𝑡, 𝛼𝛽𝛾, 𝐷𝑡 𝑎𝑟𝑔𝑒𝑡, 𝑉𝑒𝑐𝑡 𝑎𝑟𝑔𝑒𝑡, 𝜔𝑅𝑜𝑡𝑜𝑟 , 𝐸𝐵𝑎𝑡 𝑡𝑒𝑟 𝑦] (38)
+𝐴𝑐𝑡𝑖𝑜𝑛𝑠 = [𝑟𝑜𝑙𝑙𝑖𝑛 𝑝𝑢𝑡, 𝑝𝑖𝑡𝑐ℎ𝑖𝑛 𝑝𝑢𝑡, 𝑡ℎ𝑟𝑜𝑡𝑡𝑙𝑒𝑖𝑛 𝑝𝑢𝑡, 𝑝𝑖𝑡𝑐ℎ𝑅𝑜𝑡𝑜𝑟𝑖𝑛𝑝𝑢𝑡 ] (39)
+In addition to the mixed reward from task 1, the agent is rewarded for maintaining higher levels of energy in the battery.
+Here the episode is terminated if the battery energy drops below a threshold, in addition to the episode terminating
+conditions used to task 2.
+Fig. 29 Trajectory, up and downwind, battery rewards Fig. 30 Trajectory, crosswind, battery rewards
+18
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+Fig. 31 Vehicle energy, upwind, battery rewards Fig. 32 Vehicle energy, downwind, battery rewards
+Fig. 33 Vehicle energy, crosswind-left, battery rewardsFig. 34 Vehicle energy, crosswind-right, battery rewards
+Fig. 35 Power, upwind, battery rewards Fig. 36 Power, downwind, battery rewards
+19
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+Fig. 37 Power, crosswind-left, battery rewards Fig. 38 Power, crosswind-right, battery rewards
+Fig. 39 State, upwind, battery rewards Fig. 40 State, downwind, battery rewards
+Fig. 41 States, crosswind-left, battery rewards Fig. 42 States, crosswind-right, battery rewards
+Figures 39-49 show the policies ability to exchange kinetic energy for electrical energy. The policy is able to charge
+the battery and maintain flight in all cardinal direction with respect to the wind. Crosswind charging was the most
+efficient in terms of charge rate.
+20
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+VI. Conclusions
+This paper presented an approach for developing automated flight control systems that can use dynamic soaring
+and electrical power to manage the vehicle energy between waypoints in a virtual environment. Reinforcement learning
+was used to develop the control system which takes the form of a neural network, taking observations as inputs, and
+outputting vehicle control setpoints. The agents developed for this work were capable of powered flight, unpowered
+dynamic soaring, and generating power during dynamic soaring while incurring windmill drag. The flight vehicle
+dynamics model is based on a lifting line method and includes a battery and rotor/motor model. The vehicle model was
+written in PyTorch to leverage fast GPU-based tensor operations.
+The benefits of vectorized environments within reinforcement learning are well documented and include improved
+training efficiency, reduced variance, increased sampling efficiency, better exploration, and flexibility/scalability.
+VII. Future Work
+While the work presented here is far from complete, the results were encouraging and an array of new research
+direction will be explored. Wind will be represented by high fidelity wind data or with unsteady reduced order
+models. Full field CFD is too computationally expensive to be used in a reinforcement learning routine. However, it
+is practical to pre-compute wind fields for use as look up tables or even fit a supplementary model to the wind data.
+Integral boundary layer (IBL) models are good candidates for the reduced order modeling of surface boundary layers at
+a variety of scales 19. Other neural network based solutions will be explored as well, such as Fourier Neural Operators 20
+.
+Payload delivery can rapidly change the location of the CG and flight vehicle dynamics. In the interest of developing control policies that are performant over a range of weight distributions and can recover from sudden changes
+in flight vehicle dynamics, recurrent neural network architectures will be explored. The advantages of such architectures
+are that the vehicle dynamics, and associated control regime can be refined from real time observation and action data.
+This is equivalent to building a model that can quickly learn to fly a range of aircraft by manipulating the control inputs
+and observing the state changes, like an experienced human pilot adjusting to the dynamics of a new flight vehicle.
+21
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
+VIII. References
+1) Kim, Eric J., and Ruben E. Perez. "Neuroevolutionary control for autonomous soaring." Aerospace 8.9 (2021):
+267.
+2) Drela, Mark. Flight vehicle aerodynamics. MIT press, 2014.
+3) Sutton, Richard S., and Andrew G. Barto. Reinforcement learning: An introduction. MIT press, 2018.
+4) Hoff, Rein, Guy Gratton, and Anthony Gee. "Estimating sailplane mass properties." Technical Soaring 34.4
+(2010): 118-125.
+5) Boslough, Mark. "Autonomous dynamic soaring." 2017 IEEE Aerospace Conference. IEEE, 2017.
+6) Boslough, Mark BE. Autonomous dynamic soaring platform for distributed mobile sensor arrays. No. SAND2002-
+1896. Sandia National Lab.(SNL-NM), Albuquerque, NM (United States); Sandia National Lab.(SNL-CA),
+Livermore, CA (United States), 2002.
+7) Rudin, Nikita, et al. "Learning to walk in minutes using massively parallel deep reinforcement learning."
+Conference on Robot Learning. PMLR, 2022.
+8) Makoviychuk, Viktor, et al. "Isaac gym: High performance gpu-based physics simulation for robot learning."
+arXiv preprint arXiv:2108.10470 (2021).
+9) Montella, Corey, and John R. Spletzer. "Reinforcement learning for autonomous dynamic soaring in shear
+winds." 2014 IEEE/RSJ International Conference on Intelligent Robots and Systems. IEEE, 2014.
+10) Kim, Eric J., and Ruben E. Perez. "Robust Neurocontrol for Autonomous Dynamic Soaring." AIAA SCITECH
+2022 Forum. 2022.
+11) Perez, Ruben E., Jose Arnal, and Peter W. Jansen. "Neuro-Evolutionary Control for Optimal Dynamic Soaring."
+AIAA Scitech 2020 Forum. 2020.
+12) Intelligence, Insider. "Drone market outlook in 2021: industry growth trends, market stats and forecast." Insider
+Intelligence (Apr 15. 2022). URl: https://www/. insiderintelligence. com/insights/drone-industryanalysismarket-trends-growth-forecasts/.(accessed: 16.05. 2022) (2021).
+13) Sinha, Samarth, et al. "D2rl: Deep dense architectures in reinforcement learning." arXiv preprint arXiv:2010.09163
+(2020).
+14) Notter, S., Schimpf, F., and Fichter, W., “Hierarchical ReinforcementLearning Approach Towards Autonomous
+Cross-Country Soaring,” AIAA SciTech 2021 Forum, AIAA Paper 2021-2010, 2021. https://doi.org/10.2514/6.2021-
+2010
+15) Kim, S.-H., Lee, J., Jung, S., Lee, H., and Kim, Y., “Deep Neural Network-Based Feedback Control for Dynamic
+Soaring of Unpowered Aircraft,” IFAC-PapersOnLine, Vol. 52, No. 12, 2019, pp. 117–121.
+16) Kim, Eric J., and Ruben E. Perez. "Robust Neurocontrol for Autonomous Dynamic Soaring." Journal of
+Guidance, Control, and Dynamics 46.5 (2023): 924-939.
+17) Woodbury, T. D., Dunn, C., and Valasek, J., “Autonomous Soaring Using Reinforcement Learning for Trajectory
+Generation,” 52nd Aerospace Sciences Meeting, AIAA SciTech Forum, AIAA Paper 2014-0990, 2014.
+18) Bøhn, E., Coates, E. M., Moe, S., and Johansen, T. A., “Deep Reinforcement Learning Attitude Control of
+Fixed-Wing UAVs Using Proximal Policy Optimization,” 2019 International Conference on Unmanned Aircraft
+Systems (ICUAS), 2019, pp. 523–533,
+19) Drela, Mark. "Three-dimensional integral boundary layer formulation for general configurations." 21st AIAA
+computational fluid dynamics conference. 2013.
+20) Li, Zongyi, et al. "Fourier neural operator for parametric partial differential equations." arXiv preprint
+arXiv:2010.08895 (2020).
+21) Babaeizadeh, Mohammad, et al. "Reinforcement learning through asynchronous advantage actor-critic on a
+gpu." arXiv preprint arXiv:1611.06256 (2016).
+22) Schulman, John, et al. "Proximal policy optimization algorithms." arXiv preprint arXiv:1707.06347 (2017).
+22
+Downloaded by Tyler Barkin on April 15, 2024 | http://arc.aiaa.org | DOI: 10.2514/6.2023-4046 
