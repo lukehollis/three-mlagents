@@ -8,6 +8,7 @@ import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
+import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/minefarm`;
 
@@ -201,6 +202,7 @@ export default function MineFarmExample() {
   const [running, setRunning] = useState(false);
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
+  const [modelInfo, setModelInfo] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
@@ -239,6 +241,7 @@ export default function MineFarmExample() {
       if (parsed.type === 'training_complete') {
         setTraining(false);
         setTrained(true);
+        setModelInfo(parsed.model_info);
         addLog('Training complete! Agents are now using the trained policy.');
       }
     };
@@ -267,6 +270,13 @@ export default function MineFarmExample() {
 
   const reset = () => {
     window.location.reload();
+  }
+
+  const resetTraining = () => {
+    setTrained(false);
+    setTraining(false);
+    setModelInfo(null);
+    addLog("Training state reset. Ready to train a new model.");
   }
 
   return (
@@ -309,10 +319,10 @@ export default function MineFarmExample() {
         </Link>
         <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Mine Farm</Text>
         <div style={{ display: 'flex', gap: '8px' }}>
-
           <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-          <Button auto type="secondary" disabled={running} onClick={startRun}>Run</Button>
-          <Button auto type="error" onClick={reset}>Reset</Button>
+          <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
+          <Button auto type="error" onClick={reset}>Reset </Button>
+          {trained && <Button auto type="error" onClick={resetTraining}>Reset Training</Button>}
         </div>
       </div>
       
@@ -334,6 +344,7 @@ export default function MineFarmExample() {
       
       {state && <MessagePanel messages={state.messages} />}
       <InfoPanel logs={logs} chartState={chartState} />
+      <ModelInfoPanel modelInfo={modelInfo} />
 
     </div>
   );

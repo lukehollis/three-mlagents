@@ -579,6 +579,7 @@ async def train_policy_model(env: MineFarmEnv, dataset: List[Tuple[np.ndarray, s
 
     print("Training finished.")
     env.trained_policy = model # Save the trained model to the environment
+    return {"epochs": epochs, "loss": avg_loss}
 
     
 async def run_training_loop(websocket: WebSocket, env: MineFarmEnv, num_episodes: int = 10):
@@ -623,9 +624,9 @@ async def run_training_loop(websocket: WebSocket, env: MineFarmEnv, num_episodes
     print("Data collection finished.")
     
     # Now, train the model
-    await train_policy_model(env, training_data, websocket)
+    model_info = await train_policy_model(env, training_data, websocket)
 
-    await websocket.send_json({"type": "training_complete"})
+    await websocket.send_json({"type": "training_complete", "model_info": model_info})
     print("Training process finished.")
 
 

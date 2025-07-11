@@ -1,42 +1,28 @@
 import React from 'react';
-import config from '../config.js';
+import { Card, Text } from '@geist-ui/core';
 
-export default function ModelInfoPanel({ modelInfo }) {
-  if (!modelInfo) {
-    return null;
-  }
+const ModelInfoPanel = ({ modelInfo }) => {
+    if (!modelInfo) return null;
 
-  return (
-    <div
-      style={{
-        marginTop: '8px',
-        fontSize: '12px',
-        background: 'rgba(0,255,0,0.1)',
-        padding: '4px 8px',
-        borderRadius: '4px',
-        border: '1px solid rgba(0,255,0,0.3)',
-      }}
-    >
-      <div>
-        <strong>Model:</strong> {modelInfo.filename}
-      </div>
-      <div>
-        <strong>Trained:</strong>{' '}
-        {modelInfo.timestamp.replace(
-          /(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/,
-          '$1-$2-$3 $4:$5:$6'
-        )}
-      </div>
-      <div>
-        <strong>Session:</strong> {modelInfo.sessionUuid}
-      </div>
-      <a
-        href={`${config.API_BASE_URL}${modelInfo.fileUrl}`}
-        download
-        style={{ color: '#4CAF50', textDecoration: 'underline' }}
-      >
-        Download Policy
-      </a>
-    </div>
-  );
-} 
+    return (
+        <Card style={{
+            position: 'absolute',
+            bottom: '10px',
+            right: '10px',
+            width: '250px',
+            background: 'rgba(0,0,0,0.6)',
+            color: '#fff',
+            border: '1px solid #444',
+        }}>
+            <Text h5 style={{ margin: 0, color: '#fff' }}>Trained Model Info</Text>
+            <Text p style={{ margin: '4px 0', fontSize: '12px', opacity: 0.8 }}>
+                Epochs: {modelInfo.epochs}
+            </Text>
+            <Text p style={{ margin: '4px 0', fontSize: '12px', opacity: 0.8 }}>
+                Final Loss: {modelInfo.loss.toFixed(4)}
+            </Text>
+        </Card>
+    );
+};
+
+export default ModelInfoPanel; 
