@@ -4,11 +4,13 @@ import json
 from typing import List, Dict, Any, Tuple
 import numpy as np
 from fastapi import WebSocket
+import logging
+
 from services.llm import get_json, get_embedding
-from policies.student_policy import StudentPolicy, ACTION_SPACE
 import torch
-import torch.optim as optim
 import torch.nn as nn
+import torch.optim as optim
+from policies.minefarm_policy import ActorCritic
 
 # --- Constants ---
 GRID_SIZE_X = 64
@@ -35,6 +37,29 @@ CRAFTING_RECIPES = {
     "gold_pickaxe": {"craft_time": 6, "value": 250, "recipe": {"gold": 3, "wood": 2}},
     "diamond_pickaxe": {"craft_time": 10, "value": 1000, "recipe": {"diamond": 3, "obsidian": 2}},
     "crystal_wand": {"craft_time": 15, "value": 3000, "recipe": {"crystal": 5, "gold": 2, "wood": 1}},
+}
+
+DISCRETE_ACTIONS = [
+    "move_x+", "move_x-", "move_y+", "move_y-", "move_z+", "move_z-",
+    "mine_self", "mine_up", "mine_down", "mine_x+", "mine_x-", "mine_z+", "mine_z-",
+    "talk", "wait"
+]
+ACTION_MAP_MOVE = {
+    "move_x+": np.array([1, 0, 0]),
+    "move_x-": np.array([-1, 0, 0]),
+    "move_y+": np.array([0, 1, 0]),
+    "move_y-": np.array([0, -1, 0]),
+    "move_z+": np.array([0, 0, 1]),
+    "move_z-": np.array([0, 0, -1]),
+}
+ACTION_MAP_MINE = {
+    "mine_self": np.array([0, 0, 0]),
+    "mine_up":   np.array([0, 1, 0]),
+    "mine_down": np.array([0, -1, 0]),
+    "mine_x+":   np.array([1, 0, 0]),
+    "mine_x-":   np.array([-1, 0, 0]),
+    "mine_z+":   np.array([0, 0, 1]),
+    "mine_z-":   np.array([0, 0, -1]),
 }
 
 
@@ -137,31 +162,23 @@ Based on your state, what is your next action? If you need resources for craftin
         finally:
             self.is_thinking = False
 
-    def get_fast_action(self, trained_policy: StudentPolicy, grid: np.ndarray) -> Tuple[str, Any]:
-        # This is the new, fast, non-blocking action policy.
-        
+    def get_fast_action(self, trained_policy: "ActorCritic", grid: np.ndarray) -> Tuple[str, Any]:
         # --- Policy Decision ---
-        # 1. Use the trained student policy if available
+        # 1. Use the trained actor-critic policy if available
         if trained_policy:
             state_vector = get_agent_state_vector(self, grid)
-            action_type = get_action_from_model(trained_policy, state_vector)
+            # The get_action method on the policy will return action_index, log_prob, value
+            action_index, _, _ = trained_policy.get_action(state_vector) 
+            action_name = DISCRETE_ACTIONS[action_index]
 
-            # For actions that need data, we'll try to use the last LLM intent's data
-            # This is a simplification. A more advanced model would generate data too.
-            last_intent_action, last_intent_data = self.llm_intent if self.llm_intent else (None, None)
-
-            if action_type == last_intent_action:
-                return (action_type, last_intent_data)
-            else:
-                 # If the action type differs, or there's no data, use placeholder/default behavior
-                if action_type == "move":
-                    move = random.choice([(1,0,0), (-1,0,0), (0,0,-1), (0,0,1), (0,-1,0)])
-                    return ("move", self.pos + np.array(move))
-                elif action_type == "talk":
-                    return ("talk", {"message": "Thinking..."}) # Placeholder message
-                else:
-                    # For other actions, we can't easily fake data, so we wait.
-                    return ("wait", None)
+            if action_name in ACTION_MAP_MOVE:
+                return ("move", self.pos + ACTION_MAP_MOVE[action_name])
+            elif action_name in ACTION_MAP_MINE:
+                return ("mine", self.pos + ACTION_MAP_MINE[action_name])
+            elif action_name == "talk":
+                 return ("talk", {"message": f"My goal is {self.goal}"})
+            else: # wait
+                return ("wait", None)
 
         # 2. If no trained policy, use the LLM's most recent intent
         if self.llm_intent:
@@ -170,19 +187,17 @@ Based on your state, what is your next action? If you need resources for craftin
 
             if action == "move" and data:
                 target_pos = np.array(data)
-                # Move one step towards the target
                 direction = np.sign(target_pos - self.pos)
-                # Ensure it's a valid 1-step move, not diagonal
                 if np.sum(np.abs(direction)) == 1:
                      return ("move", self.pos + direction)
-            # For non-move actions, execute them directly if intent is set
             elif action in ["mine", "talk", "craft", "offer", "accept_offer"]:
                 return (action, data)
         
         # 3. Default behavior: random walk
-        move = random.choice([(1,0,0), (-1,0,0), (0,0,-1), (0,0,1), (0,-1,0)]) # Bias towards horizontal/downward exploration
+        move = random.choice(list(ACTION_MAP_MOVE.values()))
         next_pos = self.pos + np.array(move)
         return ("move", next_pos)
+
 
 # --- Environment Class ---
 class MineFarmEnv:
@@ -194,10 +209,15 @@ class MineFarmEnv:
         self._spawn_resources()
         self.step_count = 0
         self.agents = []
-        self.trained_policy: StudentPolicy = None
+        self.trained_policy: "ActorCritic" = None
         for i in range(NUM_AGENTS):
             # Find a valid spawn point on the surface
+            tries = 0
             while True:
+                tries += 1
+                if tries > 1000:
+                    raise RuntimeError(f"Could not find a valid spawn point for agent {i} after 1000 tries.")
+                
                 start_x = random.randint(0, GRID_SIZE_X - 1)
                 start_z = random.randint(0, GRID_SIZE_Z - 1)
 
@@ -352,11 +372,48 @@ class MineFarmEnv:
                 total_value += res_value * count
         return total_value
 
+    def _get_reward(self, agent: Agent, action: str, data: Any) -> float:
+        """Calculates reward for a single agent's action."""
+        reward = 0.0
+        
+        # Small cost for existing
+        reward -= 0.01
+
+        if action == "move":
+            reward -= 0.02 # Cost of moving
+
+        elif action == "mine":
+            res_pos = data
+            if 0 <= res_pos[0] < GRID_SIZE_X and 0 <= res_pos[1] < GRID_SIZE_Y and 0 <= res_pos[2] < GRID_SIZE_Z:
+                res_idx = self.grid[res_pos[0], res_pos[1], res_pos[2]]
+                if res_idx > 0:
+                    res_name = list(RESOURCE_TYPES.keys())[int(res_idx) - 1]
+                    res_value = RESOURCE_TYPES[res_name]["value"]
+                    reward += res_value if res_value > 0 else 0.1 # Reward for mining something
+                else:
+                    reward -= 0.1 # Penalty for mining empty space
+            else:
+                reward -= 0.2 # Penalty for mining out of bounds
+
+        elif action == "craft":
+             recipe_info = CRAFTING_RECIPES.get(data)
+             if recipe_info:
+                reward += recipe_info.get("value", 0) * 0.5 # Big reward for crafting
+
+        # Add other reward conditions (e.g., for trading) here...
+
+        return reward
+
     def _execute_actions(self, agent_actions: List[Tuple[str, Any]]):
         randomized_order = list(zip(self.agents, agent_actions))
         random.shuffle(randomized_order)
 
         for agent, (action, data) in randomized_order:
+            # We'll need to get reward here before executing the action
+            reward = self._get_reward(agent, action, data)
+            # In a full PPO impl, we'd store this reward with the state & action.
+            # For now, we're just setting up the function.
+
             if action == "move" and data is not None:
                 # Ensure agent stays within bounds
                 data[0] = np.clip(data[0], 0, GRID_SIZE_X - 1)
@@ -528,130 +585,204 @@ def get_agent_state_vector(agent: Agent, grid: np.ndarray) -> np.ndarray:
     state_vector = np.concatenate([view_flat, inventory_vec, memory_vec])
     return state_vector
 
-async def train_policy_model(env: MineFarmEnv, dataset: List[Tuple[np.ndarray, str]], websocket: WebSocket, epochs: int = 10, batch_size: int = 32):
-    print(f"Starting training with {len(dataset)} samples.")
-    if not dataset:
-        print("No data to train on.")
-        return
+# --- PPO Hyperparameters ---
+BATCH_SIZE = 2048
+MINI_BATCH = 256
+EPOCHS = 4
+GAMMA = 0.99
+GAE_LAMBDA = 0.95
+CLIP_EPS = 0.2
+ENT_COEF = 0.01
+LR = 3e-4
 
-    # 1. Instantiate model, optimizer, and loss function
-    # Correct input size based on the state vector
-    input_size = dataset[0][0].shape[0]
-    model = StudentPolicy(input_size=input_size, num_actions=len(ACTION_SPACE))
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-    loss_fn = nn.CrossEntropyLoss()
+async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
+    """
+    Train the MineFarm agents using Proximal Policy Optimization (PPO).
+    """
+    # env = MineFarmEnv() # DO NOT CREATE A NEW ENV
     
-    # 2. Prepare data
-    states = torch.tensor(np.array([s for s, a in dataset]), dtype=torch.float32)
-    action_to_idx = {action: i for i, action in enumerate(ACTION_SPACE)}
-    # Filter out actions not in our defined ACTION_SPACE
-    valid_indices = [i for i, (s, a) in enumerate(dataset) if a in action_to_idx]
+    # Determine obs and action sizes from the environment
+    # Note: This is a multi-agent environment, but we use a shared policy.
+    # The observation size is for a single agent.
     
-    if not valid_indices:
-        print("No valid actions found in dataset to train on.")
-        return
+    # Calculate obs_size dynamically
+    dummy_agent = env.agents[0]
+    dummy_obs = get_agent_state_vector(dummy_agent, env.grid)
+    obs_size = dummy_obs.shape[0]
+    action_size = len(DISCRETE_ACTIONS)
+
+    # Initialize model and optimizer
+    model = ActorCritic(obs_size, action_size)
+    optimizer = optim.Adam(model.parameters(), lr=LR)
+    env.trained_policy = model # Agents will use this model for actions
+
+    step_buffer: list[dict] = []
+    ep_counter = 0
+    total_steps = 0
+
+    while ep_counter < 5000: # Train for a fixed number of agent "episodes" or interactions
         
-    states = states[valid_indices]
-    actions = torch.tensor([action_to_idx[dataset[i][1]] for i in valid_indices], dtype=torch.long)
-
-    # 3. Training loop
-    for epoch in range(epochs):
-        epoch_loss = 0.0
-        permutation = torch.randperm(states.size()[0])
+        # --- Collect a batch of experience from all agents ---
+        # Unlike the glider, we have one environment with N agents.
+        # We'll gather one step of experience from each agent.
         
-        for i in range(0, states.size()[0], batch_size):
-            optimizer.zero_grad()
+        agent_states = [get_agent_state_vector(agent, env.grid) for agent in env.agents]
+        obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
+
+        with torch.no_grad():
+            dist, value = model(obs_t)
+            actions_t = dist.sample()
+            logp_t = dist.log_prob(actions_t)
             
-            indices = permutation[i:i+batch_size]
-            batch_states, batch_actions = states[indices], actions[indices]
-            
-            outputs = model(batch_states)
-            loss = loss_fn(outputs, batch_actions)
-            
-            loss.backward()
-            optimizer.step()
-            
-            epoch_loss += loss.item()
+        actions_np = actions_t.cpu().numpy()
         
-        avg_loss = epoch_loss / (states.size()[0] / batch_size)
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}")
-        await websocket.send_json({"type": "training_progress", "epoch": epoch + 1, "loss": avg_loss})
-
-    print("Training finished.")
-    env.trained_policy = model # Save the trained model to the environment
-    return {"epochs": epochs, "loss": avg_loss}
-
-    
-async def run_training_loop(websocket: WebSocket, env: MineFarmEnv, num_episodes: int = 10):
-    print(f"Starting data collection for {num_episodes} episodes...")
-    
-    training_data = []
-    
-    for episode in range(num_episodes):
-        env.step_count += 1
-        # 1. Let all agents decide on an action with the LLM
-        llm_tasks = []
-        for agent in env.agents:
-            if not agent.is_thinking:
-                task = asyncio.create_task(
-                    agent.decide_action_llm(env.grid, env.agents, env.messages, env.step_count, env.trade_offers)
-                )
-                llm_tasks.append(task)
+        # --- Execute actions for all agents and collect results ---
+        rewards = []
+        dones = [] # In this env, 'done' isn't really a concept, so it will always be False.
+                  # We can simulate episodes by resetting agents or tracking individual stats.
         
-        # 2. Wait for all LLMs to finish
-        if llm_tasks:
-            # Wait for all LLM tasks to complete to ensure we have the intent
-            done, _ = await asyncio.wait(llm_tasks, timeout=20.0) 
-            for task in done:
-                log_entry = task.result()
-                if log_entry:
-                    env.llm_logs.append(log_entry)
+        agent_actions_for_env = []
+        for i, agent in enumerate(env.agents):
+            action_name = DISCRETE_ACTIONS[actions_np[i]]
+            if action_name in ACTION_MAP_MOVE:
+                action_data = agent.pos + ACTION_MAP_MOVE[action_name]
+                agent_actions_for_env.append(("move", action_data))
+            elif action_name in ACTION_MAP_MINE:
+                action_data = agent.pos + ACTION_MAP_MINE[action_name]
+                agent_actions_for_env.append(("mine", action_data))
+            else: # talk, wait
+                agent_actions_for_env.append((action_name, None))
 
-        # 3. Collect state and intended action for each agent
-        for agent in env.agents:
-            if agent.llm_intent:
-                state_vector = get_agent_state_vector(agent, env.grid)
-                action, _ = agent.llm_intent
-                training_data.append((state_vector, action))
+            # Get reward for the action
+            # Note: The _get_reward function needs the *result* of the action.
+            # We are getting it before, which is a slight simplification.
+            reward = env._get_reward(agent, agent_actions_for_env[-1][0], agent_actions_for_env[-1][1])
+            rewards.append(reward)
+            dones.append(False) # No terminal states in this persistent world.
 
-        # 4. Execute the actions using the fast policy (which now uses the intent)
-        agent_actions = [agent.get_fast_action(env.trained_policy, env.grid) for agent in env.agents]
-        env._execute_actions(agent_actions)
-
-
-        progress = (episode + 1) / num_episodes * 100
-        await websocket.send_json({
-            "type": "data_collection_progress",
-            "progress": progress,
-            "samples": len(training_data)
+        # Store the experience
+        step_buffer.append({
+            "obs": obs_t, 
+            "actions": actions_t, 
+            "logp": logp_t, 
+            "reward": torch.tensor(rewards, dtype=torch.float32), 
+            "done": torch.tensor(dones, dtype=torch.float32), 
+            "value": value.flatten()
         })
-        print(f"Episode {episode + 1}/{num_episodes} complete. Total samples: {len(training_data)}")
         
-    print("Data collection finished.")
-    
-    # Now, train the model
-    model_info = await train_policy_model(env, training_data, websocket)
+        # --- Update environment state ---
+        env._execute_actions(agent_actions_for_env)
+        env.step_count += 1
+        total_steps += len(env.agents)
+        ep_counter += len(env.agents) # Count each agent step as an "episode" for progress
 
-    await websocket.send_json({"type": "training_complete", "model_info": model_info})
-    print("Training process finished.")
+        # --- Visualize state on the frontend periodically ---
+        if env.step_count % 8 == 0: # Update frontend every 8 steps
+            state_viz = env.get_state_for_viz()
+            await websocket.send_json({"type": "train_step", "state": state_viz, "episode": ep_counter})
+            await asyncio.sleep(0.01) # give websocket time to send
+
+        # --- PPO Update phase ---
+        if total_steps >= BATCH_SIZE:
+            with torch.no_grad():
+                next_agent_states = [get_agent_state_vector(agent, env.grid) for agent in env.agents]
+                next_obs_t = torch.tensor(np.array(next_agent_states), dtype=torch.float32)
+                _, next_value = model(next_obs_t)
+                next_value = next_value.squeeze()
+
+            # Process buffer to calculate advantages
+            num_steps = len(step_buffer)
+            num_agents = len(env.agents)
+            
+            values = torch.stack([b["value"] for b in step_buffer])
+            rewards = torch.stack([b["reward"] for b in step_buffer])
+            dones = torch.stack([b["done"] for b in step_buffer])
+            
+            # GAE Calculation
+            advantages = torch.zeros_like(rewards)
+            gae = 0.0
+            for t in reversed(range(num_steps)):
+                # If we were using dones, next_value would be masked where dones[t] is true.
+                # Since done is always false, this simplifies.
+                delta = rewards[t] + GAMMA * next_value - values[t]
+                gae = delta + GAMMA * GAE_LAMBDA * gae
+                advantages[t] = gae
+                next_value = values[t] # The value of the state at time t is the "next_value" for t-1
+            
+            returns = advantages + values
+            
+            # Flatten the batch for training
+            b_obs = torch.cat([b["obs"] for b in step_buffer])
+            b_actions = torch.cat([b["actions"] for b in step_buffer])
+            b_logp = torch.cat([b["logp"] for b in step_buffer])
+            b_adv = advantages.flatten()
+            b_returns = returns.flatten()
+            
+            # Normalize advantages
+            b_adv = (b_adv - b_adv.mean()) / (b_adv.std() + 1e-8)
+
+            # --- Training Epochs ---
+            for _ in range(EPOCHS):
+                idxs = torch.randperm(b_obs.shape[0])
+                for start in range(0, b_obs.shape[0], MINI_BATCH):
+                    mb_idxs = idxs[start : start + MINI_BATCH]
+                    
+                    mb_obs = b_obs[mb_idxs]
+                    mb_actions = b_actions[mb_idxs]
+                    mb_logp_old = b_logp[mb_idxs]
+                    mb_adv = b_adv[mb_idxs]
+                    mb_returns = b_returns[mb_idxs]
+
+                    dist, value = model(mb_obs)
+                    logp_new = dist.log_prob(mb_actions)
+                    entropy_bonus = dist.entropy().mean()
+                    
+                    ratio = (logp_new - mb_logp_old).exp()
+                    
+                    # Policy loss
+                    pg_loss1 = -mb_adv * ratio
+                    pg_loss2 = -mb_adv * torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS)
+                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+                    
+                    # Value loss
+                    v_loss = 0.5 * ((value.flatten() - mb_returns).pow(2)).mean()
+                    
+                    loss = pg_loss - ENT_COEF * entropy_bonus + v_loss
+
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+
+            # --- Post-update ---
+            avg_reward = float(torch.stack([b["reward"] for b in step_buffer]).mean().cpu().item())
+            
+            step_buffer = []
+            total_steps = 0
+            
+            await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": avg_reward, "loss": loss.item()})
+
+    await websocket.send_json({"type": "trained", "model_info": {"epochs": ep_counter, "loss": loss.item()}})
 
 
 # --- Websocket runner ---
 async def run_minefarm(websocket: WebSocket):
-    env = MineFarmEnv()
-    await websocket.send_json({"type": "init", "state": env.get_state_for_viz()})
-    
+    logger.info("Client connected. Creating environment...")
+    try:
+        env = MineFarmEnv()
+        logger.info("Environment created. Sending initial state...")
+        await websocket.send_json({"type": "init", "state": env.get_state_for_viz()})
+        logger.info("Initial state sent successfully.")
+    except Exception as e:
+        logger.error(f"Failed to initialize and send state: {e}", exc_info=True)
+        return
+
     try:
         # Wait for the client to send the 'run' or 'train' command before starting.
         data = await websocket.receive_json()
         cmd = data.get("cmd")
 
         if cmd == "train":
-            await run_training_loop(websocket, env)
-            # After training, the server can wait for a 'run' command or other instructions.
-            # For now, we'll just keep the connection open.
-            while True:
-                await asyncio.sleep(1)
+            await train_minefarm(websocket, env)
         elif cmd == "run":
             running = True
 

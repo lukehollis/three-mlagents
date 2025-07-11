@@ -222,30 +222,35 @@ export default function MineFarmExample() {
     wsRef.current = ws;
     ws.onopen = () => addLog('MineFarm WS opened');
     ws.onmessage = (ev) => {
-      addLog(ev.data);
-      const parsed = JSON.parse(ev.data);
-      if (parsed.type === 'state' || parsed.type === 'init' || parsed.type === 'run_step') {
-        setState(parsed.state);
-      }
-      if (parsed.type === 'progress') {
-        setChartState((prev) => ({
-          labels: [...prev.labels, parsed.episode],
-          rewards: [...prev.rewards, parsed.reward],
-          losses: [...prev.losses, parsed.loss ?? null],
-        }));
-      }
-      if (parsed.type === 'data_collection_progress') {
-        addLog(`Collecting training data... ${parsed.progress.toFixed(0)}% (${parsed.samples} samples)`);
-      }
-      if (parsed.type === 'training_progress') {
-        // You can add logic here to display training progress, e.g., in a toast or a status bar
-        addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);
-      }
-      if (parsed.type === 'training_complete') {
-        setTraining(false);
-        setTrained(true);
-        setModelInfo(parsed.model_info);
-        addLog('Training complete! Agents are now using the trained policy.');
+      addLog(`Received data: ${ev.data.substring(0, 100)}...`); // Log incoming data
+      try {
+        const parsed = JSON.parse(ev.data);
+        
+        if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
+          setState(parsed.state);
+        }
+        if (parsed.type === 'progress') {
+          setChartState((prev) => ({
+            labels: [...prev.labels, parsed.episode],
+            rewards: [...prev.rewards, parsed.reward],
+            losses: [...prev.losses, parsed.loss ?? null],
+          }));
+        }
+        if (parsed.type === 'data_collection_progress') {
+          addLog(`Collecting training data... ${parsed.progress.toFixed(0)}% (${parsed.samples} samples)`);
+        }
+        if (parsed.type === 'training_progress') {
+          addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);
+        }
+        if (parsed.type === 'training_complete') {
+          setTraining(false);
+          setTrained(true);
+          setModelInfo(parsed.model_info);
+          addLog('Training complete! Agents are now using the trained policy.');
+        }
+      } catch (e) {
+        addLog(`Error processing message: ${e}`);
+        console.error("Failed to process message: ", e);
       }
     };
     ws.onclose = () => addLog('MineFarm WS closed');
