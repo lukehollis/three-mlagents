@@ -234,6 +234,9 @@ export default function MineFarmExample() {
           losses: [...prev.losses, parsed.loss ?? null],
         }));
       }
+      if (parsed.type === 'data_collection_progress') {
+        addLog(`Collecting training data... ${parsed.progress.toFixed(0)}% (${parsed.samples} samples)`);
+      }
       if (parsed.type === 'training_progress') {
         // You can add logic here to display training progress, e.g., in a toast or a status bar
         addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);

@@ -619,6 +619,12 @@ async def run_training_loop(websocket: WebSocket, env: MineFarmEnv, num_episodes
         env._execute_actions(agent_actions)
 
 
+        progress = (episode + 1) / num_episodes * 100
+        await websocket.send_json({
+            "type": "data_collection_progress",
+            "progress": progress,
+            "samples": len(training_data)
+        })
         print(f"Episode {episode + 1}/{num_episodes} complete. Total samples: {len(training_data)}")
         
     print("Data collection finished.")
