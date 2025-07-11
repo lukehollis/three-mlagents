@@ -67,17 +67,17 @@ const ScorePanel = ({ agents }) => {
     if (!agents) return null;
     return (
         <div style={{
-            position: 'absolute', 
+            /* position: 'absolute', 
             top: '10px', 
-            right: '10px', 
-            width: isMobile ? 'calc(100% - 20px)' : '45%',
-            maxWidth: '420px',
+            right: '10px', */
+            width: '100%',
             maxHeight: '120px', 
-            overflowY: 'auto', 
+            overflowY: 'scroll', 
             background: 'rgba(0,0,0,0.5)', 
             color: '#fff',
             border: '1px solid #444',
             borderRadius: '8px',
+
         }}>
             <Text h4 style={{ padding: '4px 8px 0', margin: 0, position: 'sticky', top: 0, background: 'rgba(0,0,0,0.5)', color: '#fff' }}>Scores</Text>
 
@@ -95,52 +95,99 @@ const ScorePanel = ({ agents }) => {
     );
 };
 
-const AgentCommsPanel = ({ logs }) => {
-    if (!logs) return null;
+const CraftingPanel = ({ recipes }) => {
+    const { isMobile } = useResponsive();
+    if (!recipes) return null;
+
+    return (
+        <div style={{
+            /* position: 'absolute',
+            top: '140px',
+            right: '10px', */
+            width: '100%',
+            flex: '1 1 auto', // Allow panel to grow and shrink
+            maxHeight: '120px', 
+            overflowY: 'scroll', 
+            background: 'rgba(0,0,0,0.5)',
+            color: '#fff',
+            border: '1px solid #444',
+            borderRadius: '8px',
+        }}>
+            <Text h4 style={{ padding: '4px 8px 0', margin: 0, position: 'sticky', top: 0, background: 'rgba(0,0,0,0.5)', color: '#fff' }}>Crafting Recipes</Text>
+            <div style={{ padding: '4px 8px' }}>
+                {Object.entries(recipes).map(([itemName, itemData]) => (
+                    <div key={itemName} style={{ margin: '8px 0', fontSize: '12px', borderBottom: '1px solid #333', paddingBottom: '8px' }}>
+                        <Text span style={{ fontWeight: 'bold', textTransform: 'capitalize' }}>{itemName.replace(/_/g, ' ')}</Text>
+                        <div style={{ paddingLeft: '10px', marginTop: '4px' }}>
+                            <Text span style={{ opacity: 0.8 }}>Value: {itemData.value}</Text><br />
+                            <Text span style={{ opacity: 0.8 }}>Requires: </Text>
+                            <Text span>{Object.entries(itemData.recipe).map(([res, val]) => `${val} ${res}`).join(', ')}</Text>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+const TradePanel = ({ offers }) => {
+    const { isMobile } = useResponsive();
+    if (!offers || offers.length === 0) return null;
+
+    const openOffers = offers.filter(o => o.status === 'open');
+    if (openOffers.length === 0) return null;
+
+    return (
+        <div style={{
+            /* position: 'absolute',
+            top: 'calc(140px + calc(100vh - 300px) + 10px)', // Position below crafting panel
+            right: '10px', */
+            width: '100%',
+            maxHeight: '200px',
+            overflowY: 'auto',
+            background: 'rgba(0,0,0,0.5)',
+            color: '#fff',
+            border: '1px solid #444',
+            borderRadius: '8px',
+        }}>
+            <Text h4 style={{ padding: '4px 8px 0', margin: 0, position: 'sticky', top: 0, background: 'rgba(0,0,0,0.5)', color: '#fff' }}>Open Trades</Text>
+            <div style={{ padding: '4px 8px' }}>
+                {openOffers.map((offer) => (
+                    <div key={offer.offer_id} style={{ margin: '8px 0', fontSize: '12px', borderBottom: '1px solid #333', paddingBottom: '8px' }}>
+                        <Text span style={{ fontWeight: 'bold' }}>Offer #{offer.offer_id} by Agent {offer.agent_id}</Text>
+                        <div style={{ paddingLeft: '10px', marginTop: '4px', opacity: 0.9 }}>
+                           <Text span>Gives: {offer.gives.amount} {offer.gives.item}</Text><br />
+                           <Text span>Receives: {offer.receives.amount} {offer.receives.item}</Text>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+const MessagePanel = ({ messages }) => {
+    if (!messages) return null;
     return (
         <Card style={{
             position: 'absolute', bottom: '10px', left: '10px', width: '450px',
             maxHeight: '40vh', overflowY: 'auto', background: 'rgba(0,0,0,0.6)',
             color: '#fff', border: '1px solid #444',
         }}>
-            {logs.slice().reverse().map((log, i) => {
-                const action = log.response?.action;
-                const data = log.response?.data;
+            {messages.slice().reverse().map((msg, i) => {
                 let content;
-
-                if (log.error) {
-                    content = <Text p style={{ margin: '4px 0', color: '#ff7777' }}>Error: {log.error}</Text>;
-                } else if (action === 'talk') {
-                    content = <Text p style={{ margin: 0 }}>says: "{data}"</Text>;
-                } else if (action === 'move') {
-                    content = <Text p style={{ margin: 0, opacity: 0.7 }}>moves to [{data.join(', ')}]</Text>;
-                } else if (action === 'mine') {
-                    content = <Text p style={{ margin: 0, opacity: 0.7 }}>mines at [{data.join(', ')}]</Text>;
+                if (msg.recipient_id !== null && msg.recipient_id !== undefined) {
+                    content = <Text p style={{ margin: 0 }}><Code>[DM to {msg.recipient_id}]</Code> {msg.message}</Text>;
                 } else {
-                    content = <Text p style={{ margin: 0, opacity: 0.7 }}>waits</Text>;
+                    content = <Text p style={{ margin: 0 }}><Code>[Broadcast]</Code> {msg.message}</Text>;
                 }
                 
                 return (
                     <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
                         <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                            <Code>[Step {log.step}] Agent {log.agent_id}</Code>
+                            <Code>[Step {msg.step}] Agent {msg.sender_id}</Code>
                         </Text>
                         {content}
-                         <details style={{marginTop: '8px', opacity: 0.8}}>
-                            <summary style={{fontSize: '11px', cursor: 'pointer'}}>View LLM I/O</summary>
-                            <Text p style={{ margin: '4px 0', fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', opacity: 0.7 }}>
-                                <details>
-                                    <summary>Prompt</summary>
-                                    <Code block style={{fontSize: '10px', maxHeight: '150px', overflow: 'auto'}}>{log.prompt}</Code>
-                                </details>
-                            </Text>
-                            <Text p style={{ margin: '4px 0', fontSize: '11px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                <details>
-                                    <summary>Response</summary>
-                                    <Code block style={{fontSize: '10px'}}>{JSON.stringify(log.response, null, 2)}</Code>
-                                </details>
-                            </Text>
-                        </details>
                     </div>
                 );
             })}
@@ -148,9 +195,12 @@ const AgentCommsPanel = ({ logs }) => {
     );
 };
 
+
 export default function MineFarmExample() {
   const [state, setState] = useState(null);
   const [running, setRunning] = useState(false);
+  const [training, setTraining] = useState(false);
+  const [trained, setTrained] = useState(false);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
@@ -182,6 +232,15 @@ export default function MineFarmExample() {
           losses: [...prev.losses, parsed.loss ?? null],
         }));
       }
+      if (parsed.type === 'training_progress') {
+        // You can add logic here to display training progress, e.g., in a toast or a status bar
+        addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);
+      }
+      if (parsed.type === 'training_complete') {
+        setTraining(false);
+        setTrained(true);
+        addLog('Training complete! Agents are now using the trained policy.');
+      }
     };
     ws.onclose = () => addLog('MineFarm WS closed');
     return () => ws.close();
@@ -197,6 +256,13 @@ export default function MineFarmExample() {
     if (running) return;
     setRunning(true);
     send({ cmd: 'run' });
+  };
+
+  const startTraining = () => {
+    if (training || running) return;
+    setTraining(true);
+    addLog('Starting training run...');
+    send({ cmd: 'train' });
   };
 
   const reset = () => {
@@ -229,16 +295,44 @@ export default function MineFarmExample() {
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
-        <Link to="/"><Button auto size="small">&larr; Home</Button></Link>
+        <Link
+          to="/"
+          style={{
+            fontFamily: 'monospace',
+            color: '#fff',
+            textDecoration: 'underline',
+            display: 'inline-block',
+            fontSize: isMobile ? '12px' : '14px',
+          }}
+        >
+          Home
+        </Link>
         <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Mine Farm</Text>
         <div style={{ display: 'flex', gap: '8px' }}>
+
+          <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
           <Button auto type="secondary" disabled={running} onClick={startRun}>Run</Button>
           <Button auto type="error" onClick={reset}>Reset</Button>
         </div>
       </div>
       
-      {state && <ScorePanel agents={state.agents} />}
-      {state && <AgentCommsPanel logs={state.llm_logs} />}
+      <div style={{
+        position: 'absolute',
+        top: '10px',
+        right: '10px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px',
+        width: isMobile ? 'calc(100% - 20px)' : '45%',
+        maxWidth: '420px',
+        height: 'calc(100vh - 20px)',
+      }}>
+        {state && <ScorePanel agents={state.agents} />}
+        {state && <CraftingPanel recipes={state.crafting_recipes} />}
+        {state && <TradePanel offers={state.trade_offers} />}
+      </div>
+      
+      {state && <MessagePanel messages={state.messages} />}
       <InfoPanel logs={logs} chartState={chartState} />
 
     </div>

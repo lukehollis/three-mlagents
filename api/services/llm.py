@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI
 from typing import List, Dict, Any, Generator, Optional, Callable, Union, AsyncGenerator
 from datetime import datetime
+from sentence_transformers import SentenceTransformer
 
 load_dotenv()
 
@@ -15,6 +16,19 @@ logger = logging.getLogger(__name__)
 # Default model can be set in settings, e.g., 'anthropic/claude-3.7-sonnet:thinking'
 # Or keep a default like this if OPENROUTER_API_MODEL is not set
 default_model = os.getenv('OPENROUTER_API_MODEL', 'google/gemini-2.5-pro')
+
+embedding_model = None
+
+def get_embedding_model():
+    global embedding_model
+    if embedding_model is None:
+        # Using a small, fast model suitable for real-time simulation
+        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    return embedding_model
+
+def get_embedding(text: str):
+    model = get_embedding_model()
+    return model.encode(text)
 
 async def stream_text(
     prompt: str,
