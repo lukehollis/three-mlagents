@@ -49,7 +49,7 @@ const WindCurves = ({ windParams }) => {
       // Start streamlines at different lateral positions
       const startZ = -800 + (i / (numStreamlines - 1)) * 1600;
       
-      let currentX = -400;
+      let currentX = -800;
       let currentZ = startZ;
 
       // Trace the path of a particle to create a streamline
@@ -180,7 +180,7 @@ const Wind = ({ windParams }) => {
     const temp = [];
     lifetimesRef.current = [];
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-      const x = THREE.MathUtils.randFloatSpread(800);
+      const x = THREE.MathUtils.randFloatSpread(1600);
       const y = THREE.MathUtils.randFloat(0, 150);
       const z = THREE.MathUtils.randFloatSpread(800);
       temp.push(x, y, z);
@@ -218,12 +218,12 @@ const Wind = ({ windParams }) => {
       positions[i3 + 2] -= wind_y * 0.02;
 
       const outOfBounds =
-        positions[i3] > 400 || positions[i3] < -400 ||
+        positions[i3] > 800 || positions[i3] < -800 ||
         positions[i3 + 2] > 400 || positions[i3 + 2] < -400;
 
       if (outOfBounds || lifetimesRef.current[i] > MAX_LIFE) {
         // Reset the particle at a completely random location within the volume
-        positions[i3] = THREE.MathUtils.randFloatSpread(800);
+        positions[i3] = THREE.MathUtils.randFloatSpread(1600);
         positions[i3 + 1] = THREE.MathUtils.randFloat(0, 150);
         positions[i3 + 2] = THREE.MathUtils.randFloatSpread(800);
         lifetimesRef.current[i] = 0;

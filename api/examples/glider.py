@@ -31,7 +31,7 @@ class GliderEnv:
         self.dt = 0.02
 
         # Waypoints for navigation task
-        self.waypoints = [np.array([-80.0, 0.0, 70.0]), np.array([80.0, 0.0, 70.0])]
+        self.waypoints = [np.array([-160.0, 0.0, 70.0]), np.array([160.0, 0.0, 70.0])]
         self.current_waypoint_index = 0
         self.waypoint_threshold = 15.0 # How close to get to a waypoint
 
@@ -183,7 +183,7 @@ class GliderEnv:
             done = True
 
         # Penalty for flying too far away from the action
-        if dist_to_target > 300: # If it's more than 2x the waypoint separation
+        if dist_to_target > 500: # If it's more than 1.5x the waypoint separation
             reward = -50.0
             done = True
         
@@ -219,7 +219,7 @@ class GliderEnv:
             "pos": self.pos.tolist(),
             "rot": self.rot.tolist(), # roll, pitch, yaw
             "wind_params": [self.wind_C1, self.wind_C2, self.wind_C3, self.wind_wave_freq, self.wind_wave_mag, self.wind_wave_freq2, self.wind_wave_mag2],
-            "bounds": [200, 200],
+            "bounds": [400, 400],
             "waypoints": [w.tolist() for w in self.waypoints],
             "current_waypoint_index": self.current_waypoint_index
         }
