@@ -30,6 +30,7 @@ async def stream_text(
     schema_strict: bool = True, # New: Enforce strict schema adherence (recommended by OpenRouter)
     include_reasoning: bool = False, # New: Request reasoning tokens
     should_use_anakin: bool = False, # New: Whether to use Anakin API instead of OpenRouter
+    should_use_ollama: bool = False,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """
     Stream text responses from OpenRouter API asynchronously using the OpenAI SDK compatibility.
@@ -77,6 +78,22 @@ async def stream_text(
             logger.debug("Replaced shut down ThreadPoolExecutor with new one")
     except Exception as e:
         logger.debug(f"Could not check/replace executor: {e}")
+
+    if should_use_ollama:
+        logger.info("Routing to Ollama stream.")
+        # If the model is the default OpenRouter one, switch to the default Ollama one. Otherwise, use what's passed.
+        ollama_model = model if model != default_model else os.getenv('OLLAMA_MODEL', 'llama3')
+        async for chunk in stream_ollama(
+            prompt,
+            model=ollama_model,
+            max_tokens=max_tokens,
+            system_prompt=system_prompt,
+            messages=messages,
+            callback=callback,
+            response_schema=response_schema
+        ):
+             yield chunk
+        return
 
     if should_use_anakin:
         print("Using Anakin API")
@@ -308,6 +325,93 @@ async def stream_sambanova(
         raise
 
 
+async def stream_ollama(
+    prompt: str,
+    model: str = os.getenv('OLLAMA_MODEL', "llama3"),
+    max_tokens: int = 4096,
+    system_prompt: Optional[str] = None,
+    messages: Optional[List[Dict[str, Any]]] = None,
+    callback: Optional[Callable] = None,
+    response_schema: Optional[Dict[str, Any]] = None
+) -> AsyncGenerator[Dict[str, Any], None]:
+    """
+    Stream text responses from a local Ollama instance asynchronously.
+    Supports basic JSON mode if a response_schema is provided.
+    
+    Args:
+        prompt: The user prompt to send to the model.
+        model: The model identifier for Ollama (e.g., 'llama3', 'codellama').
+        max_tokens: Maximum number of tokens in the response.
+        system_prompt: Optional system prompt.
+        messages: Optional list of message objects (overrides prompt if provided).
+        callback: Optional async callback function to process streaming events.
+        response_schema: If provided, enables JSON mode for the response.
+    
+    Yields:
+        Dictionary containing event information for each streaming event (OpenAI format).
+    """
+    logger.info(f"Starting async stream_ollama with model: {model}")
+    
+    try:
+        ollama_base_url = os.getenv('OLLAMA_BASE_URL', "http://localhost:11434/v1")
+        
+        logger.debug(f"Initializing AsyncOpenAI client for Ollama: {ollama_base_url}")
+        client = AsyncOpenAI(
+            base_url=ollama_base_url,
+            api_key='ollama', # Required by the library but not used by Ollama
+        )
+
+        # Configure messages
+        if messages is None:
+            logger.debug("Using single prompt message for Ollama")
+            messages_config = [{"role": "user", "content": prompt}]
+        else:
+            logger.debug(f"Using provided messages array with {len(messages)} messages for Ollama")
+            messages_config = messages
+
+        # Add system prompt
+        if system_prompt and not any(msg['role'] == 'system' for msg in messages_config):
+             logger.debug("Prepending system prompt for Ollama")
+             messages_config.insert(0, {"role": "system", "content": system_prompt})
+
+        # Prepare stream parameters
+        stream_params: Dict[str, Any] = {
+            "model": model,
+            "messages": messages_config,
+            "stream": True,
+            "max_tokens": max_tokens,
+        }
+
+        # Enable JSON mode if schema is provided
+        if response_schema:
+            stream_params["response_format"] = {"type": "json_object"}
+            logger.info("Ollama JSON mode enabled.")
+
+        logger.info("Starting async stream with Ollama API")
+        loggable_params = {k: v for k, v in stream_params.items() if k != 'messages'}
+        logger.debug(f"Ollama Stream parameters (excluding messages): {loggable_params}")
+
+        try:
+            stream = await client.chat.completions.create(**stream_params)
+            logger.info("Ollama stream connection established")
+            async for chunk in stream:
+                if callback:
+                    await callback(chunk)
+                yield chunk
+            logger.info("Ollama stream completed successfully")
+
+        except aiohttp.ClientConnectorError as e:
+            logger.error(f"Could not connect to Ollama at {ollama_base_url}. Is it running? Error: {e}", exc_info=True)
+            raise
+        except Exception as stream_error:
+            logger.error(f"Error during async streaming with Ollama: {str(stream_error)}", exc_info=True)
+            raise
+
+    except Exception as e:
+        logger.error(f"Error in async stream_ollama: {str(e)}", exc_info=True)
+        raise
+
+
 async def stream_text_anakin(
     prompt: str,
     model: str = None,  # Not used by Anakin but kept for compatibility
@@ -513,6 +617,7 @@ async def get_json(
     schema_strict: bool = True,
     include_reasoning: bool = False,
     should_use_anakin: bool = False,
+    should_use_ollama: bool = False,
 ) -> Dict[str, Any]:
     """
     Get a single JSON response from the API (non-streaming).
@@ -532,6 +637,7 @@ async def get_json(
         schema_strict=schema_strict,
         include_reasoning=include_reasoning,
         should_use_anakin=should_use_anakin,
+        should_use_ollama=should_use_ollama,
     ):
         if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
             full_response += chunk.choices[0].delta.content
