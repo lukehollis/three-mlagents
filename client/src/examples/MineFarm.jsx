@@ -223,6 +223,7 @@ export default function MineFarmExample() {
     wsRef.current = ws;
     ws.onopen = () => addLog('MineFarm WS opened');
     ws.onmessage = (ev) => {
+      console.log('[MineFarm] WS message:', ev.data); // DEBUG
       addLog(`Received data: ${ev.data.substring(0, 100)}...`); // Log incoming data
       try {
         const parsed = JSON.parse(ev.data);
@@ -274,8 +275,13 @@ export default function MineFarmExample() {
   }, []);
 
   const send = (obj) => {
+    console.log('[MineFarm] Sending to WS:', obj); // DEBUG
+    addLog(`Sending: ${JSON.stringify(obj)}`);
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(obj));
+    } else {
+      addLog('WebSocket not open');
+      console.warn('WebSocket not open when trying to send', obj);
     }
   };
 
@@ -286,7 +292,11 @@ export default function MineFarmExample() {
   };
 
   const startTraining = () => {
-    if (training || running) return;
+    console.log('[MineFarm] startTraining clicked'); // DEBUG
+    if (training || running) {
+      console.log('[MineFarm] Training already in progress or simulation running.');
+      return;
+    }
     setTraining(true);
     addLog('Starting training run...');
     send({ cmd: 'train' });

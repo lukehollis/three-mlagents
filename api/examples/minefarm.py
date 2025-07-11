@@ -628,6 +628,7 @@ async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
     Train the MineFarm agents using Proximal Policy Optimization (PPO).
     """
     try:
+        await websocket.send_json({"type": "debug", "message": "Entered train_minefarm()"})
         # env = MineFarmEnv() # DO NOT CREATE A NEW ENV
         
         # Determine obs and action sizes from the environment
@@ -650,6 +651,8 @@ async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
         total_steps = 0
 
         while ep_counter < 5000: # Train for a fixed number of agent "episodes" or interactions
+            if env.step_count % 25 == 0:
+                await websocket.send_json({"type": "debug", "message": f"Training loop step {env.step_count}"})
             
             # --- Collect a batch of experience from all agents ---
             # Unlike the glider, we have one environment with N agents.
@@ -707,8 +710,8 @@ async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
 
             # --- Visualize state on the frontend periodically ---
             if env.step_count % 8 == 0: # Update frontend every 8 steps
-                dynamic_state = env.get_dynamic_state_for_viz()
-                await websocket.send_json({"type": "train_step_update", "state": dynamic_state, "episode": ep_counter})
+                state = env.get_state_for_viz()
+                await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
                 await asyncio.sleep(0.01) # give websocket time to send
 
             # --- PPO Update phase ---
@@ -789,9 +792,10 @@ async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
                 total_steps = 0
                 
                 await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": avg_reward, "loss": loss.item()})
+                await websocket.send_json({"type": "debug", "message": "Completed PPO update"})
 
         await websocket.send_json({"type": "trained", "model_info": {"epochs": ep_counter, "loss": loss.item()}})
-    
+        await websocket.send_json({"type": "debug", "message": "Training complete"})
     except Exception as e:
         logger.error(f"Error during MineFarm training: {e}", exc_info=True)
         await websocket.send_json({"type": "error", "message": f"Training failed: {e}"})
@@ -804,6 +808,7 @@ async def run_minefarm(websocket: WebSocket):
         env = MineFarmEnv()
         logger.info("Environment created. Sending initial state...")
         await websocket.send_json({"type": "init", "state": env.get_state_for_viz()})
+        await websocket.send_json({"type": "debug", "message": "Initial state sent"})
         logger.info("Initial state sent successfully.")
     except Exception as e:
         logger.error(f"Failed to initialize and send state: {e}", exc_info=True)
@@ -814,6 +819,7 @@ async def run_minefarm(websocket: WebSocket):
         # Wait for the client to send the 'run' or 'train' command before starting.
         data = await websocket.receive_json()
         cmd = data.get("cmd")
+        await websocket.send_json({"type": "debug", "message": f"Received command: {cmd}"})
 
         if cmd == "train":
             await train_minefarm(websocket, env)
