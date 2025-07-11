@@ -72,7 +72,7 @@ const ScorePanel = ({ agents }) => {
             right: '10px', 
             width: isMobile ? 'calc(100% - 20px)' : '45%',
             maxWidth: '420px',
-            maxHeight: '12vh', 
+            maxHeight: '120px', 
             overflowY: 'auto', 
             background: 'rgba(0,0,0,0.5)', 
             color: '#fff',

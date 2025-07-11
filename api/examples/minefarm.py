@@ -94,12 +94,12 @@ Based on your state, what is your next action? If you have no goal, set one by t
             data = response.get("data")
 
             # Basic validation of LLM output for 3D
-            if action == "move":
+            if action == "move" and data:
                 target_pos = np.array(data)
                 # Ensure agent only moves to adjacent squares in 3D
                 if np.sum(np.abs(target_pos - self.pos)) == 1:
                     return ("move", target_pos, log_entry)
-            elif action == "mine":
+            elif action == "mine" and data:
                  target_pos = np.array(data)
                  # Can mine current or adjacent square in 3D
                  if np.sum(np.abs(target_pos - self.pos)) <= 1:
