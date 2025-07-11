@@ -35,14 +35,14 @@ class GliderEnv:
         self.current_waypoint_index = 0
         self.waypoint_threshold = 15.0 # How close to get to a waypoint
 
-        # Wind model (sigmoid profile from the paper)
-        self.wind_C1 = 15.0  # max wind speed
-        self.wind_C2 = 0.1   # gradient thickness
-        self.wind_C3 = 50.0  # height of max gradient
-        self.wind_wave_freq = 1.0 / 70.0  # spatial frequency of y-variation
-        self.wind_wave_mag = np.pi / 9    # magnitude of y-variation in radians (+/- 20 deg)
-        self.wind_wave_freq2 = 1.0 / 250.0 # spatial frequency of a second wave
-        self.wind_wave_mag2 = np.pi / 6   # magnitude of second wave (+/- 30 deg)
+        # Wind model (updrafts for thermal soaring)
+        self.wind_C1 = 8.0  # max updraft/downdraft speed (m/s)
+        self.wind_C2 = 0.1   # Unused
+        self.wind_C3 = 50.0  # Unused
+        self.wind_wave_freq = 1.0 / 250.0  # Spatial frequency of thermals
+        self.wind_wave_mag = 1.0           # Multiplier for first wave
+        self.wind_wave_freq2 = 1.0 / 400.0 # Spatial frequency of a second, wider thermal wave
+        self.wind_wave_mag2 = 0.7          # Multiplier for second wave
 
         # State variables
         self.pos = np.zeros(3)  # x, y, z
@@ -58,25 +58,26 @@ class GliderEnv:
         self.reset()
 
     def _wind_model(self, pos: np.ndarray) -> np.ndarray:
-        # Wind blows along positive x direction, with sinusoidal variance in y
-        z, y = pos[2], pos[1]
+        x, y = pos[0], pos[1]
+
+        # Create thermal-like vertical currents based on horizontal position (x, y).
+        # Superimposing sine waves to create less regular patterns of lift and sink.
+        updraft1 = np.sin(x * self.wind_wave_freq * 2 * np.pi) * \
+                   np.cos(y * self.wind_wave_freq * 2 * np.pi) * \
+                   self.wind_C1 * self.wind_wave_mag
+
+        updraft2 = np.sin(x * self.wind_wave_freq2 * 2 * np.pi / 1.5) * \
+                   np.cos(y * self.wind_wave_freq * 2 * np.pi / 1.5) * \
+                   self.wind_C1 * self.wind_wave_mag2
         
-        # Base sigmoid wind profile based on height
-        base_wind_speed = self.wind_C1 / (1 + np.exp(-self.wind_C2 * (z - self.wind_C3)))
+        total_updraft = updraft1 + updraft2
         
-        # Superimpose two sine waves for a more complex, non-uniform pattern
-        angle_variation1 = np.sin(y * self.wind_wave_freq * 2 * np.pi) * self.wind_wave_mag
-        angle_variation2 = np.sin(y * self.wind_wave_freq2 * 2 * np.pi) * self.wind_wave_mag2
-        total_angle_variation = angle_variation1 + angle_variation2
-        
-        wind_dir_x = np.cos(total_angle_variation)
-        wind_dir_y = np.sin(total_angle_variation)
-        
-        return np.array([base_wind_speed * wind_dir_x, base_wind_speed * wind_dir_y, 0.0])
+        # A very gentle horizontal wind to avoid zero-velocity issues and give a slight drift
+        return np.array([1.0, 0.5, total_updraft])
 
     def reset(self):
         self.pos = np.array([0.0, 0.0, 60.0])
-        self.vel = np.array([20.0, 0.0, -1.0])
+        self.vel = np.array([15.0, 0.0, -1.0]) # Reduced initial velocity
         self.rot = np.zeros(3)
         self.ang_vel = np.random.uniform(-0.1, 0.1, 3)
         self.current_waypoint_index = np.random.randint(0, len(self.waypoints))
@@ -128,10 +129,11 @@ class GliderEnv:
             lift_force = np.array([0, 0, lift_mag])
             drag_force = np.array([-drag_mag, 0, 0])
             
-            # Rotate forces to world frame (crude approximation)
+            # Rotate forces from body to world frame
             R_roll = np.array([[1, 0, 0], [0, np.cos(self.rot[0]), -np.sin(self.rot[0])], [0, np.sin(self.rot[0]), np.cos(self.rot[0])]])
             R_pitch = np.array([[np.cos(self.rot[1]), 0, np.sin(self.rot[1])], [0, 1, 0], [-np.sin(self.rot[1]), 0, np.cos(self.rot[1])]])
-            R = R_pitch @ R_roll # Yaw not affecting lift/drag direction much
+            R_yaw = np.array([[np.cos(self.rot[2]), -np.sin(self.rot[2]), 0], [np.sin(self.rot[2]), np.cos(self.rot[2]), 0], [0, 0, 1]])
+            R = R_yaw @ R_pitch @ R_roll
             
             total_aero_force = R @ (lift_force + drag_force)
         else:
@@ -172,6 +174,25 @@ class GliderEnv:
         # This incentivizes high energy when heading is good, and energy seeking when it's low
         reward = E * (H - E + 1)
 
+        # --- Penalties to constrain behavior ---
+
+        # Penalty for straying from the central corridor (y-axis deviation)
+        lateral_dist = abs(self.pos[1])
+        corridor_half_width = 250.0
+        if lateral_dist > corridor_half_width:
+            # Quadratic penalty that grows stronger the further it deviates
+            penalty_ratio = (lateral_dist - corridor_half_width) / 100.0
+            reward -= 2.0 * (penalty_ratio**2)
+
+        # Penalty for altitude deviations
+        altitude = self.pos[2]
+        if altitude > 250.0:
+            # Quadratic penalty for being too high
+            reward -= 2.0 * ((altitude - 250.0) / 50.0)**2
+        elif altitude < 25.0:
+            # Small penalty for being low, encouraging it to stay up
+            reward -= 0.5
+
         # Penalty for crashing
         if self.pos[2] < 5.0:
             reward = -50.0
@@ -206,8 +227,11 @@ class GliderEnv:
                 (self.pos[2] - self.wind_C3) / 50.0, # height relative to wind layer (normalized)
                 self.rot[0],                   # roll
                 self.rot[1],                   # pitch
+                np.sin(self.rot[2]),           # yaw sin
+                np.cos(self.rot[2]),           # yaw cos
                 self.ang_vel[0],               # roll rate
                 self.ang_vel[1],               # pitch rate
+                self.ang_vel[2],               # yaw rate
             ]),
             self.vel / 20.0, # velocity (normalized)
             dir_to_target, # direction to target
