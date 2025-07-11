@@ -82,3 +82,5 @@ wcwidth==0.2.13
 websockets==15.0.1
 wheel==0.45.1
 zipp==3.23.0
+openai
+aiohttp

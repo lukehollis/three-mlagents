@@ -1,17 +1,20 @@
-from django.conf import settings
-from openai import AsyncOpenAI
-from typing import List, Dict, Any, Generator, Optional, Callable, Union, AsyncGenerator
 import logging
 import json
 import aiohttp
 import asyncio
+import os
+from dotenv import load_dotenv
+from openai import AsyncOpenAI
+from typing import List, Dict, Any, Generator, Optional, Callable, Union, AsyncGenerator
 from datetime import datetime
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 # Default model can be set in settings, e.g., 'anthropic/claude-3.7-sonnet:thinking'
 # Or keep a default like this if OPENROUTER_API_MODEL is not set
-default_model = getattr(settings, 'OPENROUTER_API_MODEL', 'google/gemini-2.5-pro')
+default_model = os.getenv('OPENROUTER_API_MODEL', 'google/gemini-2.5-pro')
 
 async def stream_text(
     prompt: str,
@@ -20,8 +23,8 @@ async def stream_text(
     system_prompt: Optional[str] = None,
     messages: Optional[List[Dict[str, Any]]] = None,
     callback: Optional[Callable] = None,
-    site_url: Optional[str] = getattr(settings, 'OPENROUTER_SITE_URL', None), # Optional: For leaderboard ranking
-    site_title: Optional[str] = getattr(settings, 'OPENROUTER_SITE_TITLE', None), # Optional: For leaderboard ranking
+    site_url: Optional[str] = os.getenv('OPENROUTER_SITE_URL', None), # Optional: For leaderboard ranking
+    site_title: Optional[str] = os.getenv('OPENROUTER_SITE_TITLE', None), # Optional: For leaderboard ranking
     response_schema: Optional[Dict[str, Any]] = None, # New: JSON schema for structured output
     schema_name: Optional[str] = None, # New: Optional name for the schema (used in OpenRouter's format)
     schema_strict: bool = True, # New: Enforce strict schema adherence (recommended by OpenRouter)
@@ -83,14 +86,15 @@ async def stream_text(
 
     try:
         # Check if API key is configured
-        if not hasattr(settings, 'OPENROUTER_API_KEY') or not settings.OPENROUTER_API_KEY:
+        api_key = os.getenv('OPENROUTER_API_KEY')
+        if not api_key:
             logger.error("OPENROUTER_API_KEY is not configured in settings")
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
         logger.debug("Initializing AsyncOpenAI client for OpenRouter")
         client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
-            api_key=settings.OPENROUTER_API_KEY,
+            api_key=api_key,
         )
 
         # Configure messages
@@ -214,7 +218,7 @@ async def stream_text(
 
 async def stream_sambanova(
     prompt: str,
-    model: str = getattr(settings, 'SAMBANOVA_MODEL', "Llama-4-Scout-17B-16E-Instruct"), # Default from quickstart if not in settings
+    model: str = os.getenv('SAMBANOVA_MODEL', "Llama-4-Scout-17B-16E-Instruct"), # Default from quickstart if not in settings
     max_tokens: int = 2048, # SambaNova might have different defaults/limits
     system_prompt: Optional[str] = None,
     messages: Optional[List[Dict[str, Any]]] = None,
@@ -239,11 +243,11 @@ async def stream_sambanova(
 
     try:
         # Check if API key is configured
-        if not hasattr(settings, 'SAMBANOVA_API_KEY') or not settings.SAMBANOVA_API_KEY:
+        sambanova_api_key = os.getenv('SAMBANOVA_API_KEY')
+        if not sambanova_api_key:
             logger.error("SAMBANOVA_API_KEY is not configured in settings")
             raise ValueError("SAMBANOVA_API_KEY is not configured")
 
-        sambanova_api_key = settings.SAMBANOVA_API_KEY
         sambanova_base_url = "https://api.sambanova.ai/v1" # As per SambaNova documentation
 
         logger.debug(f"Initializing AsyncOpenAI client for SambaNova: {sambanova_base_url}")
@@ -349,20 +353,20 @@ async def stream_text_anakin(
 
     try:
         # Check if API key is configured
-        if not hasattr(settings, 'ANAKIN_API_KEY') or not settings.ANAKIN_API_KEY:
+        anakin_api_key = os.getenv('ANAKIN_API_KEY')
+        if not anakin_api_key:
             logger.error("ANAKIN_API_KEY is not configured in settings")
             raise ValueError("ANAKIN_API_KEY is not configured")
 
         # Get app_id from settings if not provided
         if not app_id:
-            app_id = getattr(settings, 'ANAKIN_APP_ID', None)
+            app_id = os.getenv('ANAKIN_APP_ID', None)
             if not app_id:
                 logger.error("ANAKIN_APP_ID is not configured in settings and not provided")
                 raise ValueError("ANAKIN_APP_ID is not configured")
 
-        anakin_api_key = settings.ANAKIN_API_KEY
         anakin_base_url = "https://api.anakin.ai"
-        api_version = getattr(settings, 'ANAKIN_API_VERSION', '2024-05-06')
+        api_version = os.getenv('ANAKIN_API_VERSION', '2024-05-06')
 
         # Prepare content from prompt, system_prompt, and messages
         content = ""
@@ -496,4 +500,46 @@ async def stream_text_anakin(
     except Exception as e:
         logger.error(f"Error in async stream_text_anakin: {str(e)}", exc_info=True)
         raise
+
+
+async def get_json(
+    prompt: str,
+    model: str = default_model,
+    max_tokens: int = 4096,
+    system_prompt: Optional[str] = None,
+    messages: Optional[List[Dict[str, Any]]] = None,
+    response_schema: Optional[Dict[str, Any]] = None,
+    schema_name: Optional[str] = "structured_response",
+    schema_strict: bool = True,
+    include_reasoning: bool = False,
+    should_use_anakin: bool = False,
+) -> Dict[str, Any]:
+    """
+    Get a single JSON response from the API (non-streaming).
+    """
+    if not response_schema:
+        raise ValueError("response_schema must be provided for get_json")
+
+    full_response = ""
+    async for chunk in stream_text(
+        prompt=prompt,
+        model=model,
+        max_tokens=max_tokens,
+        system_prompt=system_prompt,
+        messages=messages,
+        response_schema=response_schema,
+        schema_name=schema_name,
+        schema_strict=schema_strict,
+        include_reasoning=include_reasoning,
+        should_use_anakin=should_use_anakin,
+    ):
+        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+            full_response += chunk.choices[0].delta.content
+
+    try:
+        return json.loads(full_response)
+    except json.JSONDecodeError:
+        logger.error(f"Failed to parse LLM JSON response: {full_response}")
+        # Return a default/error structure
+        return {"action": "wait", "data": f"LLM response was not valid JSON: {full_response}"}
 
