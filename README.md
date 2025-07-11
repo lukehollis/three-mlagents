@@ -72,6 +72,34 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 
 [Live demo](https://lukehollis.github.io/three-mlagents/worm)
 
+### 7. Brick Break
+
+![brick_break_example](https://github.com/user-attachments/assets/790b1bbf-3758-4e6c-b570-7dd268b6f987)
+
+
+[Live demo](https://lukehollis.github.io/three-mlagents/brickbreak)
+
+### 8. Food Collector
+
+![food_collector_example](https://github.com/user-attachments/assets/199505ec-361e-475c-9f15-94becf525599)
+
+
+[Live demo](https://lukehollis.github.io/three-mlagents/foodcollector)
+
+### 9. Bicycle
+
+![bicycle_example](https://github.com/user-attachments/assets/929a8c8d-8154-4f35-9af9-95b78940c9be)
+
+
+[Live demo](https://lukehollis.github.io/three-mlagents/bicycle)
+
+### 10. Glider
+
+![glider_example](https://github.com/user-attachments/assets/1c82281a-6982-4d05-95e4-816e6b8f61b4)
+
+
+[Live demo](https://lukehollis.github.io/three-mlagents/glider)
+
 
 ## Project layout
 
