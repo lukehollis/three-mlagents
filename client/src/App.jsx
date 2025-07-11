@@ -13,6 +13,7 @@ import FoodCollectorExample from './examples/FoodCollector.jsx';
 import BicycleExample from './examples/Bicycle.jsx';
 import GliderExample from './examples/Glider.jsx';
 import MineFarmExample from './examples/MineFarm.jsx';
+import FishSwarmExample from './examples/FishSwarm.jsx';
 
 export default function App() {
   return (
@@ -36,6 +37,7 @@ export default function App() {
         <Route path="/bicycle" element={<BicycleExample />} />
         <Route path="/glider" element={<GliderExample />} />
         <Route path="/minefarm" element={<MineFarmExample />} />
+        <Route path="/fish-swarm" element={<FishSwarmExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

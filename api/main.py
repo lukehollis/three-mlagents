@@ -19,6 +19,7 @@ from examples.food_collector import train_food_collector, run_food_collector, Fo
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
 from examples.minefarm import run_minefarm, train_minefarm, MineFarmEnv
+from examples.fish_swarm import run_fish_swarm, train_fish_swarm, FishSwarmEnv
 
 app = FastAPI(title="ML-Agents API")
 
@@ -275,16 +276,42 @@ async def websocket_glider(websocket: WebSocket):
 @app.websocket("/ws/minefarm")
 async def websocket_minefarm(websocket: WebSocket):
     await websocket.accept()
-    preview_env = MineFarmEnv()
-    preview_state = preview_env.get_state_for_viz()
-    await websocket.send_json({"type": "state", "state": preview_state, "episode": 0})
+    env = MineFarmEnv()
+    await websocket.send_json({"type": "init", "state": env.get_state_for_viz()})
+    
     try:
         while True:
             data = await websocket.receive_json()
-            if data['cmd'] == 'train':
-                await train_minefarm(websocket, preview_env)  # pass existing env
-            elif data['cmd'] == 'run':
-                await run_minefarm(websocket)
+            cmd = data.get("cmd")
+
+            if cmd == 'train':
+                await train_minefarm(websocket, env)
+            elif cmd == 'run':
+                await run_minefarm(websocket, env)
+
     except Exception as e:
         print(f"MineFarm websocket disconnected: {e}")
+
+
+# WebSocket endpoint for FishSwarm
+@app.websocket("/ws/fish_swarm")
+async def websocket_fish_swarm(websocket: WebSocket):
+    await websocket.accept()
+    env = FishSwarmEnv()
+    initial_state = env.get_state_for_viz()
+    initial_state['agents'] = initial_state.pop('agents') # Rename for frontend
+    await websocket.send_json({"type": "init", "state": initial_state})
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            cmd = data.get("cmd")
+
+            if cmd == 'train':
+                await train_fish_swarm(websocket, env)
+            elif cmd == 'run':
+                await run_fish_swarm(websocket, env)
+                
+    except Exception as e:
+        print(f"FishSwarm websocket disconnected: {e}")
 

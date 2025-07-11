@@ -802,70 +802,47 @@ async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
 
 
 # --- Websocket runner ---
-async def run_minefarm(websocket: WebSocket):
-    logger.info("Client connected. Creating environment...")
-    try:
-        env = MineFarmEnv()
-        logger.info("Environment created. Sending initial state...")
-        await websocket.send_json({"type": "init", "state": env.get_state_for_viz()})
-        await websocket.send_json({"type": "debug", "message": "Initial state sent"})
-        logger.info("Initial state sent successfully.")
-    except Exception as e:
-        logger.error(f"Failed to initialize and send state: {e}", exc_info=True)
-        await websocket.send_json({"type": "error", "message": f"Initialization failed: {e}"})
-        return
+async def run_minefarm(websocket: WebSocket, env: MineFarmEnv):
+    """
+    Runs the MineFarm simulation loop.
+    Assumes the environment is already created and the initial state has been sent.
+    """
+    running = True
 
-    try:
-        # Wait for the client to send the 'run' or 'train' command before starting.
-        data = await websocket.receive_json()
-        cmd = data.get("cmd")
-        await websocket.send_json({"type": "debug", "message": f"Received command: {cmd}"})
-
-        if cmd == "train":
-            await train_minefarm(websocket, env)
-        elif cmd == "run":
-            running = True
-
-            async def receive_commands():
-                nonlocal running
-                try:
-                    # After 'run' is received, we only need to listen for 'stop'.
-                    while running:
-                        data = await websocket.receive_json()
-                        if data.get("cmd") == "stop":
-                            running = False
-                            break
-                except Exception:
-                    running = False
-                    
-            cmd_task = asyncio.create_task(receive_commands())
-
+    async def receive_commands():
+        nonlocal running
+        try:
+            # After 'run' is received, we only need to listen for 'stop'.
             while running:
-                await env.step()
-                state = env.get_state_for_viz()
-                try:
-                    await websocket.send_json({"type": "run_step", "state": state})
-
-                    # Send progress update for chart
-                    reward = env._calculate_reward()
-                    progress_update = {
-                        "type": "progress",
-                        "episode": env.step_count,
-                        "reward": reward,
-                        "loss": None # Placeholder for loss
-                    }
-                    await websocket.send_json(progress_update)
-
-                    await asyncio.sleep(0.5) # Simulation speed
-                except Exception:
+                data = await websocket.receive_json()
+                if data.get("cmd") == "stop":
                     running = False
-                    break # Exit while loop
+                    break
+        except Exception:
+            running = False
+            
+    cmd_task = asyncio.create_task(receive_commands())
 
-            if not cmd_task.done():
-                cmd_task.cancel()
-        else:
-            return
+    while running:
+        await env.step()
+        state = env.get_state_for_viz()
+        try:
+            await websocket.send_json({"type": "run_step", "state": state})
 
-    except Exception:
-        # Client disconnected
-        return 
+            # Send progress update for chart
+            reward = env._calculate_reward()
+            progress_update = {
+                "type": "progress",
+                "episode": env.step_count,
+                "reward": reward,
+                "loss": None # Placeholder for loss
+            }
+            await websocket.send_json(progress_update)
+
+            await asyncio.sleep(0.5) # Simulation speed
+        except Exception:
+            running = False
+            break # Exit while loop
+
+    if not cmd_task.done():
+        cmd_task.cancel() 
