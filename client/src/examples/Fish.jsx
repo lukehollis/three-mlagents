@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Grid, Text as DreiText } from '@react-three/drei';
 import { Button, Text, Card, Code } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
@@ -10,10 +10,10 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 
-const WS_URL = `${config.WS_BASE_URL}/ws/fish_swarm`;
+const WS_URL = `${config.WS_BASE_URL}/ws/fish`;
 
 const Fish = ({ agent, gridSize }) => {
-  const { pos, id, energy } = agent;
+  const { pos, id, energy, velocity } = agent;
   const groupRef = useRef();
 
   const offsetX = gridSize ? gridSize[0] / 2 : 0;
@@ -26,9 +26,19 @@ const Fish = ({ agent, gridSize }) => {
     return blue.clone().lerp(white, alpha);
   }, [energy]);
 
+  useFrame(() => {
+    if (groupRef.current && velocity && new THREE.Vector3(...velocity).lengthSq() > 0.001) {
+      const targetPosition = new THREE.Vector3().addVectors(
+        groupRef.current.position,
+        new THREE.Vector3(velocity[0], velocity[1], velocity[2])
+      );
+      groupRef.current.lookAt(targetPosition);
+    }
+  });
+
   return (
     <group ref={groupRef} position={[pos[0] - offsetX, pos[1], pos[2] - offsetZ]}>
-      <mesh rotation={[0, 0, Math.PI / 2]}>
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <coneGeometry args={[0.4, 1.2, 8]} />
         <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} />
       </mesh>
@@ -127,7 +137,7 @@ const EnergyPanel = ({ agents }) => {
 };
 
 
-export default function FishSwarmExample() {
+export default function FishExample() {
   const [state, setState] = useState(null);
   const [running, setRunning] = useState(false);
   const [training, setTraining] = useState(false);
@@ -150,7 +160,7 @@ export default function FishSwarmExample() {
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
-    ws.onopen = () => addLog('FishSwarm WS opened');
+    ws.onopen = () => addLog('Fish WS opened');
     ws.onmessage = (ev) => {
       addLog(`Received data: ${ev.data.substring(0, 100)}...`);
       const parsed = JSON.parse(ev.data);
@@ -175,7 +185,7 @@ export default function FishSwarmExample() {
           addLog(`INFO: ${parsed.message}`);
       }
     };
-    ws.onclose = () => addLog('FishSwarm WS closed');
+    ws.onclose = () => addLog('Fish WS closed');
     return () => ws.close();
   }, []);
 
@@ -242,7 +252,7 @@ export default function FishSwarmExample() {
           Home
         </Link>
           <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
-            Fish Swarm
+            Fish
           </Text>
         <div style={{ display: 'flex', gap: '8px' }}>
           <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>

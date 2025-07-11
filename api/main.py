@@ -19,7 +19,7 @@ from examples.food_collector import train_food_collector, run_food_collector, Fo
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
 from examples.minefarm import run_minefarm, train_minefarm, MineFarmEnv
-from examples.fish_swarm import run_fish_swarm, train_fish_swarm, FishSwarmEnv
+from examples.fish import run_fish, train_fish, FishEnv
 
 app = FastAPI(title="ML-Agents API")
 
@@ -293,11 +293,11 @@ async def websocket_minefarm(websocket: WebSocket):
         print(f"MineFarm websocket disconnected: {e}")
 
 
-# WebSocket endpoint for FishSwarm
-@app.websocket("/ws/fish_swarm")
-async def websocket_fish_swarm(websocket: WebSocket):
+# WebSocket endpoint for Fish
+@app.websocket("/ws/fish")
+async def websocket_fish(websocket: WebSocket):
     await websocket.accept()
-    env = FishSwarmEnv()
+    env = FishEnv()
     initial_state = env.get_state_for_viz()
     initial_state['agents'] = initial_state.pop('agents') # Rename for frontend
     await websocket.send_json({"type": "init", "state": initial_state})
@@ -308,10 +308,10 @@ async def websocket_fish_swarm(websocket: WebSocket):
             cmd = data.get("cmd")
 
             if cmd == 'train':
-                await train_fish_swarm(websocket, env)
+                await train_fish(websocket, env)
             elif cmd == 'run':
-                await run_fish_swarm(websocket, env)
+                await run_fish(websocket, env)
                 
     except Exception as e:
-        print(f"FishSwarm websocket disconnected: {e}")
+        print(f"Fish websocket disconnected: {e}")
 

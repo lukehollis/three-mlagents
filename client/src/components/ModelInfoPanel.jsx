@@ -19,7 +19,7 @@ const ModelInfoPanel = ({ modelInfo }) => {
                 Epochs: {modelInfo.epochs}
             </Text>
             <Text p style={{ margin: '4px 0', fontSize: '12px', opacity: 0.8 }}>
-                Final Loss: {modelInfo.loss.toFixed(4)}
+                Final Loss: {typeof modelInfo.loss === 'number' ? modelInfo.loss.toFixed(4) : modelInfo.loss}
             </Text>
         </Card>
     );
