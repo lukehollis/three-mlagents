@@ -18,6 +18,7 @@ from examples.brick_break import train_brick_break, run_brick_break, BrickBreakE
 from examples.food_collector import train_food_collector, run_food_collector, FoodCollectorEnv
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
+from examples.minefarm import run_minefarm, MineFarmEnv
 
 app = FastAPI(title="ML-Agents API")
 
@@ -268,4 +269,20 @@ async def websocket_glider(websocket: WebSocket):
                 await run_glider(websocket)
     except Exception as e:
         print(f"Glider websocket disconnected: {e}")
+
+
+# WebSocket endpoint for MineFarm
+@app.websocket("/ws/minefarm")
+async def websocket_minefarm(websocket: WebSocket):
+    await websocket.accept()
+    preview_env = MineFarmEnv()
+    preview_state = preview_env.get_state_for_viz()
+    await websocket.send_json({"type": "state", "state": preview_state})
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data['cmd'] == 'run':
+                await run_minefarm(websocket)
+    except Exception as e:
+        print(f"MineFarm websocket disconnected: {e}")
 

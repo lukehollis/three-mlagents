@@ -12,6 +12,7 @@ import BrickBreakExample from './examples/BrickBreak.jsx';
 import FoodCollectorExample from './examples/FoodCollector.jsx';
 import BicycleExample from './examples/Bicycle.jsx';
 import GliderExample from './examples/Glider.jsx';
+import MineFarmExample from './examples/MineFarm.jsx';
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
         <Route path="/foodcollector" element={<FoodCollectorExample />} />
         <Route path="/bicycle" element={<BicycleExample />} />
         <Route path="/glider" element={<GliderExample />} />
+        <Route path="/minefarm" element={<MineFarmExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
