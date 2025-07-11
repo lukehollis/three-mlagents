@@ -213,11 +213,27 @@ class MineFarmEnv:
         for i in range(NUM_AGENTS):
             # Find a valid spawn point on the surface
             tries = 0
-            while True:
+            spawned = False
+            while not spawned:
                 tries += 1
                 if tries > 1000:
-                    raise RuntimeError(f"Could not find a valid spawn point for agent {i} after 1000 tries.")
-                
+                    logger.warning(f"Could not find a random spawn point for agent {i}. Using fallback.")
+                    # Fallback: find the surface height at the center of the map
+                    center_x, center_z = GRID_SIZE_X // 2, GRID_SIZE_Z // 2
+                    y_surface = -1
+                    for y in range(GRID_SIZE_Y - 1, -1, -1):
+                        if self.grid[center_x, y, center_z] != 0:
+                            y_surface = y
+                            break
+                    if y_surface != -1 and y_surface + 1 < GRID_SIZE_Y:
+                        spawn_y = y_surface + 1
+                        self.agents.append(Agent(i, np.array([center_x, spawn_y, center_z])))
+                    else:
+                        # If center is also invalid (e.g. a pillar to the sky), spawn at a default height
+                        self.agents.append(Agent(i, np.array([center_x, GRID_SIZE_Y // 2, center_z])))
+                    spawned = True
+                    continue
+
                 start_x = random.randint(0, GRID_SIZE_X - 1)
                 start_z = random.randint(0, GRID_SIZE_Z - 1)
 
@@ -232,7 +248,7 @@ class MineFarmEnv:
                 if y_surface != -1 and y_surface + 1 < GRID_SIZE_Y:
                     spawn_y = y_surface + 1
                     self.agents.append(Agent(i, np.array([start_x, spawn_y, start_z])))
-                    break
+                    spawned = True
                 # If the column is all air or the top block is solid, retry
 
 
@@ -550,6 +566,18 @@ class MineFarmEnv:
             "messages": self.messages,
         }
 
+    def get_dynamic_state_for_viz(self) -> Dict[str, Any]:
+        """A lightweight version of get_state_for_viz for frequent updates."""
+        # Only send the parts of the state that change frequently
+        return {
+            "agents": [{"id": a.id, "pos": a.pos.tolist(), "inventory": a.inventory, "color": a.color} for a in self.agents],
+            "trade_offers": self.trade_offers,
+            "messages": self.messages,
+            # The grid is sent once on init and we can send incremental updates if needed
+            # For now, we assume mining actions update the frontend's grid copy
+        }
+
+
 def get_agent_state_vector(agent: Agent, grid: np.ndarray) -> np.ndarray:
     # 1. Local View (5x5x5 = 125 values)
     pos = agent.pos
@@ -599,169 +627,174 @@ async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
     """
     Train the MineFarm agents using Proximal Policy Optimization (PPO).
     """
-    # env = MineFarmEnv() # DO NOT CREATE A NEW ENV
-    
-    # Determine obs and action sizes from the environment
-    # Note: This is a multi-agent environment, but we use a shared policy.
-    # The observation size is for a single agent.
-    
-    # Calculate obs_size dynamically
-    dummy_agent = env.agents[0]
-    dummy_obs = get_agent_state_vector(dummy_agent, env.grid)
-    obs_size = dummy_obs.shape[0]
-    action_size = len(DISCRETE_ACTIONS)
-
-    # Initialize model and optimizer
-    model = ActorCritic(obs_size, action_size)
-    optimizer = optim.Adam(model.parameters(), lr=LR)
-    env.trained_policy = model # Agents will use this model for actions
-
-    step_buffer: list[dict] = []
-    ep_counter = 0
-    total_steps = 0
-
-    while ep_counter < 5000: # Train for a fixed number of agent "episodes" or interactions
+    try:
+        # env = MineFarmEnv() # DO NOT CREATE A NEW ENV
         
-        # --- Collect a batch of experience from all agents ---
-        # Unlike the glider, we have one environment with N agents.
-        # We'll gather one step of experience from each agent.
+        # Determine obs and action sizes from the environment
+        # Note: This is a multi-agent environment, but we use a shared policy.
+        # The observation size is for a single agent.
         
-        agent_states = [get_agent_state_vector(agent, env.grid) for agent in env.agents]
-        obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
+        # Calculate obs_size dynamically
+        dummy_agent = env.agents[0]
+        dummy_obs = get_agent_state_vector(dummy_agent, env.grid)
+        obs_size = dummy_obs.shape[0]
+        action_size = len(DISCRETE_ACTIONS)
 
-        with torch.no_grad():
-            dist, value = model(obs_t)
-            actions_t = dist.sample()
-            logp_t = dist.log_prob(actions_t)
+        # Initialize model and optimizer
+        model = ActorCritic(obs_size, action_size)
+        optimizer = optim.Adam(model.parameters(), lr=LR)
+        env.trained_policy = model # Agents will use this model for actions
+
+        step_buffer: list[dict] = []
+        ep_counter = 0
+        total_steps = 0
+
+        while ep_counter < 5000: # Train for a fixed number of agent "episodes" or interactions
             
-        actions_np = actions_t.cpu().numpy()
-        
-        # --- Execute actions for all agents and collect results ---
-        rewards = []
-        dones = [] # In this env, 'done' isn't really a concept, so it will always be False.
-                  # We can simulate episodes by resetting agents or tracking individual stats.
-        
-        agent_actions_for_env = []
-        for i, agent in enumerate(env.agents):
-            action_name = DISCRETE_ACTIONS[actions_np[i]]
-            if action_name in ACTION_MAP_MOVE:
-                action_data = agent.pos + ACTION_MAP_MOVE[action_name]
-                agent_actions_for_env.append(("move", action_data))
-            elif action_name in ACTION_MAP_MINE:
-                action_data = agent.pos + ACTION_MAP_MINE[action_name]
-                agent_actions_for_env.append(("mine", action_data))
-            else: # talk, wait
-                agent_actions_for_env.append((action_name, None))
+            # --- Collect a batch of experience from all agents ---
+            # Unlike the glider, we have one environment with N agents.
+            # We'll gather one step of experience from each agent.
+            
+            agent_states = [get_agent_state_vector(agent, env.grid) for agent in env.agents]
+            obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
 
-            # Get reward for the action
-            # Note: The _get_reward function needs the *result* of the action.
-            # We are getting it before, which is a slight simplification.
-            reward = env._get_reward(agent, agent_actions_for_env[-1][0], agent_actions_for_env[-1][1])
-            rewards.append(reward)
-            dones.append(False) # No terminal states in this persistent world.
-
-        # Store the experience
-        step_buffer.append({
-            "obs": obs_t, 
-            "actions": actions_t, 
-            "logp": logp_t, 
-            "reward": torch.tensor(rewards, dtype=torch.float32), 
-            "done": torch.tensor(dones, dtype=torch.float32), 
-            "value": value.flatten()
-        })
-        
-        # --- Update environment state ---
-        env._execute_actions(agent_actions_for_env)
-        env.step_count += 1
-        total_steps += len(env.agents)
-        ep_counter += len(env.agents) # Count each agent step as an "episode" for progress
-
-        # --- Visualize state on the frontend periodically ---
-        if env.step_count % 8 == 0: # Update frontend every 8 steps
-            state_viz = env.get_state_for_viz()
-            await websocket.send_json({"type": "train_step", "state": state_viz, "episode": ep_counter})
-            await asyncio.sleep(0.01) # give websocket time to send
-
-        # --- PPO Update phase ---
-        if total_steps >= BATCH_SIZE:
             with torch.no_grad():
-                next_agent_states = [get_agent_state_vector(agent, env.grid) for agent in env.agents]
-                next_obs_t = torch.tensor(np.array(next_agent_states), dtype=torch.float32)
-                _, next_value = model(next_obs_t)
-                next_value = next_value.squeeze()
+                dist, value = model(obs_t)
+                actions_t = dist.sample()
+                logp_t = dist.log_prob(actions_t)
+                
+            actions_np = actions_t.cpu().numpy()
+            
+            # --- Execute actions for all agents and collect results ---
+            rewards = []
+            dones = [] # In this env, 'done' isn't really a concept, so it will always be False.
+                      # We can simulate episodes by resetting agents or tracking individual stats.
+            
+            agent_actions_for_env = []
+            for i, agent in enumerate(env.agents):
+                action_name = DISCRETE_ACTIONS[actions_np[i]]
+                if action_name in ACTION_MAP_MOVE:
+                    action_data = agent.pos + ACTION_MAP_MOVE[action_name]
+                    agent_actions_for_env.append(("move", action_data))
+                elif action_name in ACTION_MAP_MINE:
+                    action_data = agent.pos + ACTION_MAP_MINE[action_name]
+                    agent_actions_for_env.append(("mine", action_data))
+                else: # talk, wait
+                    agent_actions_for_env.append((action_name, None))
 
-            # Process buffer to calculate advantages
-            num_steps = len(step_buffer)
-            num_agents = len(env.agents)
-            
-            values = torch.stack([b["value"] for b in step_buffer])
-            rewards = torch.stack([b["reward"] for b in step_buffer])
-            dones = torch.stack([b["done"] for b in step_buffer])
-            
-            # GAE Calculation
-            advantages = torch.zeros_like(rewards)
-            gae = 0.0
-            for t in reversed(range(num_steps)):
-                # If we were using dones, next_value would be masked where dones[t] is true.
-                # Since done is always false, this simplifies.
-                delta = rewards[t] + GAMMA * next_value - values[t]
-                gae = delta + GAMMA * GAE_LAMBDA * gae
-                advantages[t] = gae
-                next_value = values[t] # The value of the state at time t is the "next_value" for t-1
-            
-            returns = advantages + values
-            
-            # Flatten the batch for training
-            b_obs = torch.cat([b["obs"] for b in step_buffer])
-            b_actions = torch.cat([b["actions"] for b in step_buffer])
-            b_logp = torch.cat([b["logp"] for b in step_buffer])
-            b_adv = advantages.flatten()
-            b_returns = returns.flatten()
-            
-            # Normalize advantages
-            b_adv = (b_adv - b_adv.mean()) / (b_adv.std() + 1e-8)
+                # Get reward for the action
+                # Note: The _get_reward function needs the *result* of the action.
+                # We are getting it before, which is a slight simplification.
+                reward = env._get_reward(agent, agent_actions_for_env[-1][0], agent_actions_for_env[-1][1])
+                rewards.append(reward)
+                dones.append(False) # No terminal states in this persistent world.
 
-            # --- Training Epochs ---
-            for _ in range(EPOCHS):
-                idxs = torch.randperm(b_obs.shape[0])
-                for start in range(0, b_obs.shape[0], MINI_BATCH):
-                    mb_idxs = idxs[start : start + MINI_BATCH]
-                    
-                    mb_obs = b_obs[mb_idxs]
-                    mb_actions = b_actions[mb_idxs]
-                    mb_logp_old = b_logp[mb_idxs]
-                    mb_adv = b_adv[mb_idxs]
-                    mb_returns = b_returns[mb_idxs]
-
-                    dist, value = model(mb_obs)
-                    logp_new = dist.log_prob(mb_actions)
-                    entropy_bonus = dist.entropy().mean()
-                    
-                    ratio = (logp_new - mb_logp_old).exp()
-                    
-                    # Policy loss
-                    pg_loss1 = -mb_adv * ratio
-                    pg_loss2 = -mb_adv * torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS)
-                    pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-                    
-                    # Value loss
-                    v_loss = 0.5 * ((value.flatten() - mb_returns).pow(2)).mean()
-                    
-                    loss = pg_loss - ENT_COEF * entropy_bonus + v_loss
-
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-
-            # --- Post-update ---
-            avg_reward = float(torch.stack([b["reward"] for b in step_buffer]).mean().cpu().item())
+            # Store the experience
+            step_buffer.append({
+                "obs": obs_t, 
+                "actions": actions_t, 
+                "logp": logp_t, 
+                "reward": torch.tensor(rewards, dtype=torch.float32), 
+                "done": torch.tensor(dones, dtype=torch.float32), 
+                "value": value.flatten()
+            })
             
-            step_buffer = []
-            total_steps = 0
-            
-            await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": avg_reward, "loss": loss.item()})
+            # --- Update environment state ---
+            env._execute_actions(agent_actions_for_env)
+            env.step_count += 1
+            total_steps += len(env.agents)
+            ep_counter += len(env.agents) # Count each agent step as an "episode" for progress
 
-    await websocket.send_json({"type": "trained", "model_info": {"epochs": ep_counter, "loss": loss.item()}})
+            # --- Visualize state on the frontend periodically ---
+            if env.step_count % 8 == 0: # Update frontend every 8 steps
+                dynamic_state = env.get_dynamic_state_for_viz()
+                await websocket.send_json({"type": "train_step_update", "state": dynamic_state, "episode": ep_counter})
+                await asyncio.sleep(0.01) # give websocket time to send
+
+            # --- PPO Update phase ---
+            if total_steps >= BATCH_SIZE:
+                with torch.no_grad():
+                    next_agent_states = [get_agent_state_vector(agent, env.grid) for agent in env.agents]
+                    next_obs_t = torch.tensor(np.array(next_agent_states), dtype=torch.float32)
+                    _, next_value = model(next_obs_t)
+                    next_value = next_value.squeeze()
+
+                # Process buffer to calculate advantages
+                num_steps = len(step_buffer)
+                num_agents = len(env.agents)
+                
+                values = torch.stack([b["value"] for b in step_buffer])
+                rewards = torch.stack([b["reward"] for b in step_buffer])
+                dones = torch.stack([b["done"] for b in step_buffer])
+                
+                # GAE Calculation
+                advantages = torch.zeros_like(rewards)
+                gae = 0.0
+                for t in reversed(range(num_steps)):
+                    # If we were using dones, next_value would be masked where dones[t] is true.
+                    # Since done is always false, this simplifies.
+                    delta = rewards[t] + GAMMA * next_value - values[t]
+                    gae = delta + GAMMA * GAE_LAMBDA * gae
+                    advantages[t] = gae
+                    next_value = values[t] # The value of the state at time t is the "next_value" for t-1
+                
+                returns = advantages + values
+                
+                # Flatten the batch for training
+                b_obs = torch.cat([b["obs"] for b in step_buffer])
+                b_actions = torch.cat([b["actions"] for b in step_buffer])
+                b_logp = torch.cat([b["logp"] for b in step_buffer])
+                b_adv = advantages.flatten()
+                b_returns = returns.flatten()
+                
+                # Normalize advantages
+                b_adv = (b_adv - b_adv.mean()) / (b_adv.std() + 1e-8)
+
+                # --- Training Epochs ---
+                for _ in range(EPOCHS):
+                    idxs = torch.randperm(b_obs.shape[0])
+                    for start in range(0, b_obs.shape[0], MINI_BATCH):
+                        mb_idxs = idxs[start : start + MINI_BATCH]
+                        
+                        mb_obs = b_obs[mb_idxs]
+                        mb_actions = b_actions[mb_idxs]
+                        mb_logp_old = b_logp[mb_idxs]
+                        mb_adv = b_adv[mb_idxs]
+                        mb_returns = b_returns[mb_idxs]
+
+                        dist, value = model(mb_obs)
+                        logp_new = dist.log_prob(mb_actions)
+                        entropy_bonus = dist.entropy().mean()
+                        
+                        ratio = (logp_new - mb_logp_old).exp()
+                        
+                        # Policy loss
+                        pg_loss1 = -mb_adv * ratio
+                        pg_loss2 = -mb_adv * torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS)
+                        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
+                        
+                        # Value loss
+                        v_loss = 0.5 * ((value.flatten() - mb_returns).pow(2)).mean()
+                        
+                        loss = pg_loss - ENT_COEF * entropy_bonus + v_loss
+
+                        optimizer.zero_grad()
+                        loss.backward()
+                        optimizer.step()
+
+                # --- Post-update ---
+                avg_reward = float(torch.stack([b["reward"] for b in step_buffer]).mean().cpu().item())
+                
+                step_buffer = []
+                total_steps = 0
+                
+                await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": avg_reward, "loss": loss.item()})
+
+        await websocket.send_json({"type": "trained", "model_info": {"epochs": ep_counter, "loss": loss.item()}})
+    
+    except Exception as e:
+        logger.error(f"Error during MineFarm training: {e}", exc_info=True)
+        await websocket.send_json({"type": "error", "message": f"Training failed: {e}"})
 
 
 # --- Websocket runner ---
@@ -774,6 +807,7 @@ async def run_minefarm(websocket: WebSocket):
         logger.info("Initial state sent successfully.")
     except Exception as e:
         logger.error(f"Failed to initialize and send state: {e}", exc_info=True)
+        await websocket.send_json({"type": "error", "message": f"Initialization failed: {e}"})
         return
 
     try:

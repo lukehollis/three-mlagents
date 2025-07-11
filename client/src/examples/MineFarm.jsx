@@ -203,6 +203,7 @@ export default function MineFarmExample() {
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
   const [modelInfo, setModelInfo] = useState(null);
+  const [error, setError] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
@@ -226,8 +227,23 @@ export default function MineFarmExample() {
       try {
         const parsed = JSON.parse(ev.data);
         
+        if (parsed.type === 'error') {
+          setError(parsed.message);
+          addLog(`ERROR: ${parsed.message}`);
+          return;
+        }
+
         if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
           setState(parsed.state);
+        } else if (parsed.type === 'train_step_update') {
+          setState(prevState => {
+            if (!prevState) return null;
+            // Merge the new dynamic state into the existing full state
+            return {
+              ...prevState,
+              ...parsed.state,
+            };
+          });
         }
         if (parsed.type === 'progress') {
           setChartState((prev) => ({
@@ -285,6 +301,17 @@ export default function MineFarmExample() {
     setTraining(false);
     setModelInfo(null);
     addLog("Training state reset. Ready to train a new model.");
+  }
+
+  if (error) {
+    return (
+        <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#220000', color: '#ffaaaa' }}>
+            <Text h1>A Server Error Occurred</Text>
+            <Text p>Could not load the simulation environment.</Text>
+            <Code block width="50vw" style={{textAlign: 'left'}}>{error}</Code>
+            <Button auto type="error" onClick={reset} style={{marginTop: '20px'}}>Reload Page</Button>
+        </div>
+    );
   }
 
   return (
