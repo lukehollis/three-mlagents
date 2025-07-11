@@ -127,38 +127,6 @@ const EnergyPanel = ({ agents }) => {
 };
 
 
-const MessagePanel = ({ messages }) => {
-    if (!messages) return null;
-    return (
-        <Card style={{
-            width: '100%',
-            maxHeight: '200px',
-            overflowY: 'auto',
-            background: 'rgba(0,0,0,0.6)',
-            color: '#fff', border: '1px solid #4488ff',
-        }}>
-            {messages.slice().reverse().map((msg, i) => {
-                let content;
-                if (msg.recipient_id !== null && msg.recipient_id !== undefined) {
-                    content = <Text p style={{ margin: 0 }}><Code>[DM to {msg.recipient_id}]</Code> {msg.message}</Text>;
-                } else {
-                    content = <Text p style={{ margin: 0 }}><Code>[Broadcast]</Code> {msg.message}</Text>;
-                }
-                
-                return (
-                    <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(0,100,255,0.1)', borderRadius: '4px', fontSize: '12px' }}>
-                        <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                            <Code>[Step {msg.step}] Fish {msg.sender_id}</Code>
-                        </Text>
-                        {content}
-                    </div>
-                );
-            })}
-        </Card>
-    );
-};
-
-
 export default function FishSwarmExample() {
   const [state, setState] = useState(null);
   const [running, setRunning] = useState(false);
@@ -295,7 +263,6 @@ export default function FishSwarmExample() {
         height: 'calc(100vh - 20px)',
       }}>
         {state && state.agents && <EnergyPanel agents={state.agents} />}
-        {state && state.messages && state.messages.length > 0 && <MessagePanel messages={state.messages} />}
       </div>
       
       <InfoPanel logs={logs} chartState={chartState} />
