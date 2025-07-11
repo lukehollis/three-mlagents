@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Box, Cylinder, Stars, Plane, Grid, Line, Cone } from '@react-three/drei';
+import { OrbitControls, Box, Cylinder, Stars, Plane, Grid, Line, Cone, Circle } from '@react-three/drei';
 import { Button, Text } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
@@ -15,7 +15,7 @@ import { useResponsive } from '../hooks/useResponsive.js';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/glider`;
 
-const Arrow = ({ origin, direction }) => {
+const Arrow = ({ origin, direction, color = "#ffff00" }) => {
   const ref = useRef();
   React.useLayoutEffect(() => {
     if (ref.current) {
@@ -27,7 +27,7 @@ const Arrow = ({ origin, direction }) => {
   return (
     <group ref={ref} position={origin}>
       <Cone args={[1.5, 5, 8]} rotation={[Math.PI / 2, 0, 0]}>
-        <meshStandardMaterial color="#ffff00" emissive="#ffff00" emissiveIntensity={0.8} toneMapped={false} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.8} toneMapped={false} />
       </Cone>
     </group>
   );
@@ -37,63 +37,90 @@ const WindCurves = ({ windParams }) => {
   if (!windParams || windParams.length < 7) return null;
   const [C1, C2, C3, waveFreq, waveMag, waveFreq2, waveMag2] = windParams;
 
-  const { streamlines, arrows } = useMemo(() => {
-    const streamlinesData = [];
+  const { curves, arrows } = useMemo(() => {
+    const curveData = [];
     const arrowData = [];
-    const height = 50;
-    const numStreamlines = 20;
-    const arrowInterval = 25;
+    const num_curves_x = 12;
+    const num_curves_z = 12;
+    const bounds_x = 800;
+    const bounds_z = 400;
 
-    for (let i = 0; i < numStreamlines; i++) {
-      const points = [];
-      // Start streamlines at different lateral positions
-      const startZ = -800 + (i / (numStreamlines - 1)) * 1600;
-      
-      let currentX = -800;
-      let currentZ = startZ;
-
-      // Trace the path of a particle to create a streamline
-      for (let step = 0; step < 200; step++) {
-        const currentPoint = new THREE.Vector3(currentX, height, currentZ);
-        points.push(currentPoint);
-
-        const world_y = -currentZ;
-        const world_z = height;
-
-        const baseWindSpeed = C1 / (1 + Math.exp(-C2 * (world_z - C3)));
-        const angle1 = Math.sin(world_y * waveFreq * 2 * Math.PI) * waveMag;
-        const angle2 = Math.sin(world_y * waveFreq2 * 2 * Math.PI) * waveMag2;
-        const totalAngle = angle1 + angle2;
+    for (let i = 0; i < num_curves_x; i++) {
+      for (let j = 0; j < num_curves_z; j++) {
         
-        const wind_x = baseWindSpeed * Math.cos(totalAngle);
-        const wind_y = baseWindSpeed * Math.sin(totalAngle);
-        
-        const dt = 4; // Step size for the simulation
-        currentX += wind_x * dt;
-        currentZ -= wind_y * dt;
+        const startX = -bounds_x + (i / (num_curves_x -1)) * bounds_x * 2;
+        const startZ = -bounds_z + (j / (num_curves_z -1)) * bounds_z * 2;
 
-        if (step > 0 && step % arrowInterval === 0) {
-            const prevPoint = points[step -1];
-            const direction = new THREE.Vector3().subVectors(currentPoint, prevPoint).normalize();
-            arrowData.push({ key: `${i}-${step}`, origin: currentPoint, direction });
+        const points = [];
+        let currentX = startX;
+        let currentY = 0;
+        let currentZ = startZ;
+
+        const num_steps = 40;
+        const dt = 1.0; 
+
+        for (let step = 0; step < num_steps; step++) {
+            const currentPoint = new THREE.Vector3(currentX, currentY, currentZ);
+            points.push(currentPoint);
+
+            const world_x = currentX;
+            const world_y = -currentZ;
+
+            const updraft1 = Math.sin(world_x * waveFreq * 2 * Math.PI) * Math.cos(world_y * waveFreq * 2 * Math.PI) * C1 * waveMag;
+            const updraft2 = Math.sin(world_x * waveFreq2 * 2 * Math.PI / 1.5) * Math.cos(world_y * waveFreq * 2 * Math.PI / 1.5) * C1 * waveMag2;
+            const total_updraft = updraft1 + updraft2;
+            
+            const wind_x = 1.0;
+            const wind_z = -0.5; // three.js z is inverted from world y
+            const wind_y = total_updraft;
+
+            currentX += wind_x * dt;
+            currentY += wind_y * dt;
+            currentZ += wind_z * dt;
+
+            if (currentY > 150 || currentY < 0) break;
+
+            if (step > 0 && step % 15 === 0) {
+                const direction = new THREE.Vector3(wind_x, wind_y, wind_z).normalize();
+                const color = wind_y > 0 ? "#ff8888" : "#8888ff";
+                arrowData.push({ key: `${i}-${j}-${step}`, origin: currentPoint, direction, color });
+            }
+        }
+
+        const world_x_avg = startX;
+        const world_y_avg = -startZ;
+        const updraft1 = Math.sin(world_x_avg * waveFreq * 2 * Math.PI) * Math.cos(world_y_avg * waveFreq * 2 * Math.PI) * C1 * waveMag;
+        const updraft2 = Math.sin(world_x_avg * waveFreq2 * 2 * Math.PI / 1.5) * Math.cos(world_y_avg * waveFreq * 2 * Math.PI / 1.5) * C1 * waveMag2;
+        const total_updraft = updraft1 + updraft2;
+        const updraftRatio = Math.min(Math.max(total_updraft / C1, -1), 1);
+        let color;
+        if (updraftRatio > 0.1) {
+            color = new THREE.Color().setRGB(1, 1 - updraftRatio, 1 - updraftRatio);
+        } else if (updraftRatio < -0.1) {
+            color = new THREE.Color().setRGB(1 + updraftRatio, 1 + updraftRatio, 1);
+        } else {
+            color = new THREE.Color().setRGB(0.5, 0.5, 0.5);
+        }
+        
+        if (points.length > 1 && Math.abs(total_updraft) > 1.5) { // Threshold to draw
+            curveData.push({ key: `${i}-${j}`, points, color });
         }
       }
-      streamlinesData.push(points);
     }
-    return { streamlines: streamlinesData, arrows: arrowData };
+    return { curves: curveData, arrows: arrowData };
   }, [windParams]);
 
   return (
     <group>
-      {streamlines.map((points, i) => (
-         <Line key={i} points={points} color="white" lineWidth={0.5} opacity={0.7} transparent />
-      ))}
-      {arrows.map(arrow => (
-        <Arrow key={arrow.key} origin={arrow.origin} direction={arrow.direction} />
-      ))}
+        {curves.map((c) => (
+            <Line key={c.key} points={c.points} color={c.color} lineWidth={1.5} transparent opacity={0.5} />
+        ))}
+        {arrows.map((a) => (
+            <Arrow key={a.key} origin={a.origin} direction={a.direction} color={a.color} />
+        ))}
     </group>
-  );
-};
+  )
+}
 
 const Waypoint = ({ position, isTarget }) => {
   const ref = useRef();
@@ -172,20 +199,24 @@ const Wind = ({ windParams }) => {
   const [C1, C2, C3, waveFreq, waveMag, waveFreq2, waveMag2] = windParams;
   const particlesRef = useRef();
   const lifetimesRef = useRef([]);
+  const colorsRef = useRef(new Float32Array());
 
   const PARTICLE_COUNT = 8000;
   const MAX_LIFE = 600; // frames
 
   const particles = useMemo(() => {
     const temp = [];
+    const colors = [];
     lifetimesRef.current = [];
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const x = THREE.MathUtils.randFloatSpread(1600);
       const y = THREE.MathUtils.randFloat(0, 150);
       const z = THREE.MathUtils.randFloatSpread(800);
       temp.push(x, y, z);
+      colors.push(1, 1, 1); // init as white
       lifetimesRef.current.push(Math.random() * MAX_LIFE);
     }
+    colorsRef.current = new Float32Array(colors);
     return new Float32Array(temp);
   }, []);
 
@@ -193,33 +224,45 @@ const Wind = ({ windParams }) => {
     if (!particlesRef.current) return;
 
     const positions = particlesRef.current.geometry.attributes.position.array;
+    const colors = particlesRef.current.geometry.attributes.color.array;
+
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const i3 = i * 3;
 
-      // Increment lifetime
       lifetimesRef.current[i] += 1;
 
       const three_x = positions[i3];
       const three_y = positions[i3 + 1];
       const three_z = positions[i3 + 2];
 
+      const world_x = three_x;
       const world_y = -three_z;
-      const world_z = three_y;
 
-      const baseWindSpeed = C1 / (1 + Math.exp(-C2 * (world_z - C3)));
-      const angle1 = Math.sin(world_y * waveFreq * 2 * Math.PI) * waveMag;
-      const angle2 = Math.sin(world_y * waveFreq2 * 2 * Math.PI) * waveMag2;
-      const totalAngle = angle1 + angle2;
+      const updraft1 = Math.sin(world_x * waveFreq * 2 * Math.PI) * Math.cos(world_y * waveFreq * 2 * Math.PI) * C1 * waveMag;
+      const updraft2 = Math.sin(world_x * waveFreq2 * 2 * Math.PI / 1.5) * Math.cos(world_y * waveFreq * 2 * Math.PI / 1.5) * C1 * waveMag2;
+      const total_updraft = updraft1 + updraft2;
 
-      const wind_x = baseWindSpeed * Math.cos(totalAngle);
-      const wind_y = baseWindSpeed * Math.sin(totalAngle);
+      // Gentle horizontal drift
+      positions[i3] += 1.0 * 0.02;
+      positions[i3 + 1] += total_updraft * 0.02; // Vertical movement
+      positions[i3 + 2] += 0.5 * 0.02;
 
-      positions[i3] += wind_x * 0.02;
-      positions[i3 + 2] -= wind_y * 0.02;
+      const color = new THREE.Color();
+      const updraftRatio = Math.min(Math.max(total_updraft / C1, -1), 1);
+      if (updraftRatio > 0) {
+        color.setRGB(1, 1 - updraftRatio, 1 - updraftRatio); // White to Red for updrafts
+      } else {
+        color.setRGB(1 + updraftRatio, 1 + updraftRatio, 1); // White to Blue for downdrafts
+      }
+      colors[i3] = color.r;
+      colors[i3 + 1] = color.g;
+      colors[i3 + 2] = color.b;
+
 
       const outOfBounds =
         positions[i3] > 800 || positions[i3] < -800 ||
-        positions[i3 + 2] > 400 || positions[i3 + 2] < -400;
+        positions[i3 + 2] > 400 || positions[i3 + 2] < -400 ||
+        positions[i3 + 1] > 150 || positions[i3+1] < 0; // check y bounds too
 
       if (outOfBounds || lifetimesRef.current[i] > MAX_LIFE) {
         // Reset the particle at a completely random location within the volume
@@ -231,6 +274,7 @@ const Wind = ({ windParams }) => {
     }
 
     particlesRef.current.geometry.attributes.position.needsUpdate = true;
+    particlesRef.current.geometry.attributes.color.needsUpdate = true;
   });
 
   return (
@@ -242,8 +286,14 @@ const Wind = ({ windParams }) => {
           array={particles}
           itemSize={3}
         />
+        <bufferAttribute
+            attach="attributes-color"
+            count={colorsRef.current.length / 3}
+            array={colorsRef.current}
+            itemSize={3}
+        />
       </bufferGeometry>
-      <pointsMaterial size={0.15} color="#44ffff" transparent opacity={0.6} />
+      <pointsMaterial size={0.2} transparent opacity={0.7} vertexColors />
     </points>
   );
 };
@@ -426,10 +476,15 @@ export default function GliderExample() {
           </div>
           <ModelInfoPanel modelInfo={modelInfo} />
         </div>
-        <EquationPanel equation="e_{max} = \sqrt{1 - \frac{2\pi}{L/D}}" description="Max turn efficiency (coeff. of restitution) is related to the lift-to-drag ratio." />
+        <EquationPanel
+          equation="\begin{aligned} \text{Observations} &= [uvw_{\text{global}}, \text{airspeed}, \text{height}, \alpha\beta\gamma, D_{\text{target}}, \text{Vec}_{\text{target}}, \omega_{\text{Rotor}}, E_{\text{Battery}}] \\ \text{Actions} &= [\text{roll}_{\text{input}}, \text{pitch}_{\text{input}}, \text{throttle}_{\text{input}}, \text{pitch}_{\text{Rotor,input}}] \\ R_{\text{mixed}} &= E \cdot (1 - E) + E \cdot H = E \cdot (H - E + 1) \end{aligned}"
+          description="Dynamic soarding: state and action spaces for the glider and the mixed reward function for heading and energy"
+        />
         <InfoPanel logs={logs} chartState={chartState} />
         <ButtonForkOnGithub position={{ top: '10px', right: '10px' }} />
       </div>
     </div>
   );
 } 
+
+
