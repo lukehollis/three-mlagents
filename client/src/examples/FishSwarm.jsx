@@ -13,17 +13,24 @@ import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 const WS_URL = `${config.WS_BASE_URL}/ws/fish_swarm`;
 
 const Fish = ({ agent, gridSize }) => {
-  const { pos, color, id } = agent;
+  const { pos, id, energy } = agent;
   const groupRef = useRef();
 
   const offsetX = gridSize ? gridSize[0] / 2 : 0;
   const offsetZ = gridSize ? gridSize[2] / 2 : 0;
 
+  const energyColor = useMemo(() => {
+    const blue = new THREE.Color("#55aaff");
+    const white = new THREE.Color("#ffffff");
+    const alpha = Math.max(0, Math.min(1, energy / 100));
+    return blue.clone().lerp(white, alpha);
+  }, [energy]);
+
   return (
     <group ref={groupRef} position={[pos[0] - offsetX, pos[1], pos[2] - offsetZ]}>
       <mesh rotation={[0, 0, Math.PI / 2]}>
         <coneGeometry args={[0.4, 1.2, 8]} />
-        <meshPhongMaterial color={new THREE.Color(...color)} emissive={new THREE.Color(...color).multiplyScalar(0.3)} />
+        <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} />
       </mesh>
       <DreiText position={[0, 0.8, 0]} fontSize={0.5} color="white" anchorX="center" anchorY="middle">
         {id}
@@ -32,11 +39,31 @@ const Fish = ({ agent, gridSize }) => {
   );
 };
 
+const Shark = ({ agent, gridSize }) => {
+    const { pos, color } = agent;
+    const groupRef = useRef();
+    const offsetX = gridSize ? gridSize[0] / 2 : 0;
+    const offsetZ = gridSize ? gridSize[2] / 2 : 0;
+
+    return (
+        <group ref={groupRef} position={[pos[0] - offsetX, pos[1], pos[2] - offsetZ]}>
+            <mesh>
+                <boxGeometry args={[4, 1.5, 2]} />
+                <meshPhongMaterial color={new THREE.Color(...color)} emissive={new THREE.Color(...color).multiplyScalar(0.2)} />
+            </mesh>
+            <mesh position={[2, 0.5, 0]}>
+                <boxGeometry args={[0.5, 0.5, 2.5]} />
+                <meshPhongMaterial color={new THREE.Color(...color)} />
+            </mesh>
+        </group>
+    )
+}
+
 const Scenery = ({ grid, resourceTypes, gridSize }) => {
   const sceneryMeshes = useMemo(() => {
     const meshes = [];
     if (!grid || !resourceTypes || !gridSize) return meshes;
-    const resourceList = Object.values(resourceTypes);
+    const resourceKeys = Object.keys(resourceTypes);
     
     const offsetX = gridSize[0] / 2;
     const offsetZ = gridSize[2] / 2;
@@ -45,9 +72,11 @@ const Scenery = ({ grid, resourceTypes, gridSize }) => {
       plane.forEach((row, y) => {
         row.forEach((cell, z) => {
           if (cell > 0) {
-            const resource = resourceList[cell]; // Note: cell is already index+1, but we have water at 0. Let's adjust server to send names
-             if (resource && resource.color) {
-                 const resourceName = Object.keys(resourceTypes).find(key => resourceTypes[key] === resource);
+            const resourceName = resourceKeys[cell - 1]; // cell is 1-based index from python
+            if (resourceName === 'sand') return; // Don't render the sand floor
+            
+            const resource = resourceTypes[resourceName];
+            if (resource && resource.color) {
                  const isFood = resourceName === 'food';
                  meshes.push(
                     <mesh key={`${x}-${y}-${z}`} position={[x - offsetX, y, z - offsetZ]}>
@@ -136,7 +165,6 @@ export default function FishSwarmExample() {
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
   const [modelInfo, setModelInfo] = useState(null);
-  const [error, setError] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
@@ -157,37 +185,26 @@ export default function FishSwarmExample() {
     ws.onopen = () => addLog('FishSwarm WS opened');
     ws.onmessage = (ev) => {
       addLog(`Received data: ${ev.data.substring(0, 100)}...`);
-      try {
-        const parsed = JSON.parse(ev.data);
-        
-        if (parsed.type === 'error') {
-          setError(parsed.message);
-          addLog(`ERROR: ${parsed.message}`);
-          return;
-        }
-
-        if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
-          setState(parsed.state);
-        }
-        if (parsed.type === 'progress') {
-          setChartState((prev) => ({
-            labels: [...prev.labels, parsed.episode],
-            rewards: [...prev.rewards, parsed.reward],
-            losses: [...prev.losses, parsed.loss ?? null],
-          }));
-        }
-        if (parsed.type === 'trained') {
-          setTraining(false);
-          setTrained(true);
-          setModelInfo(parsed.model_info);
-          addLog('Training complete! Fish are now using the trained policy.');
-        }
-        if (parsed.type === 'info') {
-            addLog(`INFO: ${parsed.message}`);
-        }
-      } catch (e) {
-        addLog(`Error processing message: ${e}`);
-        console.error("Failed to process message: ", e);
+      const parsed = JSON.parse(ev.data);
+      
+      if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
+        setState(parsed.state);
+      }
+      if (parsed.type === 'progress') {
+        setChartState((prev) => ({
+          labels: [...prev.labels, parsed.episode],
+          rewards: [...prev.rewards, parsed.reward],
+          losses: [...prev.losses, parsed.loss ?? null],
+        }));
+      }
+      if (parsed.type === 'trained') {
+        setTraining(false);
+        setTrained(true);
+        setModelInfo(parsed.model_info);
+        addLog('Training complete! Fish are now using the trained policy.');
+      }
+      if (parsed.type === 'info') {
+          addLog(`INFO: ${parsed.message}`);
       }
     };
     ws.onclose = () => addLog('FishSwarm WS closed');
@@ -227,16 +244,6 @@ export default function FishSwarmExample() {
     addLog("Training state reset. Ready to train a new model.");
   }
 
-  if (error) {
-    return (
-        <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#220000', color: '#ffaaaa' }}>
-            <Text h1>A Server Error Occurred</Text>
-            <Text p>Could not load the simulation environment.</Text>
-            <Code block width="50vw" style={{textAlign: 'left'}}>{error}</Code>
-            <Button auto type="error" onClick={reset} style={{marginTop: '20px'}}>Reload Page</Button>
-        </div>
-    );
-  }
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
@@ -253,12 +260,13 @@ export default function FishSwarmExample() {
         <Grid infiniteGrid cellSize={1} sectionSize={10} sectionColor={"#0044cc"} fadeDistance={250} fadeStrength={1.5} />
         
         {state && state.agents && state.agents.map(agent => <Fish key={agent.id} agent={agent} gridSize={gridSize} />)}
+        {state && state.shark && <Shark agent={state.shark} gridSize={gridSize} />}
         {state && <Scenery grid={state.grid} resourceTypes={state.resource_types} gridSize={gridSize} />}
         
         <EffectComposer>
           <Bloom intensity={1.5} luminanceThreshold={0.2} luminanceSmoothing={0.8} />
         </EffectComposer>
-        <OrbitControls maxDistance={400} minDistance={10} />
+        <OrbitControls maxDistance={60} minDistance={10} target={[0, 32, 0]} />
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
