@@ -648,7 +648,7 @@ export default function ExamplesIndex() {
                   </Text>
                 </Link>
                 <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  A retro sci-fi underwater scene with a swarm of fish that learn to find food and survive.
+                  A school of fish that learn to find food and survive a shark.
                 </Text>
                 <Link to="/fish" style={{ textDecoration: 'none' }}>
                   <Button 
