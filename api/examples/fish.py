@@ -20,19 +20,17 @@ logger = logging.getLogger(__name__)
 GRID_SIZE_X = 64 
 GRID_SIZE_Y = 64
 GRID_SIZE_Z = 64
-NUM_FISH = 32
+NUM_FISH = 20
 ENTITY_TYPES = {
     "water": {"value": 0, "color": [0.1, 0.3, 0.8]},
-    "food": {"value": 100, "color": [0.8, 0.8, 0.2]}, # Prioritize eating, increased reward
+    "food": {"value": 250, "color": [0.8, 0.8, 0.2]}, # Prioritize eating, increased reward
     "coral_a": {"value": 0, "color": [0.9, 0.3, 0.3]},
     "coral_b": {"value": 0, "color": [0.3, 0.9, 0.3]},
     "rock": {"value": 0, "color": [0.5, 0.5, 0.5]},
     "sand": {"value": 0, "color": [0.8, 0.7, 0.5]},
-    "shark": {"value": -100, "color": [0.2, 0.2, 0.3]},
 }
 DISCRETE_ACTIONS = [
     "move_x+", "move_x-", "move_y+", "move_y-", "move_z+", "move_z-",
-    "eat", "wait"
 ]
 ACTION_MAP_MOVE = {
     "move_x+": np.array([1, 0, 0]), "move_x-": np.array([-1, 0, 0]),
@@ -40,38 +38,12 @@ ACTION_MAP_MOVE = {
     "move_z+": np.array([0, 0, 1]), "move_z-": np.array([0, 0, -1]),
 }
 
-# --- Shark Class ---
-class Shark:
-    def __init__(self, pos: np.ndarray):
-        self.id = "shark"
-        self.pos = pos.astype(np.float32)
-        self.color = [0.3, 0.4, 0.5]
-        self.velocity = (np.random.rand(3) - 0.5) * 2
-        self.speed = 1.5
-
-    def move(self, fish_list: List['Fish']):
-        if not fish_list:
-            self.velocity += (np.random.rand(3) - 0.5) * 0.5
-        else:
-            swarm_center = np.mean([f.pos for f in fish_list], axis=0)
-            direction_to_swarm = swarm_center - self.pos
-            dist = np.linalg.norm(direction_to_swarm)
-            if dist > 1: direction_to_swarm /= dist
-            self.velocity = self.velocity * 0.9 + direction_to_swarm * 0.1 + (np.random.rand(3) - 0.5) * 0.2
-        
-        if np.linalg.norm(self.velocity) > 0:
-            self.velocity = self.velocity / np.linalg.norm(self.velocity) * self.speed
-        self.pos += self.velocity
-        self.pos[0] = np.clip(self.pos[0], 0, GRID_SIZE_X - 1)
-        self.pos[1] = np.clip(self.pos[1], 2, GRID_SIZE_Y - 1)
-        self.pos[2] = np.clip(self.pos[2], 0, GRID_SIZE_Z - 1)
-
 # --- Fish Class ---
 class Fish:
     def __init__(self, fish_id: int, pos: np.ndarray):
         self.id = fish_id
         self.pos = pos.astype(np.float32)
-        self.energy = 100.0
+        self.energy = 250.0 # More energy to explore
         self.color = [random.random(), 0.5, 1.0 - random.random()]
         self.velocity = np.zeros(3, dtype=np.float32)
 
@@ -81,7 +53,6 @@ class FishEnv:
         self.grid = np.zeros((GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z), dtype=int)
         self.step_count = 0
         self.fish: List[Fish] = []
-        self.shark: Shark = None
         self.trained_policy: ActorCritic = None
         self.reset()
 
@@ -94,16 +65,11 @@ class FishEnv:
             random.randint(10, GRID_SIZE_Y - 10),
             random.randint(0, GRID_SIZE_Z - 1)
         ])) for i in range(NUM_FISH)]
-        self.shark = Shark(np.array([
-            random.randint(0, GRID_SIZE_X - 1),
-            random.randint(20, GRID_SIZE_Y - 20),
-            random.randint(0, GRID_SIZE_Z - 1)
-        ]))
         
         food_idx = list(ENTITY_TYPES.keys()).index("food") + 1
         food_locations = np.argwhere(self.grid == food_idx)
         food_tree = cKDTree(food_locations) if len(food_locations) > 0 else None
-        return np.array([get_fish_state_vector(f, self.grid, self.fish, self.shark, food_tree) for f in self.fish])
+        return np.array([get_fish_state_vector(f, self.grid, food_tree) for f in self.fish])
 
     def _spawn_scene(self):
         # Sandy bottom
@@ -118,68 +84,30 @@ class FishEnv:
                 for y_off in range(random.randint(2, 6)): self.grid[px, base_y + y_off, pz] = coral_type
         # Food
         food_idx = list(ENTITY_TYPES.keys()).index("food") + 1
-        for _ in range(150): self.grid[random.randint(0, GRID_SIZE_X - 1), random.randint(2, GRID_SIZE_Y - 1), random.randint(0, GRID_SIZE_Z - 1)] = food_idx
+        for _ in range(NUM_FISH):
+            self.grid[random.randint(0, GRID_SIZE_X - 1), random.randint(2, GRID_SIZE_Y - 1), random.randint(0, GRID_SIZE_Z - 1)] = food_idx
 
-    def _get_reward(self, fish: Fish, action: str, data: Any, food_tree: cKDTree) -> float:
-        reward = -0.01 # Minimal base penalty to encourage action
-
-        # Strong reward for moving towards the nearest food, which is in the observation space
-        if action in ACTION_MAP_MOVE and food_tree is not None:
-            dist_before, idx = food_tree.query(fish.pos)
-            if np.isfinite(dist_before):
-                nearest_food_pos = food_tree.data[idx]
-                new_pos = data
-                dist_after = np.linalg.norm(new_pos - nearest_food_pos)
-                
-                # Reward based on getting closer to the single nearest food
-                if dist_after < dist_before:
-                    reward += (dist_before - dist_after) * 2.0 # Strong reward signal
-
-        if action in ACTION_MAP_MOVE or action == "eat":
-            target_pos = data
-            if 0 <= target_pos[0] < GRID_SIZE_X and 0 <= target_pos[1] < GRID_SIZE_Y and 0 <= target_pos[2] < GRID_SIZE_Z:
-                target_pos_int = tuple(np.round(target_pos).astype(int))
-                # Clip again to be safe
-                target_pos_int = (
-                    np.clip(target_pos_int[0], 0, GRID_SIZE_X - 1),
-                    np.clip(target_pos_int[1], 0, GRID_SIZE_Y - 1),
-                    np.clip(target_pos_int[2], 0, GRID_SIZE_Z - 1),
-                )
-                if self.grid[target_pos_int] == list(ENTITY_TYPES.keys()).index("food") + 1:
-                    reward += ENTITY_TYPES["food"]["value"] # Big reward for eating
-        
-        nearby_fish = [f for f in self.fish if f.id != fish.id and np.linalg.norm(f.pos - fish.pos) < 20]
-        if len(nearby_fish) > 2:
-            centroid = np.mean([f.pos for f in nearby_fish], axis=0)
-            # Make schooling a weaker incentive compared to food
-            reward += max(0, 1.0 - np.linalg.norm(fish.pos - centroid) / 20.0) * 0.05 
-        else:
-            reward -= 0.05 # Smaller penalty for being alone
-
-        dist_to_shark = np.linalg.norm(fish.pos - self.shark.pos)
-        # Keep shark penalty high, it's a terminal condition
-        if dist_to_shark < 15: reward -= max(0, 1.0 - dist_to_shark / 15.0) * 20 # Increased shark penalty
-        return reward
-
-    def _execute_actions(self, fish_actions: List[Tuple[str, Any]]):
+    def _execute_actions(self, fish_actions: List[Tuple[str, Any]], food_tree: cKDTree):
         randomized_order = list(zip(self.fish, fish_actions))
         random.shuffle(randomized_order)
         food_idx = list(ENTITY_TYPES.keys()).index("food") + 1
+        dones = []
+        rewards = []
 
         for fish, (action, data) in randomized_order:
             fish.energy -= 0.2
             
             moved = False
+            ate_food = False
             old_pos = fish.pos.copy()
+            current_reward = -0.1 # Time penalty
 
             if action in ACTION_MAP_MOVE: 
                 fish.energy -= 0.3
                 
                 if data is not None:
                     target_pos_int = np.round(data).astype(int)
-                    target_pos_int[0] = np.clip(target_pos_int[0], 0, GRID_SIZE_X - 1)
-                    target_pos_int[1] = np.clip(target_pos_int[1], 2, GRID_SIZE_Y - 1)
-                    target_pos_int[2] = np.clip(target_pos_int[2], 0, GRID_SIZE_Z - 1)
+                    target_pos_int = np.clip(target_pos_int, [0, 2, 0], [GRID_SIZE_X - 1, GRID_SIZE_Y - 1, GRID_SIZE_Z - 1])
                     
                     target_cell_val = self.grid[target_pos_int[0], target_pos_int[1], target_pos_int[2]]
 
@@ -191,39 +119,38 @@ class FishEnv:
                         fish.energy += ENTITY_TYPES["food"]["value"]
                         self.grid[target_pos_int[0], target_pos_int[1], target_pos_int[2]] = 0
                         moved = True
+                        ate_food = True
+                        current_reward += ENTITY_TYPES["food"]["value"]
             
-            elif action == "eat":
-                target_pos_int = np.round(fish.pos).astype(int)
-                if 0 <= target_pos_int[0] < GRID_SIZE_X and 0 <= target_pos_int[1] < GRID_SIZE_Y and 0 <= target_pos_int[2] < GRID_SIZE_Z:
-                    if self.grid[target_pos_int[0], target_pos_int[1], target_pos_int[2]] == food_idx:
-                        fish.energy += ENTITY_TYPES["food"]["value"]
-                        self.grid[target_pos_int[0], target_pos_int[1], target_pos_int[2]] = 0
+            if moved and food_tree is not None:
+                dist_before, _ = food_tree.query(old_pos)
+                if not ate_food: # No distance reward if food was eaten, the big reward is enough
+                    dist_after, _ = food_tree.query(fish.pos)
+                    if np.isfinite(dist_before):
+                        distance_delta = dist_before - dist_after
+                        current_reward += distance_delta * 4.0 # Movement reward
 
             if moved:
                 new_velocity = fish.pos - old_pos
                 fish.velocity = fish.velocity * 0.7 + new_velocity * 0.3
             else:
                 fish.velocity *= 0.9
-
-        self.shark.move(self.fish)
-        dones = []
-        for f in self.fish:
-            if np.linalg.norm(f.pos - self.shark.pos) < 2: 
-                f.energy = 0
-            is_done = f.energy <= 0
+            
+            is_done = ate_food or fish.energy <= 0
             dones.append(is_done)
+            rewards.append(current_reward)
+
             if is_done:
-                f.pos = np.array([random.randint(0, GRID_SIZE_X-1), random.randint(10, GRID_SIZE_Y-10), random.randint(0, GRID_SIZE_Z-1)], dtype=np.float32)
-                f.energy = 100.0
-                
-        if self.step_count % 20 == 0:
-            for _ in range(10): self.grid[random.randint(0,GRID_SIZE_X-1), random.randint(2,GRID_SIZE_Y-1), random.randint(0,GRID_SIZE_Z-1)] = food_idx
+                fish.pos = np.array([random.randint(0, GRID_SIZE_X-1), random.randint(10, GRID_SIZE_Y-10), random.randint(0, GRID_SIZE_Z-1)], dtype=np.float32)
+                fish.energy = 250.0
+                if ate_food:
+                     self.grid[random.randint(0,GRID_SIZE_X-1), random.randint(2,GRID_SIZE_Y-1), random.randint(0,GRID_SIZE_Z-1)] = food_idx
         
-        return dones
+        return dones, rewards
 
     def step(self, actions_np: np.ndarray):
         self.step_count += 1
-        fish_actions, rewards = [], []
+        fish_actions = []
         
         food_idx = list(ENTITY_TYPES.keys()).index("food") + 1
         food_locations = np.argwhere(self.grid == food_idx)
@@ -233,20 +160,17 @@ class FishEnv:
             action_name = DISCRETE_ACTIONS[actions_np[i]]
             action_data = fish.pos + ACTION_MAP_MOVE[action_name] if action_name in ACTION_MAP_MOVE else fish.pos
             fish_actions.append((action_name, action_data))
-            rewards.append(self._get_reward(fish, action_name, action_data, food_tree))
 
-        dones = self._execute_actions(fish_actions)
+        dones, rewards = self._execute_actions(fish_actions, food_tree)
         
         final_rewards = np.array(rewards, dtype=np.float32)
-        final_rewards[dones] = -20.0 # Large penalty for dying
-
-        next_obs = np.array([get_fish_state_vector(f, self.grid, self.fish, self.shark, food_tree) for f in self.fish])
+        next_obs = np.array([get_fish_state_vector(f, self.grid, food_tree) for f in self.fish])
         return next_obs, final_rewards, np.array(dones)
 
     def get_state_for_viz(self) -> Dict[str, Any]:
-        return {"grid": self.grid.tolist(), "agents": [{"id": f.id, "pos": f.pos.tolist(), "energy": f.energy, "color": f.color, "velocity": f.velocity.tolist()} for f in self.fish], "shark": {"id": self.shark.id, "pos": self.shark.pos.tolist(), "color": self.shark.color}, "grid_size": [GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z], "resource_types": ENTITY_TYPES}
+        return {"grid": self.grid.tolist(), "agents": [{"id": f.id, "pos": f.pos.tolist(), "energy": f.energy, "color": f.color, "velocity": f.velocity.tolist()} for f in self.fish], "grid_size": [GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z], "resource_types": ENTITY_TYPES}
 
-def get_fish_state_vector(fish: Fish, grid: np.ndarray, all_fish: List['Fish'], shark: 'Shark', food_tree: cKDTree) -> np.ndarray:
+def get_fish_state_vector(fish: Fish, grid: np.ndarray, food_tree: cKDTree) -> np.ndarray:
     pos = np.round(fish.pos).astype(int)
     view = np.zeros((5, 5, 5))
     x_s, x_e = max(0, pos[0]-2), min(GRID_SIZE_X, pos[0]+3)
@@ -259,26 +183,19 @@ def get_fish_state_vector(fish: Fish, grid: np.ndarray, all_fish: List['Fish'], 
     view_flat = view.flatten()
 
     energy_vec = np.array([fish.energy / 100.0])
-    nearby_fish = [f for f in all_fish if f.id != fish.id and np.linalg.norm(f.pos - fish.pos) < 20]
-    if len(nearby_fish) > 0:
-        centroid = np.mean([f.pos for f in nearby_fish], axis=0)
-        dist_to_centroid = np.linalg.norm(fish.pos - centroid)
-        swarm_info = np.concatenate([centroid/np.array([GRID_SIZE_X,GRID_SIZE_Y,GRID_SIZE_Z]), [dist_to_centroid/30.0], [len(nearby_fish)/NUM_FISH]])
-    else: swarm_info = np.zeros(5)
     
-    shark_vec = (shark.pos - fish.pos) / np.array([GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z])
-
     food_vec = np.zeros(3)
     if food_tree is not None:
         dist, idx = food_tree.query(fish.pos)
-        if np.isfinite(dist):
+        if np.isfinite(dist) and dist > 1e-6: # Add a small epsilon to avoid division by zero
             nearest_food_pos = food_tree.data[idx]
-            food_vec = (nearest_food_pos - fish.pos) / np.array([GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z])
+            direction_to_food = nearest_food_pos - fish.pos
+            food_vec = direction_to_food / dist # Normalize to a unit vector
 
-    return np.concatenate([view_flat, energy_vec, swarm_info, shark_vec, food_vec])
+    return np.concatenate([view_flat, energy_vec, food_vec])
 
 # PPO Hyperparameters & Training Loop
-BATCH_SIZE, MINI_BATCH, EPOCHS, GAMMA, GAE_LAMBDA, CLIP_EPS, ENT_COEF, LR = 8192, 512, 4, 0.99, 0.95, 0.2, 0.01, 3e-4
+BATCH_SIZE, MINI_BATCH, EPOCHS, GAMMA, GAE_LAMBDA, CLIP_EPS, ENT_COEF, LR = 1024, 128, 4, 0.99, 0.95, 0.2, 0.05, 3e-4
 
 async def train_fish(websocket: WebSocket, env: FishEnv):
     obs = env.reset()
@@ -301,10 +218,9 @@ async def train_fish(websocket: WebSocket, env: FishEnv):
         step_buffer.append({"obs":obs_t, "actions":actions_t, "logp":logp_t, "reward":torch.tensor(rewards,dtype=torch.float32), "done":torch.tensor(dones,dtype=torch.bool), "value":value.flatten()})
         obs_t = torch.tensor(next_obs, dtype=torch.float32)
 
-        if env.step_count % 8 == 0:
+        if env.step_count % 8 == 0: # Reduced frequency of state updates to speed up training
             state = env.get_state_for_viz()
             await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
-            await asyncio.sleep(0.01)
 
         if total_steps >= BATCH_SIZE:
             with torch.no_grad(): _, next_value = model(obs_t)
@@ -368,7 +284,7 @@ async def run_fish(websocket: WebSocket, env: FishEnv):
         if len(food_locations) > 0:
             food_tree = cKDTree(food_locations)
 
-        actions = [infer_action_fish(get_fish_state_vector(f, env.grid, env.fish, env.shark, food_tree), env.trained_policy) for f in env.fish]
+        actions = [infer_action_fish(get_fish_state_vector(f, env.grid, food_tree), env.trained_policy) for f in env.fish]
         env.step(np.array(actions))
         state = env.get_state_for_viz()
         

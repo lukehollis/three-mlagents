@@ -42,9 +42,9 @@ const Fish = ({ agent, gridSize }) => {
         <coneGeometry args={[0.4, 1.2, 8]} />
         <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} />
       </mesh>
-      <DreiText position={[0, 0.8, 0]} fontSize={0.5} color="white" anchorX="center" anchorY="middle">
+      {/* <DreiText position={[0, 0.8, 0]} fontSize={0.5} color="white" anchorX="center" anchorY="middle">
         {id}
-      </DreiText>
+      </DreiText> */}
     </group>
   );
 };
@@ -242,9 +242,9 @@ export default function FishExample() {
         {state && <Scenery grid={state.grid} resourceTypes={state.resource_types} gridSize={gridSize} />}
         
         <EffectComposer>
-          <Bloom intensity={1.5} luminanceThreshold={0.2} luminanceSmoothing={0.8} />
+          <Bloom intensity={0.9} luminanceThreshold={0.2} luminanceSmoothing={0.8} />
         </EffectComposer>
-        <OrbitControls maxDistance={60} minDistance={10} target={[0, 32, 0]} />
+        <OrbitControls maxDistance={100} minDistance={10} target={[0, 32, 0]} />
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
