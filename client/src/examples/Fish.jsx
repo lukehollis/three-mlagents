@@ -114,7 +114,7 @@ const StaticScenery = ({ gridSize }) => {
         if (!gridSize) return null;
 
         const meshes = [];
-        const count = 32; // Add number of scenery objects
+        const count = 64; // Add number of scenery objects
         const offsetX = gridSize[0] / 2;
         const offsetZ = gridSize[2] / 2;
 
@@ -124,7 +124,7 @@ const StaticScenery = ({ gridSize }) => {
             const isRock = Math.random() > 0.5;
 
             if (isRock) {
-                const height = Math.random() * 4 + 1;
+                const height = Math.random() * 8 + 1;
                 meshes.push(
                     <mesh key={`rock-${i}`} position={[x - offsetX, height / 2, z - offsetZ]}>
                         <boxGeometry args={[1, height, 1]} />

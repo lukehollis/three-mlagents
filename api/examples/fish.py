@@ -7,11 +7,12 @@ import torch.nn as nn
 import torch.optim as optim
 import os
 from scipy.spatial import cKDTree
+from torch.distributions import Categorical
 
 # --- Environment Constants ---
-GRID_SIZE = 20
-NUM_FISH = 10
-NUM_FOOD = 20
+GRID_SIZE = 64
+NUM_FISH = 32
+NUM_FOOD = 32
 REWARD_FOOD = 20.0
 REWARD_STEP = -0.1
 # For frontend compatibility, we define ENTITY_TYPES but only use food and water
@@ -23,26 +24,45 @@ ENTITY_TYPES = {
 # --- Action Definitions ---
 DISCRETE_ACTIONS = ["up", "down", "left", "right", "forward", "backward"]
 ACTION_MAP = {
-    "up": np.array([0, 1, 0]),
-    "down": np.array([0, -1, 0]),
-    "left": np.array([-1, 0, 0]),
-    "right": np.array([1, 0, 0]),
-    "forward": np.array([0, 0, 1]),
-    "backward": np.array([0, 0, -1]),
+    "up": np.array([0, 3, 0]),
+    "down": np.array([0, -3, 0]),
+    "left": np.array([-3, 0, 0]),
+    "right": np.array([3, 0, 0]),
+    "forward": np.array([0, 0, 3]),
+    "backward": np.array([0, 0, -3]),
 }
 
-# --- Q-Learning Network ---
-class QNet(nn.Module):
+# --- PPO Actor-Critic Network ---
+class ActorCritic(nn.Module):
     def __init__(self, input_size, output_size):
         super().__init__()
-        self.fc1 = nn.Linear(input_size, 32)
-        self.fc2 = nn.Linear(32, 32)
-        self.fc3 = nn.Linear(32, output_size)
+        self.actor = nn.Sequential(
+            nn.Linear(input_size, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, output_size),
+            nn.Softmax(dim=-1)
+        )
+        self.critic = nn.Sequential(
+            nn.Linear(input_size, 64),
+            nn.ReLU(),
+            nn.Linear(64, 64),
+            nn.ReLU(),
+            nn.Linear(64, 1)
+        )
 
     def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = torch.relu(self.fc2(x))
-        return self.fc3(x)
+        return self.actor(x), self.critic(x)
+
+    def get_action(self, state, action=None):
+        probs = self.actor(state)
+        dist = Categorical(probs)
+        if action is None:
+            action = dist.sample()
+        log_prob = dist.log_prob(action)
+        entropy = dist.entropy()
+        return action, log_prob, entropy
 
 # --- Environment Class ---
 class MultiFishEnv:
@@ -51,7 +71,7 @@ class MultiFishEnv:
         self.food_pos = np.zeros((NUM_FOOD, 3), dtype=np.int32)
         self.food_tree = None
         self.step_count = 0
-        self.trained_policy: QNet = None
+        self.trained_policy: ActorCritic = None
         self.reset()
 
     def reset(self):
@@ -79,9 +99,7 @@ class MultiFishEnv:
             if np.isfinite(dist[i]):
                 closest_food_pos = self.food_tree.data[idx[i]]
                 state_vec = (closest_food_pos - self.fish_pos[i]).astype(np.float32)
-                norm = np.linalg.norm(state_vec)
-                if norm > 0:
-                    state_vec /= norm
+                # No normalization for PPO, to provide distance information
                 states[i] = state_vec
         return states
 
@@ -118,7 +136,7 @@ class MultiFishEnv:
             self._update_food_tree()
 
         # Episode also ends if it takes too long
-        if self.step_count >= 100:
+        if self.step_count >= 200: # Increased step count for PPO
             done = True
         
         return self._get_states(), rewards, done
@@ -146,76 +164,116 @@ class MultiFishEnv:
             "resource_types": ENTITY_TYPES,
         }
 
-# --- Training Loop ---
+# --- PPO Training Loop ---
 EPISODES = 4000
 GAMMA = 0.99
-EPSILON_START, EPSILON_END, EPSILON_DECAY = 1.0, 0.05, 3000
-LR = 1e-4
+LR = 3e-4
+CLIP_EPSILON = 0.2
+UPDATE_EPOCHS = 4
+GAE_LAMBDA = 0.95
+ENTROPY_COEF = 0.01
+BATCH_SIZE = 128
 
 async def train_fish(websocket: WebSocket, env: MultiFishEnv):
     input_size = 3
     output_size = len(DISCRETE_ACTIONS)
     
-    model = QNet(input_size, output_size)
+    model = ActorCritic(input_size, output_size)
     optimizer = optim.Adam(model.parameters(), lr=LR)
     env.trained_policy = model
 
-    epsilon = EPSILON_START
-    total_steps = 0
-    
     for ep in range(EPISODES):
         states = env.reset()
         ep_reward_sum = 0
         
-        for step in range(100):
-            total_steps += 1
-            
-            actions = []
+        # --- Collect Trajectories ---
+        batch_states, batch_actions, batch_log_probs, batch_rewards, batch_dones = [], [], [], [], []
+        
+        for step in range(BATCH_SIZE):
             states_t = torch.tensor(states, dtype=torch.float32)
             
-            # Get actions for all fish
-            if random.random() < epsilon:
-                actions = np.random.randint(0, output_size, size=NUM_FISH).tolist()
-            else:
-                with torch.no_grad():
-                    q_values = model(states_t)
-                    actions = torch.argmax(q_values, dim=1).tolist()
+            with torch.no_grad():
+                actions_t, log_probs_t, _ = model.get_action(states_t)
+            
+            actions = actions_t.tolist()
+            log_probs = log_probs_t.tolist()
 
             next_states, rewards, done = env.step(actions)
             ep_reward_sum += np.sum(rewards)
 
-            # Batch update Q-learning
-            # We treat each fish's experience as an independent sample
-            q_preds = model(states_t).gather(1, torch.tensor(actions).unsqueeze(-1)).squeeze()
-            
-            with torch.no_grad():
-                next_states_t = torch.tensor(next_states, dtype=torch.float32)
-                q_next = model(next_states_t).max(dim=1).values
-            
-            q_targets = torch.tensor(rewards, dtype=torch.float32) + GAMMA * q_next * (1 - int(done))
+            batch_states.append(states)
+            batch_actions.append(actions)
+            batch_log_probs.append(log_probs)
+            batch_rewards.append(rewards)
+            batch_dones.append([done] * NUM_FISH)
 
-            loss = nn.functional.mse_loss(q_preds, q_targets)
+            states = next_states
+            if done:
+                states = env.reset() # Reset if an episode ends mid-batch
+        
+        # --- Compute Advantages and Returns ---
+        states_t = torch.tensor(states, dtype=torch.float32)
+        with torch.no_grad():
+            _, last_values = model(states_t)
+        
+        returns = last_values.squeeze().numpy()
+        advantages = np.zeros(NUM_FISH)
+        
+        # These need to be tensors for the update loop
+        all_advantages = torch.zeros((BATCH_SIZE, NUM_FISH), dtype=torch.float32)
+        all_returns = torch.zeros((BATCH_SIZE, NUM_FISH), dtype=torch.float32)
+
+        for t in reversed(range(BATCH_SIZE)):
+            # rewards and dones are for all fish at timestep t
+            rewards_t = np.array(batch_rewards[t])
+            dones_t = np.array(batch_dones[t])
+            
+            # GAE
+            td_error = rewards_t + GAMMA * returns * (1 - dones_t) - model(torch.tensor(batch_states[t], dtype=torch.float32))[1].detach().squeeze().numpy()
+            advantages = td_error + GAMMA * GAE_LAMBDA * advantages * (1 - dones_t)
+            returns = rewards_t + GAMMA * returns * (1 - dones_t)
+            
+            all_advantages[t] = torch.tensor(advantages, dtype=torch.float32)
+            all_returns[t] = torch.tensor(returns, dtype=torch.float32)
+
+        # Flatten batches for update
+        b_states = torch.tensor(np.array(batch_states), dtype=torch.float32).view(-1, input_size)
+        b_actions = torch.tensor(np.array(batch_actions), dtype=torch.int64).view(-1)
+        b_log_probs = torch.tensor(np.array(batch_log_probs), dtype=torch.float32).view(-1)
+        b_advantages = all_advantages.view(-1)
+        b_returns = all_returns.view(-1)
+
+        # --- Update Policy ---
+        for _ in range(UPDATE_EPOCHS):
+            _, log_probs, entropy = model.get_action(b_states, b_actions)
+            values = model(b_states)[1].squeeze()
+
+            ratio = torch.exp(log_probs - b_log_probs)
+            
+            surr1 = ratio * b_advantages
+            surr2 = torch.clamp(ratio, 1 - CLIP_EPSILON, 1 + CLIP_EPSILON) * b_advantages
+            policy_loss = -torch.min(surr1, surr2).mean()
+            
+            value_loss = nn.functional.mse_loss(values, b_returns)
+            
+            loss = policy_loss + 0.5 * value_loss - ENTROPY_COEF * entropy.mean()
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            if total_steps % 5 == 0:
-                await websocket.send_json({
-                    "type": "train_step", "state": env.get_state_for_viz(), "episode": ep
-                })
-            
-            states = next_states
-            if done:
-                break
-        
-        epsilon = EPSILON_END + (EPSILON_START - EPSILON_END) * np.exp(-1. * ep / EPSILON_DECAY)
+        if (ep + 1) % 5 == 0:
+            await websocket.send_json({
+                "type": "train_step", "state": env.get_state_for_viz(), "episode": ep
+            })
         
         if (ep + 1) % 10 == 0:
             await websocket.send_json({
-                "type": "progress", "episode": ep + 1, "reward": float(ep_reward_sum), "loss": loss.item()
+                "type": "progress", "episode": ep + 1, "reward": float(ep_reward_sum / BATCH_SIZE), "loss": loss.item()
             })
 
     await websocket.send_json({"type": "trained", "model_info": {"episodes": EPISODES, "loss": loss.item()}})
+
 
 # --- Inference / Run Loop ---
 async def run_fish(websocket: WebSocket, env: MultiFishEnv):
@@ -231,13 +289,10 @@ async def run_fish(websocket: WebSocket, env: MultiFishEnv):
         for step in range(500):
             states_t = torch.tensor(states, dtype=torch.float32)
             
-            # --- FIX: Add epsilon-greedy exploration to break deterministic loops ---
-            if random.random() < 0.1: # 10% chance of random action
-                actions = np.random.randint(0, len(DISCRETE_ACTIONS), size=NUM_FISH).tolist()
-            else:
-                with torch.no_grad():
-                    q_values = env.trained_policy(states_t)
-                    actions = torch.argmax(q_values, dim=1).tolist()
+            with torch.no_grad():
+                # During inference, we take the most likely action (no sampling)
+                probs, _ = env.trained_policy(states_t)
+                actions = torch.argmax(probs, dim=1).tolist()
             
             # We ignore the 'done' flag during inference to let the simulation run continuously.
             next_states, _, done = env.step(actions)
