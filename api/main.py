@@ -19,7 +19,7 @@ from examples.food_collector import train_food_collector, run_food_collector, Fo
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
 from examples.minefarm import run_minefarm, train_minefarm, MineFarmEnv
-from examples.fish import run_fish, train_fish, FishEnv
+from examples.fish import run_fish, train_fish, MultiFishEnv as FishEnv
 
 app = FastAPI(title="ML-Agents API")
 

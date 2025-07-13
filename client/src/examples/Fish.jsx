@@ -94,6 +94,7 @@ const Scenery = ({ grid, resourceTypes, gridSize }) => {
                         <meshPhongMaterial 
                             color={new THREE.Color(...resource.color)} 
                             emissive={isFood ? new THREE.Color(...resource.color) : new THREE.Color(0,0,0)}
+                            emissiveIntensity={1.5}
                         />
                     </mesh>
                  );
@@ -107,6 +108,46 @@ const Scenery = ({ grid, resourceTypes, gridSize }) => {
 
   return <group>{sceneryMeshes}</group>;
 };
+
+const StaticScenery = ({ gridSize }) => {
+    const staticMeshes = useMemo(() => {
+        if (!gridSize) return null;
+
+        const meshes = [];
+        const count = 32; // Add number of scenery objects
+        const offsetX = gridSize[0] / 2;
+        const offsetZ = gridSize[2] / 2;
+
+        for (let i = 0; i < count; i++) {
+            const x = Math.random() * gridSize[0];
+            const z = Math.random() * gridSize[2];
+            const isRock = Math.random() > 0.5;
+
+            if (isRock) {
+                const height = Math.random() * 4 + 1;
+                meshes.push(
+                    <mesh key={`rock-${i}`} position={[x - offsetX, height / 2, z - offsetZ]}>
+                        <boxGeometry args={[1, height, 1]} />
+                        <meshPhongMaterial color="#8800ff" emissive="#440088" emissiveIntensity={0.5} wireframe={true} />
+                    </mesh>
+                );
+            } else {
+                const height = Math.random() * 4 + 1;
+                const coralColor = Math.random() > 0.5 ? "#ff33cc" : "#33ccff";
+                meshes.push(
+                    <mesh key={`coral-${i}`} position={[x - offsetX, height / 2, z - offsetZ]}>
+                        <boxGeometry args={[0.5, height, 0.5]} />
+                        <meshPhongMaterial color={coralColor} emissive={coralColor} emissiveIntensity={2} wireframe={true} />
+                    </mesh>
+                );
+            }
+        }
+        return meshes;
+    }, [JSON.stringify(gridSize)]);
+
+    return <group>{staticMeshes}</group>;
+};
+
 
 const EnergyPanel = ({ agents }) => {
     if (!agents) return null;
@@ -240,6 +281,7 @@ export default function FishExample() {
         {state && state.agents && state.agents.map(agent => <Fish key={agent.id} agent={agent} gridSize={gridSize} />)}
         {state && state.shark && <Shark agent={state.shark} gridSize={gridSize} />}
         {state && <Scenery grid={state.grid} resourceTypes={state.resource_types} gridSize={gridSize} />}
+        {gridSize && <StaticScenery gridSize={gridSize} />}
         
         <EffectComposer>
           <Bloom intensity={0.9} luminanceThreshold={0.2} luminanceSmoothing={0.8} />
@@ -261,7 +303,7 @@ export default function FishExample() {
         </div>
       </div>
       
-      <div style={{
+      {/* <div style={{
         position: 'absolute',
         top: '10px',
         right: '10px',
@@ -273,7 +315,7 @@ export default function FishExample() {
         height: 'calc(100vh - 20px)',
       }}>
         {state && state.agents && <EnergyPanel agents={state.agents} />}
-      </div>
+      </div> */}
       
       <InfoPanel logs={logs} chartState={chartState} />
       <ModelInfoPanel modelInfo={modelInfo} />
