@@ -196,6 +196,7 @@ def get_fish_state_vector(fish: Fish, grid: np.ndarray, food_tree: cKDTree) -> n
 
 # PPO Hyperparameters & Training Loop
 BATCH_SIZE, MINI_BATCH, EPOCHS, GAMMA, GAE_LAMBDA, CLIP_EPS, ENT_COEF, LR = 1024, 128, 4, 0.99, 0.95, 0.2, 0.05, 3e-4
+EPISODES = 1000
 
 async def train_fish(websocket: WebSocket, env: FishEnv):
     obs = env.reset()
@@ -203,10 +204,10 @@ async def train_fish(websocket: WebSocket, env: FishEnv):
     optimizer = optim.Adam(model.parameters(), lr=LR)
     env.trained_policy = model
 
-    step_buffer, ep_counter, total_steps = [], 0, 0
+    step_buffer, ep_counter, total_steps, batch_counter = [], 0, 0, 0
     obs_t = torch.tensor(obs, dtype=torch.float32)
 
-    while ep_counter < 75000:
+    while ep_counter < EPISODES:
         with torch.no_grad():
             dist, value = model(obs_t)
             actions_t = dist.sample()
@@ -237,6 +238,7 @@ async def train_fish(websocket: WebSocket, env: FishEnv):
             b_adv = (advantages.flatten() - advantages.flatten().mean()) / (advantages.flatten().std() + 1e-8)
             b_returns = (advantages + values).flatten()
 
+            batch_counter += 1
             for _ in range(EPOCHS):
                 idxs = torch.randperm(b_obs.shape[0])
                 for start in range(0, b_obs.shape[0], MINI_BATCH):
@@ -249,7 +251,7 @@ async def train_fish(websocket: WebSocket, env: FishEnv):
                     loss.backward()
                     optimizer.step()
             
-            await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": torch.stack([b["reward"].mean() for b in step_buffer]).mean().item(), "loss": loss.item()})
+            await websocket.send_json({"type": "progress", "episode": batch_counter, "reward": torch.stack([b["reward"].mean() for b in step_buffer]).mean().item(), "loss": loss.item()})
             step_buffer, total_steps = [], 0
             
             # Reset environment after each training batch to start fresh

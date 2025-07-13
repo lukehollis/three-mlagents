@@ -28,7 +28,7 @@ function ChartPanel({ labels, rewards, losses, style = {} }) {
           responsive: true,
           maintainAspectRatio: false,
           scales: {
-            x: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' }, title: { display: true, text: 'Episode', color: '#aaa' } },
+            x: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' }, title: { display: true, text: 'Training Batch', color: '#aaa' } },
             y: { ticks: { color: '#aaa' }, grid: { color: 'rgba(255,255,255,0.1)' }, title: { display: true, text: 'Reward', color: '#aaa' } },
             y1: { position: 'right', ticks: { color: 'orange' }, grid: { drawOnChartArea: false }, title: { display: true, text: 'Loss', color: 'orange' } },
           },
