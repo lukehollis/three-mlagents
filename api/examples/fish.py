@@ -16,7 +16,7 @@ NUM_FOOD = 32
 REWARD_FOOD = 100.0
 REWARD_STEP = -0.1
 REWARD_SHARK_EAT = -40.0
-FOOD_PROXIMITY_REWARD_SCALE = 1
+FOOD_PROXIMITY_REWARD_SCALE = 100
 SHARK_SPEED = 0.8 # Slower than fish
 
 # For frontend compatibility, we define ENTITY_TYPES but only use food and water
@@ -228,7 +228,7 @@ class MultiFishEnv:
         }
 
 # --- PPO Training Loop ---
-EPISODES = 4000
+EPISODES = 1000
 GAMMA = 0.99
 LR = 3e-4
 CLIP_EPSILON = 0.2
@@ -351,9 +351,10 @@ async def run_fish(websocket: WebSocket, env: MultiFishEnv):
             states_t = torch.tensor(states, dtype=torch.float32)
             
             with torch.no_grad():
-                # During inference, we take the most likely action (no sampling)
-                probs, _ = env.trained_policy(states_t)
-                actions = torch.argmax(probs, dim=1).tolist()
+                # During inference, we sample from the policy's distribution
+                # to avoid getting stuck in oscillations.
+                actions_t, _, _ = env.trained_policy.get_action(states_t)
+                actions = actions_t.tolist()
             
             # We ignore the 'done' flag during inference to let the simulation run continuously.
             next_states, _, done = env.step(actions)
