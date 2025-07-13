@@ -13,12 +13,17 @@ from torch.distributions import Categorical
 GRID_SIZE = 64
 NUM_FISH = 32
 NUM_FOOD = 32
-REWARD_FOOD = 20.0
+REWARD_FOOD = 100.0
 REWARD_STEP = -0.1
+REWARD_SHARK_EAT = -40.0
+FOOD_PROXIMITY_REWARD_SCALE = 1
+SHARK_SPEED = 0.8 # Slower than fish
+
 # For frontend compatibility, we define ENTITY_TYPES but only use food and water
 ENTITY_TYPES = {
     "water": {"value": 0, "color": [0.1, 0.3, 0.8]},
     "food": {"value": 1, "color": [0.8, 0.8, 0.2]},
+    "shark": {"value": 2, "color": [1, 1, 1]},
 }
 
 # --- Action Definitions ---
@@ -69,7 +74,9 @@ class MultiFishEnv:
     def __init__(self):
         self.fish_pos = np.zeros((NUM_FISH, 3), dtype=np.int32)
         self.food_pos = np.zeros((NUM_FOOD, 3), dtype=np.int32)
+        self.shark_pos = np.zeros(3, dtype=np.float32)
         self.food_tree = None
+        self.fish_tree = None
         self.step_count = 0
         self.trained_policy: ActorCritic = None
         self.reset()
@@ -78,7 +85,9 @@ class MultiFishEnv:
         self.step_count = 0
         self.fish_pos = np.random.randint(0, GRID_SIZE, size=(NUM_FISH, 3))
         self.food_pos = np.random.randint(0, GRID_SIZE, size=(NUM_FOOD, 3))
+        self.shark_pos = np.random.randint(0, GRID_SIZE, size=3).astype(np.float32)
         self._update_food_tree()
+        self._update_fish_tree()
         return self._get_states()
 
     def _update_food_tree(self):
@@ -87,56 +96,106 @@ class MultiFishEnv:
         else:
             self.food_tree = None
 
+    def _update_fish_tree(self):
+        if self.fish_pos.shape[0] > 0:
+            self.fish_tree = cKDTree(self.fish_pos)
+        else:
+            self.fish_tree = None
+
     def _get_states(self):
-        states = np.zeros((NUM_FISH, 3), dtype=np.float32)
-        if self.food_tree is None:
-            return states
+        states = np.zeros((NUM_FISH, 6), dtype=np.float32)
         
-        # Find the closest food for all fish at once
-        dist, idx = self.food_tree.query(self.fish_pos)
+        # Vector to closest food
+        if self.food_tree:
+            dist, idx = self.food_tree.query(self.fish_pos)
+            for i in range(NUM_FISH):
+                if np.isfinite(dist[i]):
+                    closest_food_pos = self.food_tree.data[idx[i]]
+                    states[i, :3] = (closest_food_pos - self.fish_pos[i]).astype(np.float32)
         
+        # Vector from shark
         for i in range(NUM_FISH):
-            if np.isfinite(dist[i]):
-                closest_food_pos = self.food_tree.data[idx[i]]
-                state_vec = (closest_food_pos - self.fish_pos[i]).astype(np.float32)
-                # No normalization for PPO, to provide distance information
-                states[i] = state_vec
+            states[i, 3:] = (self.fish_pos[i] - self.shark_pos).astype(np.float32)
+
         return states
 
     def step(self, actions):
         rewards = np.full(NUM_FISH, REWARD_STEP)
+
+        # Get distance to food before moving
+        old_dist_to_food = np.full(NUM_FISH, np.inf, dtype=np.float32)
+        if self.food_tree:
+            dist, _ = self.food_tree.query(self.fish_pos)
+            if dist is not None:
+                old_dist_to_food = dist
         
+        # 1. Move fish
         for i in range(NUM_FISH):
             action = DISCRETE_ACTIONS[actions[i]]
             delta = ACTION_MAP[action]
             self.fish_pos[i] += delta
-        
         self.fish_pos = np.clip(self.fish_pos, 0, GRID_SIZE - 1)
-        self.step_count += 1
+        self._update_fish_tree()
 
+        # Add reward for moving closer to food
+        if self.food_tree:
+            new_dist, _ = self.food_tree.query(self.fish_pos)
+            if new_dist is not None:
+                dist_diff = old_dist_to_food - new_dist
+                proximity_reward = np.maximum(0, dist_diff) * FOOD_PROXIMITY_REWARD_SCALE
+                rewards[np.isfinite(proximity_reward)] += proximity_reward[np.isfinite(proximity_reward)]
+
+        # 2. Move shark towards nearest fish
+        if self.fish_tree:
+            dist, idx = self.fish_tree.query(self.shark_pos)
+            if np.isfinite(dist):
+                closest_fish_pos = self.fish_tree.data[idx]
+                move_dir = closest_fish_pos - self.shark_pos
+                norm = np.linalg.norm(move_dir)
+                if norm > 0:
+                    move_dir /= norm
+                self.shark_pos += move_dir * SHARK_SPEED
+                self.shark_pos = np.clip(self.shark_pos, 0, GRID_SIZE - 1)
+
+        self.step_count += 1
         done = False
         
-        # Check for food eaten
+        # 3. Check for shark collisions
+        eaten_fish_indices = set()
+        if self.fish_tree:
+            # Shark has a larger radius
+            shark_collisions = self.fish_tree.query_ball_point(self.shark_pos, r=2.0)
+            for fish_idx in shark_collisions:
+                rewards[fish_idx] += REWARD_SHARK_EAT
+                eaten_fish_indices.add(fish_idx)
+        
+        # Respawn eaten fish
+        if eaten_fish_indices:
+            for i in eaten_fish_indices:
+                self.fish_pos[i] = np.random.randint(0, GRID_SIZE, size=3)
+            self._update_fish_tree()
+
+        # 4. Check for food eaten by surviving fish
         eaten_food_indices = set()
         if self.food_tree:
-            # Find fish that are very close to any food
             collisions = self.food_tree.query_ball_point(self.fish_pos, r=0.5, p=2)
             for fish_idx, food_indices in enumerate(collisions):
-                if food_indices: # This fish is near at least one food
-                    rewards[fish_idx] = REWARD_FOOD
-                    done = True # End episode if any fish eats
+                # A fish that was just eaten cannot eat food in the same step
+                if fish_idx in eaten_fish_indices:
+                    continue
+                if food_indices:
+                    rewards[fish_idx] += REWARD_FOOD
+                    done = True 
                     for food_idx in food_indices:
                         eaten_food_indices.add(food_idx)
 
         if eaten_food_indices:
-            # Remove eaten food and respawn
             self.food_pos = np.delete(self.food_pos, list(eaten_food_indices), axis=0)
             new_food = np.random.randint(0, GRID_SIZE, size=(len(eaten_food_indices), 3))
             self.food_pos = np.vstack([self.food_pos, new_food])
             self._update_food_tree()
 
-        # Episode also ends if it takes too long
-        if self.step_count >= 200: # Increased step count for PPO
+        if self.step_count >= 200:
             done = True
         
         return self._get_states(), rewards, done
@@ -160,6 +219,10 @@ class MultiFishEnv:
         return {
             "grid": grid.tolist(),
             "agents": agents,
+            "shark": {
+                "pos": self.shark_pos.astype(int).tolist(),
+                "color": ENTITY_TYPES["shark"]["color"],
+            },
             "grid_size": [GRID_SIZE, GRID_SIZE, GRID_SIZE],
             "resource_types": ENTITY_TYPES,
         }
@@ -175,7 +238,7 @@ ENTROPY_COEF = 0.01
 BATCH_SIZE = 128
 
 async def train_fish(websocket: WebSocket, env: MultiFishEnv):
-    input_size = 3
+    input_size = 6 # food_vec (3) + shark_vec (3)
     output_size = len(DISCRETE_ACTIONS)
     
     model = ActorCritic(input_size, output_size)
@@ -262,15 +325,13 @@ async def train_fish(websocket: WebSocket, env: MultiFishEnv):
             loss.backward()
             optimizer.step()
 
-        if (ep + 1) % 5 == 0:
-            await websocket.send_json({
-                "type": "train_step", "state": env.get_state_for_viz(), "episode": ep
-            })
+        await websocket.send_json({
+            "type": "train_step", "state": env.get_state_for_viz(), "episode": ep
+        })
         
-        if (ep + 1) % 10 == 0:
-            await websocket.send_json({
-                "type": "progress", "episode": ep + 1, "reward": float(ep_reward_sum / BATCH_SIZE), "loss": loss.item()
-            })
+        await websocket.send_json({
+            "type": "progress", "episode": ep + 1, "reward": float(ep_reward_sum / BATCH_SIZE), "loss": loss.item()
+        })
 
     await websocket.send_json({"type": "trained", "model_info": {"episodes": EPISODES, "loss": loss.item()}})
 

@@ -59,11 +59,11 @@ const Shark = ({ agent, gridSize }) => {
         <group ref={groupRef} position={[pos[0] - offsetX, pos[1], pos[2] - offsetZ]}>
             <mesh>
                 <boxGeometry args={[4, 1.5, 2]} />
-                <meshPhongMaterial color={new THREE.Color(...color)} emissive={new THREE.Color(...color).multiplyScalar(0.2)} />
+                <meshPhongMaterial color={"white"} emissive={"white"} wireframe={true} emissiveIntensity={0.2} />
             </mesh>
             <mesh position={[2, 0.5, 0]}>
                 <boxGeometry args={[0.5, 0.5, 2.5]} />
-                <meshPhongMaterial color={new THREE.Color(...color)} />
+                <meshPhongMaterial color={"white"} emissive={"white"} wireframe={true} emissiveIntensity={0.2} />
             </mesh>
         </group>
     )
