@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Grid, Text as DreiText } from '@react-three/drei';
+import { OrbitControls, Grid, Text as DreiText, Plane, Line } from '@react-three/drei';
 import { Button, Text, Card, Code } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
@@ -12,18 +12,15 @@ import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/intersection`;
 
-const Vehicle = ({ agent, gridSize }) => {
+const Vehicle = ({ agent }) => {
   const { pos, id, energy, velocity } = agent;
   const groupRef = useRef();
 
-  const offsetX = gridSize ? gridSize[0] / 2 : 0;
-  const offsetZ = gridSize ? gridSize[2] / 2 : 0;
-
   const energyColor = useMemo(() => {
-    const green = new THREE.Color("#00ff88");
+    const blue = new THREE.Color("#00ffff");    
     const white = new THREE.Color("#ffffff");
     const alpha = Math.max(0, Math.min(1, energy / 100));
-    return green.clone().lerp(white, alpha);
+    return white.clone().lerp(blue, alpha);
   }, [energy]);
 
   useFrame(() => {
@@ -37,13 +34,85 @@ const Vehicle = ({ agent, gridSize }) => {
   });
 
   return (
-    <group ref={groupRef} position={[pos[0] - offsetX, pos[1], pos[2] - offsetZ]}>
+    <group ref={groupRef} position={pos}>
       <mesh>
         <boxGeometry args={[1.5, 0.8, 0.8]} />
         <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} wireframe={true} />
       </mesh>
     </group>
   );
+};
+
+const Road = ({ points, width = 3 }) => {
+    const roadColor = '#1c1c1c'; // Dark asphalt
+    const roadY = 0.01;
+
+    const curve = useMemo(() => new THREE.CatmullRomCurve3(
+        points.map(p => new THREE.Vector3(p[0], roadY, p[2]))
+    ), [points]);
+
+    const segments = points.length > 2 ? 64 : 1;
+    const curvePoints = curve.getPoints(segments);
+
+    return (
+        <group>
+            {curvePoints.slice(0, -1).map((p1, i) => {
+                const p2 = curvePoints[i + 1];
+                const length = p1.distanceTo(p2);
+                const center = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+                const angle = Math.atan2(p2.x - p1.x, p2.z - p1.z);
+
+                return (
+                    <Plane
+                        key={i}
+                        args={[width, length]}
+                        position={center}
+                        rotation={new THREE.Euler( -Math.PI / 2, angle, 0, 'YXZ' )}
+                    >
+                        <meshStandardMaterial color={roadColor} side={THREE.DoubleSide} />
+                    </Plane>
+                );
+            })}
+        </group>
+    );
+};
+
+
+const Intersection = () => {
+    const roadColor = '#282828';
+    const roadY = 0.05;
+    const roadMarkingColor = '#ffffff';
+
+    const paths = useMemo(() => [
+        { points: [[40, 0, 0], [-40, 0, 0]], width: 3 },
+        { points: [[20, 0, 20], [20, 0, 0]], width: 3 },
+        { points: [[-5, 0, 20], [-5, 0, 0]], width: 3 },
+        { points: [[30, 0, -20], [15, 0, -10], [5, 0, 0]], width: 3 },
+        { points: [[-25, 0, -20], [-25, 0, 0]], width: 3 },
+    ], []);
+
+    const curves = useMemo(() => paths.map(path => 
+        new THREE.CatmullRomCurve3(path.points.map(p => new THREE.Vector3(p[0], roadY, p[2])))
+    ), [paths]);
+
+    return (
+        <group>
+            {paths.map((path, i) => (
+                <Road key={i} points={path.points} width={path.width} />
+            ))}
+            {curves.map((curve, i) => (
+                <Line
+                    key={i}
+                    points={curve.getPoints(100)}
+                    color={roadMarkingColor}
+                    lineWidth={2}
+                    dashed
+                    dashSize={1}
+                    gapSize={1}
+                />
+            ))}
+        </group>
+    );
 };
 
 export default function IntersectionExample() {
@@ -134,7 +203,7 @@ export default function IntersectionExample() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
-      <Canvas camera={{ position: [-50, 50, 50], fov: 60 }}>
+      <Canvas camera={{ position: [0, 80, 20], fov: 60 }}>
         <fog attach="fog" args={['#000011', 50, 250]} />
         <ambientLight intensity={0.4} />
         <directionalLight 
@@ -146,12 +215,13 @@ export default function IntersectionExample() {
 
         <Grid infiniteGrid cellSize={1} sectionSize={10} sectionColor={"#0044cc"} fadeDistance={250} fadeStrength={1.5} />
         
-        {state && state.agents && state.agents.map(agent => <Vehicle key={agent.id} agent={agent} gridSize={gridSize} />)}
+        <Intersection />
+        {state && state.agents && state.agents.map(agent => <Vehicle key={agent.id} agent={agent} />)}
         
         <EffectComposer>
           <Bloom intensity={0.9} luminanceThreshold={0.2} luminanceSmoothing={0.8} />
         </EffectComposer>
-        <OrbitControls maxDistance={100} minDistance={10} target={[0, 32, 0]} />
+        <OrbitControls maxDistance={150} minDistance={20} target={[0, 0, 0]} />
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
