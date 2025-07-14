@@ -14,6 +14,7 @@ import BicycleExample from './examples/Bicycle.jsx';
 import GliderExample from './examples/Glider.jsx';
 import MineFarmExample from './examples/MineFarm.jsx';
 import FishExample from './examples/Fish.jsx';
+import IntersectionExample from './examples/Intersection.jsx';
 
 export default function App() {
   return (
@@ -38,6 +39,7 @@ export default function App() {
         <Route path="/glider" element={<GliderExample />} />
         <Route path="/minefarm" element={<MineFarmExample />} />
         <Route path="/fish" element={<FishExample />} />
+        <Route path="/intersection" element={<IntersectionExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

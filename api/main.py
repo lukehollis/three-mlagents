@@ -20,6 +20,7 @@ from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
 from examples.minefarm import run_minefarm, train_minefarm, MineFarmEnv
 from examples.fish import run_fish, train_fish, MultiFishEnv as FishEnv
+from examples.intersection import run_intersection, train_intersection, MultiVehicleEnv as IntersectionEnv
 
 app = FastAPI(title="ML-Agents API")
 
@@ -314,4 +315,26 @@ async def websocket_fish(websocket: WebSocket):
                 
     except Exception as e:
         print(f"Fish websocket disconnected: {e}")
+
+
+# WebSocket endpoint for Intersection
+@app.websocket("/ws/intersection")
+async def websocket_intersection(websocket: WebSocket):
+    await websocket.accept()
+    env = IntersectionEnv()
+    initial_state = env.get_state_for_viz()
+    await websocket.send_json({"type": "init", "state": initial_state})
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            cmd = data.get("cmd")
+
+            if cmd == 'train':
+                await train_intersection(websocket, env)
+            elif cmd == 'run':
+                await run_intersection(websocket, env)
+                
+    except Exception as e:
+        print(f"Intersection websocket disconnected: {e}")
 
