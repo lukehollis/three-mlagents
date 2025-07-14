@@ -36,8 +36,26 @@ const Vehicle = ({ agent }) => {
   return (
     <group ref={groupRef} position={pos}>
       <mesh>
-        <boxGeometry args={[1.5, 0.8, 0.8]} />
+        <boxGeometry args={[0.8, 0.8, 1.5]} />
         <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} wireframe={true} />
+      </mesh>
+      {/* Front lights */}
+      <mesh position={[0.3, 0, 0.75]}>
+        <sphereGeometry args={[0.1, 8, 8]} />
+        <meshStandardMaterial color={"white"} emissive={"white"} emissiveIntensity={5} />
+      </mesh>
+      <mesh position={[-0.3, 0, 0.75]}>
+        <sphereGeometry args={[0.1, 8, 8]} />
+        <meshStandardMaterial color={"white"} emissive={"white"} emissiveIntensity={5} />
+      </mesh>
+      {/* Back lights */}
+      <mesh position={[0.3, 0, -0.75]}>
+        <sphereGeometry args={[0.1, 8, 8]} />
+        <meshStandardMaterial color={"red"} emissive={"red"} emissiveIntensity={5} />
+      </mesh>
+      <mesh position={[-0.3, 0, -0.75]}>
+        <sphereGeometry args={[0.1, 8, 8]} />
+        <meshStandardMaterial color={"red"} emissive={"red"} emissiveIntensity={5} />
       </mesh>
     </group>
   );
@@ -69,7 +87,7 @@ const Road = ({ points, width = 3 }) => {
                         position={center}
                         rotation={new THREE.Euler( -Math.PI / 2, angle, 0, 'YXZ' )}
                     >
-                        <meshStandardMaterial color={roadColor} side={THREE.DoubleSide} />
+                        <meshStandardMaterial color={roadColor} side={THREE.DoubleSide} transparent opacity={0.5} />
                     </Plane>
                 );
             })}
@@ -78,39 +96,105 @@ const Road = ({ points, width = 3 }) => {
 };
 
 
+const TrafficLight = ({ position, state }) => {
+  const red = "#ff0000";
+  const green = "#00ff00";
+
+  // state 0: NS Green, EW Red
+  // state 1: NS Red, EW Green
+  const nsColor = state === 0 ? green : red;
+  const ewColor = state === 1 ? green : red;
+
+  return (
+    <group position={position}>
+        {/* Pole */}
+        <mesh position={[0, 2, 0]}>
+            <cylinderGeometry args={[0.1, 0.1, 4, 8]} />
+            <meshStandardMaterial color="#333" />
+        </mesh>
+        {/* NS Light */}
+        <mesh position={[0, 4.25, 0.25]}>
+            <sphereGeometry args={[0.25, 16, 16]} />
+            <meshStandardMaterial color={nsColor} emissive={nsColor} emissiveIntensity={2} />
+        </mesh>
+        {/* EW Light */}
+        <mesh position={[0.25, 4.25, 0]}>
+            <sphereGeometry args={[0.25, 16, 16]} />
+            <meshStandardMaterial color={ewColor} emissive={ewColor} emissiveIntensity={2} />
+        </mesh>
+    </group>
+  );
+};
+
 const Intersection = () => {
     const roadColor = '#282828';
     const roadY = 0.05;
     const roadMarkingColor = '#ffffff';
 
     const paths = useMemo(() => [
-        { points: [[40, 0, 0], [-40, 0, 0]], width: 3 },
+        // Main Roads
+        { points: [[-40, 0, 0], [40, 0, 0]], width: 3 }, // E-W
+        { points: [[0, 0, 0], [0, 0, 20]], width: 3 }, // N-S
+        
+        // Feeder roads
         { points: [[20, 0, 20], [20, 0, 0]], width: 3 },
-        { points: [[-5, 0, 20], [-5, 0, 0]], width: 3 },
-        { points: [[30, 0, -20], [15, 0, -10], [5, 0, 0]], width: 3 },
         { points: [[-25, 0, -20], [-25, 0, 0]], width: 3 },
-    ], []);
 
-    const curves = useMemo(() => paths.map(path => 
-        new THREE.CatmullRomCurve3(path.points.map(p => new THREE.Vector3(p[0], roadY, p[2])))
-    ), [paths]);
+        // Curved road
+        { points: [[25, 0, -20], [10, 0, -10], [0, 0, 0]], width: 3 },
+
+        // Connectors to main roads
+        { points: [[20, 0, 0], [5, 0, 0]], width: 3 },
+        { points: [[-25, 0, 0], [-5, 0, 0]], width: 3 },
+    ], []);
 
     return (
         <group>
-            {paths.map((path, i) => (
-                <Road key={i} points={path.points} width={path.width} />
-            ))}
-            {curves.map((curve, i) => (
-                <Line
-                    key={i}
-                    points={curve.getPoints(100)}
-                    color={roadMarkingColor}
-                    lineWidth={2}
-                    dashed
-                    dashSize={1}
-                    gapSize={1}
-                />
-            ))}
+            {paths.map((path, i) => {
+                const curve = new THREE.CatmullRomCurve3(path.points.map(p => new THREE.Vector3(p[0], roadY, p[2])));
+                const curvePoints = curve.getPoints(100);
+                const tangents = curvePoints.map((_, i, arr) => curve.getTangent(i / (arr.length - 1)));
+                const halfWidth = path.width / 2;
+                const up = new THREE.Vector3(0, 1, 0);
+                const leftEdgePoints = [];
+                const rightEdgePoints = [];
+
+                for (let j = 0; j < curvePoints.length; j++) {
+                    const point = curvePoints[j];
+                    const tangent = tangents[j];
+                    const normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
+                    leftEdgePoints.push(new THREE.Vector3().addVectors(point, normal.clone().multiplyScalar(halfWidth)));
+                    rightEdgePoints.push(new THREE.Vector3().addVectors(point, normal.clone().multiplyScalar(-halfWidth)));
+                }
+
+                return (
+                    <React.Fragment key={i}>
+                        <Road points={path.points} width={path.width} />
+                        <Line
+                            points={curvePoints}
+                            color={roadMarkingColor}
+                            lineWidth={2}
+                            dashed
+                            dashSize={1}
+                            gapSize={1}
+                        />
+                        <Line
+                            points={leftEdgePoints}
+                            color={roadMarkingColor}
+                            lineWidth={1}
+                            transparent
+                            opacity={0.1}
+                        />
+                        <Line
+                            points={rightEdgePoints}
+                            color={roadMarkingColor}
+                            lineWidth={1}
+                            transparent
+                            opacity={0.1}
+                        />
+                    </React.Fragment>
+                );
+            })}
         </group>
     );
 };
@@ -123,6 +207,7 @@ export default function IntersectionExample() {
   const [modelInfo, setModelInfo] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
+  const [lightState, setLightState] = useState(0);
   const wsRef = useRef(null);
   const { isMobile } = useResponsive();
   
@@ -145,6 +230,9 @@ export default function IntersectionExample() {
       
       if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
         setState(parsed.state);
+        if (parsed.state && parsed.state.lights !== undefined) {
+          setLightState(parsed.state.lights);
+        }
       }
       if (parsed.type === 'progress') {
         setChartState((prev) => ({
@@ -218,6 +306,10 @@ export default function IntersectionExample() {
         <Intersection />
         {state && state.agents && state.agents.map(agent => <Vehicle key={agent.id} agent={agent} />)}
         
+        <TrafficLight position={[0, 0, 0]} state={lightState} />
+        <TrafficLight position={[-25, 0, 0]} state={lightState} />
+        <TrafficLight position={[20, 0, 0]} state={lightState} />
+
         <EffectComposer>
           <Bloom intensity={0.9} luminanceThreshold={0.2} luminanceSmoothing={0.8} />
         </EffectComposer>

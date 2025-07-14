@@ -18,28 +18,67 @@ REWARD_STEP = -0.1
 VEHICLE_MIN_SPEED = 0.5
 VEHICLE_MAX_SPEED = 2.0
 ACCELERATION = 0.2
+REWARD_RED_LIGHT = -25.0
 
-# --- Waypoint and Path Definitions based on the new visual layout ---
-WAYPOINTS = {
-    # Path 1: Main horizontal road (E -> W)
-    'H_E': np.array([40.0, 0.0, 0.0]), 'H_W': np.array([-40.0, 0.0, 0.0]),
-    # Path 2: Top-right T-junction (N -> S)
-    'TR_N': np.array([20.0, 0.0, 20.0]), 'TR_S': np.array([20.0, 0.0, 0.0]),
-    # Path 3: Top-middle T-junction (N -> S)
-    'TM_N': np.array([-5.0, 0.0, 20.0]), 'TM_S': np.array([-5.0, 0.0, 0.0]),
-    # Path 4: Bottom-right curved road
-    'CR_S': np.array([30.0, 0.0, -20.0]), 'CR_M': np.array([15.0, 0.0, -10.0]), 'CR_E': np.array([5.0, 0.0, 0.0]),
-    # Path 5: Bottom-left T-junction (S -> N)
-    'BL_S': np.array([-25.0, 0.0, -20.0]), 'BL_N': np.array([-25.0, 0.0, 0.0]),
+# --- Traffic Light Definitions ---
+class TrafficLightController:
+    def __init__(self, cycle_time=200):
+        # 0: NS Green, EW Red | 1: NS Red, EW Green
+        self.state = 0
+        self.cycle_time = cycle_time
+        self.timer = 0
+
+    def update(self):
+        self.timer += 1
+        if self.timer >= self.cycle_time:
+            self.state = 1 - self.state
+            self.timer = 0
+
+INTERSECTIONS = {
+    'main': {'pos': np.array([0, 0, 0]), 'radius': 10.0, 'controlled_by': 'NS'},
+    'secondary': {'pos': np.array([-25, 0, 0]), 'radius': 8.0, 'controlled_by': 'EW'},
+    'third': {'pos': np.array([20, 0, 0]), 'radius': 8.0, 'controlled_by': 'EW'}
 }
+
+# --- Waypoint and Path Definitions ---
+WAYPOINTS = {
+    # Primary Roads
+    'H_E': np.array([40.0, 0.0, 0.0]), 'H_W': np.array([-40.0, 0.0, 0.0]),
+    'V_N': np.array([0.0, 0.0, 20.0]),
+    'I_CENTER': np.array([0.0, 0.0, 0.0]),
+
+    # Feeder roads
+    'TR_N': np.array([20.0, 0.0, 20.0]), 'TR_I': np.array([20.0, 0.0, 0.0]),
+    'BL_S': np.array([-25.0, 0.0, -20.0]), 'BL_I': np.array([-25.0, 0.0, 0.0]),
+
+    # Curved road from South-East
+    'CR_S': np.array([25.0, 0.0, -20.0]),
+    'CR_M': np.array([10.0, 0.0, -10.0]),
+}
+
 
 PATHS = {
-    'horizontal': ['H_E', 'H_W'],
-    'top_right_T': ['TR_N', 'TR_S'],
-    'top_mid_T': ['TM_N', 'TM_S'],
-    'bottom_right_curve': ['CR_S', 'CR_M', 'CR_E'],
-    'bottom_left_T': ['BL_S', 'BL_N'],
+    # E-W Traffic
+    'E_to_W': (['H_E', 'TR_I', 'I_CENTER', 'BL_I', 'H_W'], 'EW'),
+    'W_to_E': (['H_W', 'BL_I', 'I_CENTER', 'TR_I', 'H_E'], 'EW'),
+
+    # From South (Curve)
+    'S_Curve_to_N': (['CR_S', 'CR_M', 'I_CENTER', 'V_N'], 'NS'),
+    'S_Curve_to_W': (['CR_S', 'CR_M', 'I_CENTER', 'BL_I', 'H_W'], 'NS'),
+    'S_Curve_to_E': (['CR_S', 'CR_M', 'I_CENTER', 'TR_I', 'H_E'], 'NS'),
+
+    # From North
+    'N_to_S_Curve': (['V_N', 'I_CENTER', 'CR_M', 'CR_S'], 'NS'),
+    'N_to_W': (['V_N', 'I_CENTER', 'BL_I', 'H_W'], 'NS'),
+    'N_to_E': (['V_N', 'I_CENTER', 'TR_I', 'H_E'], 'NS'),
+
+    # From feeder roads
+    'TR_N_to_W': (['TR_N', 'TR_I', 'I_CENTER', 'BL_I', 'H_W'], 'EW'),
+    'TR_N_to_S': (['TR_N', 'TR_I', 'I_CENTER', 'CR_M', 'CR_S'], 'EW'),
+    'BL_S_to_E': (['BL_S', 'BL_I', 'I_CENTER', 'TR_I', 'H_E'], 'EW'),
+    'BL_S_to_N': (['BL_S', 'BL_I', 'I_CENTER', 'V_N'], 'EW'),
 }
+
 
 # --- Action Definitions ---
 # 0: decelerate, 1: maintain speed, 2: accelerate
@@ -78,6 +117,7 @@ class MultiVehicleEnv:
         self.vehicles = []
         self.step_count = 0
         self.trained_policy: ActorCritic = None
+        self.light_controller = TrafficLightController()
         self.reset()
 
     def reset(self):
@@ -89,7 +129,7 @@ class MultiVehicleEnv:
 
     def spawn_vehicle(self, vehicle_id):
         path_name = random.choice(list(PATHS.keys()))
-        path_wps = PATHS[path_name]
+        path_wps, path_group = PATHS[path_name]
         
         # Remove existing vehicle with same ID
         self.vehicles = [v for v in self.vehicles if v['id'] != vehicle_id]
@@ -101,14 +141,15 @@ class MultiVehicleEnv:
             'speed': VEHICLE_MIN_SPEED,
             'path_name': path_name,
             'path_wps': path_wps,
+            'path_group': path_group,
             'wp_idx': 1
         })
 
     def _get_states(self):
         if not self.vehicles:
-            return np.zeros((0, 5)) # Return empty if no vehicles
+            return np.zeros((0, 7)) # Return empty if no vehicles
             
-        states = np.zeros((len(self.vehicles), 5), dtype=np.float32)
+        states = np.zeros((len(self.vehicles), 7), dtype=np.float32)
         vehicle_positions = np.array([v['pos'] for v in self.vehicles])
         vehicle_tree = cKDTree(vehicle_positions)
 
@@ -121,18 +162,52 @@ class MultiVehicleEnv:
             dist, _ = vehicle_tree.query(v['pos'], k=2) # k=2 to get nearest other
             nearest_dist = dist[1] if len(dist) > 1 and np.isfinite(dist[1]) else 30.0
 
+            # Find next intersection and light state
+            dist_to_light = 100.0
+            light_state = 0.0 # 0: no light, 1: green, -1: red
+            for name, intersection in INTERSECTIONS.items():
+                dist_to_isect = np.linalg.norm(v['pos'] - intersection['pos'])
+                if dist_to_isect < 40.0: # Only consider nearby lights
+                    if dist_to_isect < dist_to_light:
+                        dist_to_light = dist_to_isect
+                        # Is our path group allowed to go?
+                        # state 0 = NS green, state 1 = EW green
+                        is_ns_path = v['path_group'] == 'NS'
+                        is_ns_green = self.light_controller.state == 0
+                        
+                        if (is_ns_path and is_ns_green) or (not is_ns_path and not is_ns_green):
+                            light_state = 1.0 # Green
+                        else:
+                            light_state = -1.0 # Red
+
+
             states[i, 0] = v['speed']
             states[i, 1:4] = vec_to_wp / np.linalg.norm(vec_to_wp) if np.linalg.norm(vec_to_wp) > 0 else vec_to_wp
             states[i, 4] = nearest_dist
+            states[i, 5] = light_state
+            states[i, 6] = dist_to_light / 40.0 # Normalized
         
         return states
 
     def step(self, actions):
         rewards = np.full(len(self.vehicles), REWARD_STEP)
+        self.light_controller.update()
         
         vehicle_positions_before = np.array([v['pos'] for v in self.vehicles])
 
         for i, v in enumerate(self.vehicles):
+            # Check for red light violation
+            for name, intersection in INTERSECTIONS.items():
+                dist_to_isect = np.linalg.norm(v['pos'] - intersection['pos'])
+                if dist_to_isect < intersection['radius']:
+                    is_ns_path = v['path_group'] == 'NS'
+                    is_ew_path = v['path_group'] == 'EW'
+                    is_ns_green = self.light_controller.state == 0
+                    is_ew_green = self.light_controller.state == 1
+
+                    if (is_ns_path and not is_ns_green) or (is_ew_path and not is_ew_green):
+                        rewards[i] += REWARD_RED_LIGHT
+
             # 1. Update speed based on action
             action = actions[i]
             if action == 0: # decelerate
@@ -190,7 +265,7 @@ class MultiVehicleEnv:
                 "velocity": [float(v['velocity'][0]), float(v['velocity'][1]), float(v['velocity'][2])]
             })
 
-        return {"agents": agents}
+        return {"agents": agents, "lights": self.light_controller.state}
 
 # --- PPO Training Loop ---
 EPISODES = 1000
@@ -203,7 +278,7 @@ ENTROPY_COEF = 0.01
 BATCH_SIZE = 256 # Num steps to collect before update
 
 async def train_intersection(websocket: WebSocket, env: MultiVehicleEnv):
-    input_size = 5  # speed, vec_to_wp (3), nearest_dist
+    input_size = 7  # speed, vec_to_wp (3), nearest_dist, light_state, dist_to_light
     output_size = len(DISCRETE_ACTIONS)
     
     model = ActorCritic(input_size, output_size)
