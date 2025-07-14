@@ -697,7 +697,7 @@ export default function ExamplesIndex() {
                   </Text>
                 </Link>
                 <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Simulate traffic at an intersection with RL in retro sci-fi style.
+                  Simulate traffic at an intersection with traffic lights.
                 </Text>
                 <Link to="/intersection" style={{ textDecoration: 'none' }}>
                   <Button 
