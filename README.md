@@ -4,7 +4,7 @@
 
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples.
 
-![threejs_ml_agents_examples](https://github.com/user-attachments/assets/ab15555e-3f72-4992-ad82-edfe5fcd06df)
+![glider_example](https://github.com/user-attachments/assets/1c82281a-6982-4d05-95e4-816e6b8f61b4)
 
 
 The goal of this repository is to make the ideas from Unity ML-Agents easily approachable from the browser (React + Three.js) and from lightweight Python back-ends (FastAPI) to be used for future study.
@@ -100,21 +100,32 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 
 [Live demo](https://lukehollis.github.io/three-mlagents/glider)
 
+
 ### 11. MineFarm
 
 ![minefarm_example](https://github.com/user-attachments/assets/1338e926-8c8d-412e-bc2c-0627e47df165)
 
 
-
 [Live demo](https://lukehollis.github.io/three-mlagents/minefarm)
+
 
 ### 12. Fish
 
 ![fish_example](https://github.com/user-attachments/assets/df5e947f-cbe1-401a-a491-180159515acc)
 
 
-
 [Live demo](https://lukehollis.github.io/three-mlagents/fish)
+
+
+### 13. Intersection
+
+![intersection_example](https://github.com/user-attachments/assets/0f9c6b90-2a62-466c-af83-0f695e231671)
+
+
+[Live demo](https://lukehollis.github.io/three-mlagents/intersection)
+
+
+
 
 ## Project layout
 
