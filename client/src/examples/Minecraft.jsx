@@ -173,6 +173,7 @@ const TradePanel = ({ offers }) => {
 
 const MessagePanel = ({ messages }) => {
     if (!messages) return null;
+    const codeStyle = { color: '#f81ce5', fontFamily: 'monospace' };
     return (
         <Card style={{
             position: 'absolute', bottom: '10px', left: '10px', width: '450px',
@@ -182,15 +183,15 @@ const MessagePanel = ({ messages }) => {
             {messages.slice().reverse().map((msg, i) => {
                 let content;
                 if (msg.recipient_id !== null && msg.recipient_id !== undefined) {
-                    content = <Text p style={{ margin: 0 }}><Code>[DM to {msg.recipient_id}]</Code> {msg.message}</Text>;
+                    content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[DM to {msg.recipient_id}]</span> {msg.message}</Text>;
                 } else {
-                    content = <Text p style={{ margin: 0 }}><Code>[Broadcast]</Code> {msg.message}</Text>;
+                    content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[Broadcast]</span> {msg.message}</Text>;
                 }
                 
                 return (
                     <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
                         <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                            <Code>[Step {msg.step}] Agent {msg.sender_id}</Code>
+                            <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
                         </Text>
                         {content}
                     </div>

@@ -204,7 +204,7 @@ Consider talking if: you just found something valuable, you need help finding re
             response = await asyncio.wait_for(
                 get_json(
                     prompt=prompt,
-                    model="gemma2:latest",
+                    model="gemma3n:latest",
                     response_schema=action_schema,
                     schema_name="agent_action_decision_3d",
                     should_use_ollama=True
