@@ -34,18 +34,45 @@ export default function DebugConsole({ logs }) {
         // directly, otherwise we try to parse if it looks like JSON.
         let obj = ln;
         if (typeof ln === 'string') {
-          const trimmed = ln.trim();
-          if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-              (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-            obj = JSON.parse(trimmed);
+          let trimmed = ln.trim();
+          
+          // Handle "Received data: {...}..." format
+          if (trimmed.startsWith('Received data: ')) {
+            const jsonStart = trimmed.indexOf('{');
+            if (jsonStart !== -1) {
+              // Extract JSON part, remove trailing "..."
+              let jsonPart = trimmed.substring(jsonStart);
+              if (jsonPart.endsWith('...')) {
+                jsonPart = jsonPart.slice(0, -3);
+              }
+              try {
+                obj = JSON.parse(jsonPart);
+              } catch (e) {
+                // If parsing fails, keep original string
+                obj = ln;
+              }
+            }
+          } else if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+                     (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+              obj = JSON.parse(trimmed);
+            } catch (e) {
+              obj = ln;
+            }
           }
         }
 
-        const formatted = typeof obj === 'object' && obj !== null && !Array.isArray(obj)
-          ? Object.entries(obj)
-              .map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
-              .join(', ')
-          : (typeof obj === 'string' ? obj : JSON.stringify(obj));
+        // Special formatting for logs with "message" key: [type]: message
+        let formatted;
+        if (typeof obj === 'object' && obj !== null && !Array.isArray(obj) && obj.message) {
+          formatted = `[${obj.type || 'log'}]: ${obj.message}`;
+        } else if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+          formatted = Object.entries(obj)
+            .map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`)
+            .join(', ');
+        } else {
+          formatted = typeof obj === 'string' ? obj : JSON.stringify(obj);
+        }
 
         return <div key={i}>{formatted}</div>;
       })}

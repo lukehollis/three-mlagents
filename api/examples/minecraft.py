@@ -6,21 +6,7 @@ import numpy as np
 from fastapi import WebSocket
 import logging
 
-# A global websocket reference for the logger
-# This is a simplified approach for this specific example.
-_websocket_for_logger: WebSocket = None
-
-def websocket_print(*args, **kwargs):
-    """A wrapper for print that also sends the message over a websocket if available."""
-    # Standard print to console
-    print(*args, **kwargs)
-    
-    # Send to websocket if it's set
-    if _websocket_for_logger:
-        message = " ".join(map(str, args))
-        # Use create_task to send without blocking the main loop
-        asyncio.create_task(_websocket_for_logger.send_json({"type": "log", "message": message}))
-
+from services.llm import get_json, get_embedding
 
 logger = logging.getLogger(__name__)
 import torch
@@ -28,11 +14,25 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.categorical import Categorical
 
+# Global websocket reference for logging to frontend
+_current_websocket = None
+
+def log_to_frontend(message: str):
+    """Send log message to frontend InfoPanel if websocket is available"""
+    if _current_websocket:
+        # Get the current event loop and create a task
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.create_task(_current_websocket.send_json({
+                "type": "debug", 
+                "message": message
+            }))
+
 # --- Constants ---
 GRID_SIZE_X = 64
 GRID_SIZE_Y = 16
 GRID_SIZE_Z = 64
-NUM_AGENTS = 20
+NUM_AGENTS = 8
 RESOURCE_TYPES = {
     "grass": {"value": 0, "color": [0.2, 0.6, 0.2]},
     "dirt": {"value": 0, "color": [0.6, 0.4, 0.2]},
@@ -148,7 +148,7 @@ class Agent:
         self.color = [random.random() * 0.8, random.random() * 0.8, random.random() * 0.8]
         self.llm_intent = None # Stores the action suggested by the LLM
         self.is_thinking = False # Flag to prevent concurrent LLM calls
-        self.last_llm_step = random.randint(-20, 0) # Last step when LLM was called, randomized to stagger calls
+        self.last_llm_step = -10 # Last step when LLM was called (start with -10 for immediate first call)
         self.memory_vector = np.zeros(384) # all-MiniLM-L6-v2 produces embeddings of size 384
 
     def update_memory(self, text: str):
@@ -158,19 +158,19 @@ class Agent:
 
     async def decide_action_llm(self, grid: np.ndarray, agents: List['Agent'], messages: List[Dict], step_count: int, offers: List[Dict]):
         # This function runs the LLM call in the background.
-        websocket_print(f"🤖 Agent {self.id}: Starting LLM call at step {step_count}")
+        log_to_frontend(f"🤖 Agent {self.id}: Starting LLM call at step {step_count}")
         self.is_thinking = True
-        try:
-            # The existing LLM decision logic is moved here.
-            recent_messages = messages[-5:]
-            resource_map_str = ", ".join([f"{i+1}: {name}" for i, name in enumerate(RESOURCE_TYPES.keys())])
-            
-            x_start, x_end = max(0, self.pos[0]-2), min(GRID_SIZE_X, self.pos[0]+3)
-            y_start, y_end = max(0, self.pos[1]-2), min(GRID_SIZE_Y, self.pos[1]+3)
-            z_start, z_end = max(0, self.pos[2]-2), min(GRID_SIZE_Z, self.pos[2]+3)
-            view = grid[x_start:x_end, y_start:y_end, z_start:z_end].tolist()
 
-            prompt = f"""You are a mining agent in a 3D grid world. Your ID is {self.id}.
+        # The existing LLM decision logic is moved here.
+        recent_messages = messages[-5:]
+        resource_map_str = ", ".join([f"{i+1}: {name}" for i, name in enumerate(RESOURCE_TYPES.keys())])
+        
+        x_start, x_end = max(0, self.pos[0]-2), min(GRID_SIZE_X, self.pos[0]+3)
+        y_start, y_end = max(0, self.pos[1]-2), min(GRID_SIZE_Y, self.pos[1]+3)
+        z_start, z_end = max(0, self.pos[2]-2), min(GRID_SIZE_Z, self.pos[2]+3)
+        view = grid[x_start:x_end, y_start:y_end, z_start:z_end].tolist()
+
+        prompt = f"""You are a mining agent in a 3D grid world. Your ID is {self.id}.
 Your current position is [x, y, z]: {self.pos.tolist()}. Y is the vertical axis.
 Your inventory is {self.inventory}.
 Your current goal is to collect '{self.goal if self.goal else "anything"}'.
@@ -202,67 +202,56 @@ If you need resources for crafting, check for trade offers or create your own. I
 Consider talking if: you just found something valuable, you need help finding resources, you want to make a trade, you want to share your location, or you want to coordinate with other agents.
 """
 
-            action_schema = {
-                "type": "object",
-                "properties": {
-                    "action": {"type": "string", "enum": ["move", "mine", "talk", "craft", "offer", "accept_offer", "wait"]},
-                    "data": {"oneOf": [
-                        {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
-                        {"type": "string"},
-                        {"type": "object"}, 
-                    ]}
-                },
-                "required": ["action", "data"]
-            }
-            
-            response = await asyncio.wait_for(
-                get_json(
-                    prompt=prompt,
-                    model="gemma3n:latest",
-                    response_schema=action_schema,
-                    schema_name="agent_action_decision_3d",
-                    should_use_ollama=True
-                ),
-                timeout=10.0 # Increased timeout as it's non-blocking now
-            )
-            
-            # Instead of returning, store the result as the agent's intent
-            self.llm_intent = (response.get("action", "wait"), response.get("data"))
-            websocket_print(f"🧠 Agent {self.id}: LLM response received - action: {response.get('action')}, data: {response.get('data')}")
-            websocket_print(f"💭 Agent {self.id}: Intent set to: {self.llm_intent}")
-            websocket_print(f"Agent {self.id} LLM set intent: {self.llm_intent}")
-            
-            log_entry = {"agent_id": self.id, "step": step_count, "prompt": prompt, "response": response}
-            # This log will be collected by the environment later
-            return log_entry
-
-        except asyncio.TimeoutError:
-            websocket_print(f"⏰ Agent {self.id}: LLM call TIMED OUT")
-            log_entry = {"agent_id": self.id, "step": step_count, "prompt": "LLM Timeout", "error": "Timeout"}
-            self.llm_intent = ("wait", None) # On timeout, just wait
-            return log_entry
-        except Exception as e:
-            websocket_print(f"💥 Agent {self.id}: LLM call ERROR: {e}")
-            log_entry = {"agent_id": self.id, "step": step_count, "prompt": "LLM Error", "error": str(e)}
-            self.llm_intent = ("wait", None) # On error, just wait
-            return log_entry
-        finally:
-            websocket_print(f"✅ Agent {self.id}: LLM call finished, is_thinking = False")
-            self.is_thinking = False
+        action_schema = {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["move", "mine", "talk", "craft", "offer", "accept_offer", "wait"]},
+                "data": {"oneOf": [
+                    {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
+                    {"type": "string"},
+                    {"type": "object"}, 
+                ]}
+            },
+            "required": ["action", "data"]
+        }
+        
+        response = await asyncio.wait_for(
+            get_json(
+                prompt=prompt,
+                model="gemma3n:latest",
+                response_schema=action_schema,
+                schema_name="agent_action_decision_3d",
+                should_use_ollama=True
+            ),
+            timeout=5.0 # Reduced timeout to prevent hanging
+        )
+        
+        # Instead of returning, store the result as the agent's intent
+        self.llm_intent = (response.get("action", "wait"), response.get("data"))
+        log_to_frontend(f"🧠 Agent {self.id}: LLM response received - action: {response.get('action')}, data: {response.get('data')}")
+        log_to_frontend(f"💭 Agent {self.id}: Intent set to: {self.llm_intent}")
+        log_to_frontend(f"Agent {self.id} LLM set intent: {self.llm_intent}")
+        
+        log_entry = {"agent_id": self.id, "step": step_count, "prompt": prompt, "response": response}
+        # This log will be collected by the environment later
+        
+        log_to_frontend(f"✅ Agent {self.id}: LLM call finished, is_thinking = False")
+        self.is_thinking = False
+        return log_entry
 
     def get_fast_action(self, trained_policy: "ActorCritic", grid: np.ndarray) -> Tuple[str, Any]:
-        websocket_print(f"🎯 Agent {self.id}: get_fast_action called, llm_intent = {self.llm_intent}")
+        log_to_frontend(f"🎯 Agent {self.id}: get_fast_action called, llm_intent = {self.llm_intent}")
         
         # --- LLM Intent Check First (for communication) ---
         # Always prioritize LLM intent for talk actions, even with trained policy
         if self.llm_intent:
             action, data = self.llm_intent
-            websocket_print(f"💬 Agent {self.id}: Using LLM intent: {action}, {data}")
-            websocket_print(f"Agent {self.id} using LLM intent: {action}, {data}")
+            log_to_frontend(f"💬 Agent {self.id}: Using LLM intent: {action}, {data}")
+            log_to_frontend(f"Agent {self.id} using LLM intent: {action}, {data}")
             # If it's a communication action, always use LLM
             if action in ["talk", "craft", "offer", "accept_offer"]:
                 self.llm_intent = None  # Consume the intent
-                websocket_print(f"🗣️ Agent {self.id}: Returning LLM communication action: {action}")
+                log_to_frontend(f"🗣️ Agent {self.id}: Returning LLM communication action: {action}")
                 return (action, data)
             # For move actions, validate and use if reasonable
             elif action == "move" and data:
@@ -282,23 +271,23 @@ Consider talking if: you just found something valuable, you need help finding re
                    grid[mine_pos_int[0], mine_pos_int[1], mine_pos_int[2]] != 0:
                     return (action, mine_pos_int)
                 else:
-                    websocket_print(f"🤫 Agent {self.id}: LLM chose to mine invalid block at {mine_pos_int}, waiting instead.")
+                    log_to_frontend(f"🤫 Agent {self.id}: LLM chose to mine invalid block at {mine_pos_int}, waiting instead.")
                     return ("wait", None) # Override with wait
 
         # --- Policy Decision (for basic movement/mining) ---
         # Use the trained actor-critic policy for basic actions if available
         if trained_policy:
-            websocket_print(f"🧮 Agent {self.id}: Using trained policy")
+            log_to_frontend(f"🧮 Agent {self.id}: Using trained policy")
             state_vector = get_agent_state_vector(self, grid)
             action_index, _, _ = trained_policy.get_action(state_vector) 
             action_name = DISCRETE_ACTIONS[action_index]
-            websocket_print(f"🎲 Agent {self.id}: Policy chose action: {action_name}")
+            log_to_frontend(f"🎲 Agent {self.id}: Policy chose action: {action_name}")
 
             if action_name in ACTION_MAP_MOVE:
-                websocket_print(f"🚶 Agent {self.id}: Policy move action")
+                log_to_frontend(f"🚶 Agent {self.id}: Policy move action")
                 return ("move", self.pos + ACTION_MAP_MOVE[action_name])
             elif action_name in ACTION_MAP_MINE:
-                websocket_print(f"⛏️ Agent {self.id}: Policy mine action")
+                log_to_frontend(f"⛏️ Agent {self.id}: Policy mine action")
                 mine_pos = self.pos + ACTION_MAP_MINE[action_name]
                 mine_pos_int = [int(p) for p in mine_pos]
                 # Action Masking: Check if the target is valid before returning the action
@@ -310,19 +299,19 @@ Consider talking if: you just found something valuable, you need help finding re
                 else:
                     # If the action is invalid, the agent waits instead.
                     # This implicitly punishes the policy for choosing bad actions.
-                    websocket_print(f"🤫 Agent {self.id}: Policy chose to mine invalid block at {mine_pos_int}, waiting instead.")
+                    log_to_frontend(f"🤫 Agent {self.id}: Policy chose to mine invalid block at {mine_pos_int}, waiting instead.")
                     return ("wait", None)
             elif action_name == "talk":
                 # NEVER use basic messages - talk actions should ONLY come from LLM
                 # If policy wants to talk but no LLM intent, just wait instead
-                websocket_print(f"🤫 Agent {self.id}: Policy wanted to talk but no LLM intent - waiting instead")
+                log_to_frontend(f"🤫 Agent {self.id}: Policy wanted to talk but no LLM intent - waiting instead")
                 return ("wait", None)
             else: # wait
-                websocket_print(f"⏸️ Agent {self.id}: Policy wait action")
+                log_to_frontend(f"⏸️ Agent {self.id}: Policy wait action")
                 return ("wait", None)
         
         # --- Default behavior: random walk ---
-        websocket_print(f"🎲 Agent {self.id}: No policy, using random walk")
+        log_to_frontend(f"🎲 Agent {self.id}: No policy, using random walk")
         move = random.choice(list(ACTION_MAP_MOVE.values()))
         next_pos = self.pos + np.array(move)
         return ("move", next_pos)
@@ -598,7 +587,7 @@ class MineCraftEnv:
                         res_name = list(RESOURCE_TYPES.keys())[int(res_idx) - 1]
                         agent.inventory[res_name] += 1
                         self.grid[res_pos[0], res_pos[1], res_pos[2]] = 0 # Resource depleted
-                        websocket_print(f"⛏️ Agent {agent.id} mined {res_name} at {res_pos}")  # Debug logging
+                        log_to_frontend(f"⛏️ Agent {agent.id} mined {res_name} at {res_pos}")  # Debug logging
                         # Assign a new goal instead of setting to None
                         valuable_resources = ["iron", "gold", "diamond", "crystal"]
                         craftable_items = list(CRAFTING_RECIPES.keys())
@@ -609,9 +598,9 @@ class MineCraftEnv:
                         # Apply gravity in case the agent mined the block they were standing on
                         self._apply_gravity(agent)
                     else:
-                        websocket_print(f"❌ Agent {agent.id} tried to mine empty space at {res_pos}")  # Debug logging
+                        log_to_frontend(f"❌ Agent {agent.id} tried to mine empty space at {res_pos}")  # Debug logging
                 else:
-                    websocket_print(f"❌ Agent {agent.id} tried to mine out of bounds at {res_pos}")  # Debug logging
+                    log_to_frontend(f"❌ Agent {agent.id} tried to mine out of bounds at {res_pos}")  # Debug logging
             elif action == "talk" and data is not None:
                 message_data = {
                     "sender_id": agent.id,
@@ -700,20 +689,27 @@ class MineCraftEnv:
 
         # --- LLM Thinking (Asynchronous) ---
         llm_tasks = []
+        # Limit concurrent LLM calls to prevent overload - only allow 5 agents to think at once
+        max_concurrent_llm = 5
+        current_thinking_count = sum(1 for agent in self.agents if agent.is_thinking)
+        
         for agent in self.agents:
-            # Allow LLM calls every 2 steps per agent for maximum communication
-            # Agents should be constantly thinking and talking via LLM
+            if current_thinking_count >= max_concurrent_llm:
+                break
+                
+            # Reduce LLM call frequency - every 5 steps instead of 2
             steps_since_last_llm = self.step_count - agent.last_llm_step
-            websocket_print(f"🔍 Agent {agent.id}: is_thinking={agent.is_thinking}, steps_since_llm={steps_since_last_llm}")
-            if not agent.is_thinking and steps_since_last_llm >= 2:
-                websocket_print(f"🚀 Creating LLM task for Agent {agent.id}")
+            if not agent.is_thinking and steps_since_last_llm >= 5:
+                log_to_frontend(f"🚀 Creating LLM task for Agent {agent.id}")
                 agent.last_llm_step = self.step_count
                 task = asyncio.create_task(
                     agent.decide_action_llm(self.grid, self.agents, self.messages, self.step_count, self.trade_offers)
                 )
                 llm_tasks.append(task)
+                current_thinking_count += 1
         
-        websocket_print(f"📋 Step {self.step_count}: Created {len(llm_tasks)} LLM tasks")
+        if len(llm_tasks) > 0:
+            log_to_frontend(f"📋 Step {self.step_count}: Created {len(llm_tasks)} LLM tasks")
 
         # --- Fast Action Execution (Synchronous) ---
         agent_actions = []
@@ -722,28 +718,24 @@ class MineCraftEnv:
 
         # Collect logs from completed LLM tasks without blocking
         if llm_tasks:
-            websocket_print(f"⏳ Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
-            if self.step_count % 10 == 0:  # Only log every 10 steps to reduce spam
-                websocket_print(f"Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
+            log_to_frontend(f"⏳ Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             
-            done, pending = await asyncio.wait(llm_tasks, timeout=12.0) # Allow more time for LLM calls to complete
+            done, pending = await asyncio.wait(llm_tasks, timeout=1.0) # Reduced timeout to prevent blocking
             
-            websocket_print(f"✅ Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
-            if self.step_count % 10 == 0:
-                websocket_print(f"Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
+            log_to_frontend(f"✅ Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
             
             for task in done:
                 log_entry = task.result()
                 if log_entry:
-                    websocket_print(f"📝 Collected log entry from Agent {log_entry.get('agent_id')}")
+                    log_to_frontend(f"📝 Collected log entry from Agent {log_entry.get('agent_id')}")
                     self.llm_logs.append(log_entry)
                     if len(self.llm_logs) > MAX_LLM_LOGS:
                         self.llm_logs = self.llm_logs[-MAX_LLM_LOGS:]
-                    websocket_print(f"Agent {log_entry.get('agent_id')} LLM call completed")
+                    log_to_frontend(f"Agent {log_entry.get('agent_id')} LLM call completed")
             
             # Cancel pending tasks to avoid accumulation
             for task in pending:
-                websocket_print(f"❌ Cancelling pending LLM task")
+                log_to_frontend(f"❌ Cancelling pending LLM task")
                 task.cancel()
         
         self._execute_actions(agent_actions)
@@ -864,8 +856,9 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
     """
     Train the MineCraft agents using Proximal Policy Optimization (PPO).
     """
-    global _websocket_for_logger
-    _websocket_for_logger = websocket
+    global _current_websocket
+    _current_websocket = websocket
+    
     try:
         await websocket.send_json({"type": "debug", "message": "Entered train_minecraft()"})
         # env = MineCraftEnv() # DO NOT CREATE A NEW ENV
@@ -1067,44 +1060,40 @@ async def run_minecraft(websocket: WebSocket, env: MineCraftEnv):
     Runs the MineCraft simulation loop.
     Assumes the environment is already created and the initial state has been sent.
     """
-    global _websocket_for_logger
-    _websocket_for_logger = websocket
+    global _current_websocket
+    _current_websocket = websocket
+    
     running = True
 
     async def receive_commands():
         nonlocal running
-        try:
-            # After 'run' is received, we only need to listen for 'stop'.
-            while running:
-                data = await websocket.receive_json()
-                if data.get("cmd") == "stop":
-                    running = False
-                    break
-        except Exception:
-            running = False
+
+        # After 'run' is received, we only need to listen for 'stop'.
+        while running:
+            data = await websocket.receive_json()
+            if data.get("cmd") == "stop":
+                running = False
+                break
             
     cmd_task = asyncio.create_task(receive_commands())
 
     while running:
         await env.step()
         state = env.get_state_for_viz()
-        try:
-            await websocket.send_json({"type": "run_step", "state": state})
 
-            # Send progress update for chart
-            reward = env._calculate_reward()
-            progress_update = {
-                "type": "progress",
-                "episode": env.step_count,
-                "reward": reward,
-                "loss": None # Placeholder for loss
-            }
-            await websocket.send_json(progress_update)
+        await websocket.send_json({"type": "run_step", "state": state})
 
-            await asyncio.sleep(0.5) # Simulation speed
-        except Exception:
-            running = False
-            break # Exit while loop
+        # Send progress update for chart
+        reward = env._calculate_reward()
+        progress_update = {
+            "type": "progress",
+            "episode": env.step_count,
+            "reward": reward,
+            "loss": None # Placeholder for loss
+        }
+        await websocket.send_json(progress_update)
+
+        await asyncio.sleep(0.5) # Simulation speed
 
     if not cmd_task.done():
         cmd_task.cancel() 
