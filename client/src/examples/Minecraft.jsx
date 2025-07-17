@@ -70,6 +70,25 @@ const Resources = ({ grid, resourceTypes, gridSize }) => {
 const ScorePanel = ({ agents }) => {
     const { isMobile } = useResponsive();
     if (!agents) return null;
+
+    // Color mapping for different resource types
+    const resourceColors = {
+        gold: '#FFD700',
+        diamond: '#00BFFF', 
+        wood: '#8B4513',
+        stone: '#708090',
+        iron: '#C0C0C0',
+        coal: '#36454F',
+        food: '#32CD32',
+        water: '#1E90FF',
+        default: '#FFFFFF'
+    };
+
+    const getResourceColor = (resourceName) => {
+        const lower = resourceName.toLowerCase();
+        return resourceColors[lower] || resourceColors.default;
+    };
+
     return (
         <div style={{
             /* position: 'absolute', 
@@ -88,11 +107,36 @@ const ScorePanel = ({ agents }) => {
 
             <div style={{padding: '4px 8px'}}>
               {agents.map(agent => (
-                  <div key={agent.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
-                      <Text span>Agent {agent.id}:</Text>
-                      <Text span>
-                          {Object.entries(agent.inventory).map(([res, val]) => `${res.charAt(0).toUpperCase()}: ${val}`).join(', ')}
-                      </Text>
+                  <div key={agent.id} style={{ marginBottom: '8px', fontSize: '11px' }}>
+                      <Text span style={{ fontWeight: 'bold', color: '#FFD700' }}>Agent {agent.id}:</Text>
+                      <div style={{ 
+                          display: 'flex', 
+                          flexWrap: 'wrap', 
+                          gap: '4px', 
+                          marginTop: '2px',
+                          paddingLeft: '8px' 
+                      }}>
+                          {Object.entries(agent.inventory).map(([res, val]) => (
+                              <div key={res} style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  background: 'rgba(255,255,255,0.1)',
+                                  borderRadius: '4px',
+                                  padding: '2px 6px',
+                                  fontSize: '10px',
+                                  border: `1px solid ${getResourceColor(res)}`,
+                              }}>
+                                  <span style={{ 
+                                      color: getResourceColor(res), 
+                                      fontWeight: 'bold',
+                                      marginRight: '3px' 
+                                  }}>
+                                      {res.charAt(0).toUpperCase() + res.slice(1)}:
+                                  </span>
+                                  <span style={{ color: '#fff' }}>{val}</span>
+                              </div>
+                          ))}
+                      </div>
                   </div>
               ))}
             </div>
