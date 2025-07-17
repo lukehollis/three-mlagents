@@ -303,7 +303,7 @@ export default function FishExample() {
         </div>
       </div>
       
-      {/* <div style={{
+      <div style={{
         position: 'absolute',
         top: '10px',
         right: '10px',
@@ -315,7 +315,7 @@ export default function FishExample() {
         height: 'calc(100vh - 20px)',
       }}>
         {state && state.agents && <EnergyPanel agents={state.agents} />}
-      </div> */}
+      </div>
       
       <InfoPanel logs={logs} chartState={chartState} />
       <ModelInfoPanel modelInfo={modelInfo} />
