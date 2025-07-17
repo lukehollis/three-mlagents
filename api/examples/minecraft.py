@@ -158,6 +158,7 @@ class Agent:
 
     async def decide_action_llm(self, grid: np.ndarray, agents: List['Agent'], messages: List[Dict], step_count: int, offers: List[Dict]):
         # This function runs the LLM call in the background.
+        print(f"DEBUG: Agent {self.id}: Starting LLM call at step {step_count}")
         log_to_frontend(f"🤖 Agent {self.id}: Starting LLM call at step {step_count}")
         self.is_thinking = True
 
@@ -215,6 +216,8 @@ Consider talking if: you just found something valuable, you need help finding re
             "required": ["action", "data"]
         }
         
+        print(f"DEBUG: Agent {self.id}: About to call get_json with prompt length: {len(prompt)}")
+        
         response = await asyncio.wait_for(
             get_json(
                 prompt=prompt,
@@ -226,15 +229,64 @@ Consider talking if: you just found something valuable, you need help finding re
             timeout=5.0 # Reduced timeout to prevent hanging
         )
         
+        print(f"DEBUG: Agent {self.id}: LLM response received: {response}")
+        
         # Instead of returning, store the result as the agent's intent
         self.llm_intent = (response.get("action", "wait"), response.get("data"))
+        
+        print(f"DEBUG: Agent {self.id}: Intent set to: {self.llm_intent}")
         log_to_frontend(f"🧠 Agent {self.id}: LLM response received - action: {response.get('action')}, data: {response.get('data')}")
         log_to_frontend(f"💭 Agent {self.id}: Intent set to: {self.llm_intent}")
         log_to_frontend(f"Agent {self.id} LLM set intent: {self.llm_intent}")
         
-        log_entry = {"agent_id": self.id, "step": step_count, "prompt": prompt, "response": response}
-        # This log will be collected by the environment later
+        # Generate conversational text for the MessagePanel
+        conversation_prompt = f"""You are Agent {self.id} in a mining world. Based on your current situation and recent action decision, provide a brief conversational response about what you're thinking or doing. Keep it short and natural, like you're talking to other agents.
+
+Current situation:
+- Position: {self.pos.tolist()}
+- Goal: {self.goal}
+- Inventory highlights: {[(k,v) for k,v in self.inventory.items() if v > 0][:3]}
+- Recent action decision: {response.get('action')} with data {response.get('data')}
+- Recent messages: {[msg.get('message', '') for msg in recent_messages[-2:]]}
+
+Respond as Agent {self.id} in first person, conversationally:"""
+
+        print(f"DEBUG: Agent {self.id}: About to generate conversation text")
         
+        # Generate conversational response
+        conversation_response = await asyncio.wait_for(
+            get_json(
+                prompt=conversation_prompt,
+                model="gemma3n:latest", 
+                response_schema={
+                    "type": "object",
+                    "properties": {
+                        "message": {"type": "string"}
+                    },
+                    "required": ["message"]
+                },
+                schema_name="agent_conversation",
+                should_use_ollama=True
+            ),
+            timeout=3.0
+        )
+        
+        conversation_text = conversation_response.get("message", f"Agent {self.id}: Thinking about my next move...")
+        print(f"DEBUG: Agent {self.id}: Generated conversation: {conversation_text}")
+        
+        # Send conversation text to frontend MessagePanel
+        log_to_frontend(f"💬 {conversation_text}")
+        await asyncio.sleep(0.01)  # Give time for message to send
+        
+        log_entry = {
+            "agent_id": self.id, 
+            "step": step_count, 
+            "prompt": prompt, 
+            "response": response,
+            "conversation": conversation_text
+        }
+        
+        print(f"DEBUG: Agent {self.id}: LLM call finished, is_thinking = False")
         log_to_frontend(f"✅ Agent {self.id}: LLM call finished, is_thinking = False")
         self.is_thinking = False
         return log_entry
@@ -718,23 +770,42 @@ class MineCraftEnv:
 
         # Collect logs from completed LLM tasks without blocking
         if llm_tasks:
+            print(f"DEBUG: Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             log_to_frontend(f"⏳ Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             
             done, pending = await asyncio.wait(llm_tasks, timeout=1.0) # Reduced timeout to prevent blocking
             
+            print(f"DEBUG: Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
             log_to_frontend(f"✅ Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
             
             for task in done:
                 log_entry = task.result()
+                print(f"DEBUG: LLM task result: {log_entry}")
                 if log_entry:
+                    print(f"DEBUG: Collected log entry from Agent {log_entry.get('agent_id')}")
                     log_to_frontend(f"📝 Collected log entry from Agent {log_entry.get('agent_id')}")
                     self.llm_logs.append(log_entry)
                     if len(self.llm_logs) > MAX_LLM_LOGS:
                         self.llm_logs = self.llm_logs[-MAX_LLM_LOGS:]
                     log_to_frontend(f"Agent {log_entry.get('agent_id')} LLM call completed")
+                    
+                    # Also send the conversation text to messages if it exists
+                    if log_entry.get('conversation'):
+                        print(f"DEBUG: Adding conversation to messages: {log_entry.get('conversation')}")
+                        message_data = {
+                            "sender_id": log_entry.get('agent_id'),
+                            "message": log_entry.get('conversation'),
+                            "recipient_id": None,  # Broadcast
+                            "step": self.step_count,
+                            "type": "llm_thought"
+                        }
+                        self.messages.append(message_data)
+                        if len(self.messages) > MAX_MESSAGES:
+                            self.messages = self.messages[-MAX_MESSAGES:]
             
             # Cancel pending tasks to avoid accumulation
             for task in pending:
+                print(f"DEBUG: Cancelling pending LLM task")
                 log_to_frontend(f"❌ Cancelling pending LLM task")
                 task.cancel()
         

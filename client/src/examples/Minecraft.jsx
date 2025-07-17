@@ -20,13 +20,52 @@ const Agent = ({ agent, gridSize }) => {
   const offsetX = gridSize ? gridSize[0] / 2 : 0;
   const offsetZ = gridSize ? gridSize[2] / 2 : 0;
 
+  // Create a slightly darker color for clothing/accessories
+  const baseColor = new THREE.Color(...color);
+  const bodyColor = baseColor.clone();
+  const headColor = baseColor.clone().multiplyScalar(1.1); // Slightly lighter head
+  const limbColor = baseColor.clone().multiplyScalar(0.9); // Slightly darker limbs
+
   return (
     <group ref={groupRef} position={[pos[0] - offsetX, pos[1], pos[2] - offsetZ]}>
-      <mesh >
-        <boxGeometry args={[0.8, 0.8, 0.8]} />
-        <meshPhongMaterial color={new THREE.Color(...color)} />
+      {/* Head */}
+      <mesh position={[0, 0.75, 0]}>
+        <boxGeometry args={[0.5, 0.5, 0.5]} />
+        <meshPhongMaterial color={headColor} />
       </mesh>
-      <DreiText position={[0, 0.8, 0]} fontSize={0.5} color="white" anchorX="center" anchorY="middle">
+      
+      {/* Body */}
+      <mesh position={[0, 0.1, 0]}>
+        <boxGeometry args={[0.5, 0.75, 0.25]} />
+        <meshPhongMaterial color={bodyColor} />
+      </mesh>
+      
+      {/* Left Arm */}
+      <mesh position={[-0.45, 0.2, 0]}>
+        <boxGeometry args={[0.25, 0.6, 0.25]} />
+        <meshPhongMaterial color={limbColor} />
+      </mesh>
+      
+      {/* Right Arm */}
+      <mesh position={[0.45, 0.2, 0]}>
+        <boxGeometry args={[0.25, 0.6, 0.25]} />
+        <meshPhongMaterial color={limbColor} />
+      </mesh>
+      
+      {/* Left Leg */}
+      <mesh position={[-0.15, -0.45, 0]}>
+        <boxGeometry args={[0.25, 0.6, 0.25]} />
+        <meshPhongMaterial color={limbColor} />
+      </mesh>
+      
+      {/* Right Leg */}
+      <mesh position={[0.15, -0.45, 0]}>
+        <boxGeometry args={[0.25, 0.6, 0.25]} />
+        <meshPhongMaterial color={limbColor} />
+      </mesh>
+      
+      {/* Agent ID label above head */}
+      <DreiText position={[0, 1.2, 0]} fontSize={0.3} color="white" anchorX="center" anchorY="middle">
         {id}
       </DreiText>
     </group>
