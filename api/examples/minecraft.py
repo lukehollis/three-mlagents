@@ -1,10 +1,14 @@
 import asyncio
 import random
 import json
+import os
 from typing import List, Dict, Any, Tuple
 import numpy as np
 from fastapi import WebSocket
 import logging
+
+# Set environment variable to avoid tokenizers parallelism warning
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from services.llm import get_json, get_embedding
 
@@ -226,7 +230,7 @@ Consider talking if: you just found something valuable, you need help finding re
                 schema_name="agent_action_decision_3d",
                 should_use_ollama=True
             ),
-            timeout=5.0 # Reduced timeout to prevent hanging
+            timeout=4.0 # Based on test results: complex prompts need ~1.5s, so 4s is safe
         )
         
         print(f"DEBUG: Agent {self.id}: LLM response received: {response}")
@@ -268,7 +272,7 @@ Respond as Agent {self.id} in first person, conversationally:"""
                 schema_name="agent_conversation",
                 should_use_ollama=True
             ),
-            timeout=3.0
+            timeout=3.0  # Simpler prompts typically complete in ~1.5s
         )
         
         conversation_text = conversation_response.get("message", f"Agent {self.id}: Thinking about my next move...")
@@ -741,6 +745,7 @@ class MineCraftEnv:
 
         # --- LLM Thinking (Asynchronous) ---
         llm_tasks = []
+        task_to_agent = {}  # Map tasks to their corresponding agents
         # Limit concurrent LLM calls to prevent overload - only allow 5 agents to think at once
         max_concurrent_llm = 5
         current_thinking_count = sum(1 for agent in self.agents if agent.is_thinking)
@@ -772,6 +777,7 @@ class MineCraftEnv:
                 
                 task = asyncio.create_task(safe_llm_call(agent))
                 llm_tasks.append(task)
+                task_to_agent[task] = agent  # Track which agent this task belongs to
                 current_thinking_count += 1
         
         if len(llm_tasks) > 0:
@@ -790,40 +796,58 @@ class MineCraftEnv:
             print(f"DEBUG: Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             log_to_frontend(f"⏳ Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             
-            done, pending = await asyncio.wait(llm_tasks, timeout=1.0) # Reduced timeout to prevent blocking
+            done, pending = await asyncio.wait(llm_tasks, timeout=5.0) # Reasonable timeout - calls typically complete in 1.5-2s
             
             print(f"DEBUG: Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
             log_to_frontend(f"✅ Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
             
+            # Process completed tasks
             for task in done:
-                log_entry = task.result()
-                print(f"DEBUG: LLM task result: {log_entry}")
-                if log_entry:
-                    print(f"DEBUG: Collected log entry from Agent {log_entry.get('agent_id')}")
-                    log_to_frontend(f"📝 Collected log entry from Agent {log_entry.get('agent_id')}")
-                    self.llm_logs.append(log_entry)
-                    if len(self.llm_logs) > MAX_LLM_LOGS:
-                        self.llm_logs = self.llm_logs[-MAX_LLM_LOGS:]
-                    log_to_frontend(f"Agent {log_entry.get('agent_id')} LLM call completed")
-                    
-                    # Also send the conversation text to messages if it exists
-                    if log_entry.get('conversation'):
-                        print(f"DEBUG: Adding conversation to messages: {log_entry.get('conversation')}")
-                        message_data = {
-                            "sender_id": log_entry.get('agent_id'),
-                            "message": log_entry.get('conversation'),
-                            "recipient_id": None,  # Broadcast
-                            "step": self.step_count,
-                            "type": "llm_thought"
-                        }
-                        self.messages.append(message_data)
-                        if len(self.messages) > MAX_MESSAGES:
-                            self.messages = self.messages[-MAX_MESSAGES:]
+                agent = task_to_agent.get(task)
+                try:
+                    log_entry = task.result()
+                    print(f"DEBUG: LLM task result: {log_entry}")
+                    if log_entry:
+                        print(f"DEBUG: Collected log entry from Agent {log_entry.get('agent_id')}")
+                        log_to_frontend(f"📝 Collected log entry from Agent {log_entry.get('agent_id')}")
+                        self.llm_logs.append(log_entry)
+                        if len(self.llm_logs) > MAX_LLM_LOGS:
+                            self.llm_logs = self.llm_logs[-MAX_LLM_LOGS:]
+                        log_to_frontend(f"Agent {log_entry.get('agent_id')} LLM call completed")
+                        
+                        # Also send the conversation text to messages if it exists
+                        if log_entry.get('conversation'):
+                            print(f"DEBUG: Adding conversation to messages: {log_entry.get('conversation')}")
+                            message_data = {
+                                "sender_id": log_entry.get('agent_id'),
+                                "message": log_entry.get('conversation'),
+                                "recipient_id": None,  # Broadcast
+                                "step": self.step_count,
+                                "type": "llm_thought"
+                            }
+                            self.messages.append(message_data)
+                            if len(self.messages) > MAX_MESSAGES:
+                                self.messages = self.messages[-MAX_MESSAGES:]
+                except Exception as e:
+                    # Handle failed LLM tasks
+                    if agent:
+                        print(f"DEBUG: LLM task failed for Agent {agent.id}: {e}")
+                        log_to_frontend(f"❌ LLM task failed for Agent {agent.id}: {e}")
+                        agent.is_thinking = False  # Reset the thinking flag
+                    else:
+                        print(f"DEBUG: Unknown LLM task failed: {e}")
+                        log_to_frontend(f"❌ Unknown LLM task failed: {e}")
             
-            # Cancel pending tasks to avoid accumulation
+            # Cancel pending tasks and reset their agents' is_thinking flag
             for task in pending:
-                print(f"DEBUG: Cancelling pending LLM task")
-                log_to_frontend(f"❌ Cancelling pending LLM task")
+                agent = task_to_agent.get(task)
+                if agent:
+                    print(f"DEBUG: Cancelling pending LLM task for Agent {agent.id}")
+                    log_to_frontend(f"❌ Cancelling pending LLM task for Agent {agent.id}")
+                    agent.is_thinking = False  # Reset the thinking flag
+                else:
+                    print(f"DEBUG: Cancelling unknown pending LLM task")
+                    log_to_frontend(f"❌ Cancelling unknown pending LLM task")
                 task.cancel()
         
         self._execute_actions(agent_actions)
