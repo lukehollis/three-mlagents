@@ -183,6 +183,66 @@ The contract mirrors OpenAI Gym (`position` plays the role of the observation).
 
 ---
 
+## MineCraft RL + LLM Example - Additional Setup
+
+The **MineCraft** example (#11) combines reinforcement learning with large language models (LLMs) for intelligent agent behavior. This requires additional setup beyond the basic installation.
+
+### Option 1: Local Ollama (Recommended for Development)
+
+1. **Install Ollama**: Download and install from [ollama.ai](https://ollama.ai/)
+
+2. **Pull the required model**:
+   ```bash
+   ollama pull gemma3n:latest
+   ```
+
+3. **Configure the example**: In `api/examples/minecraft.py`, set:
+   ```python
+   USE_LOCAL_OLLAMA = True
+   ```
+
+4. **Start Ollama**: Make sure Ollama is running locally (usually starts automatically)
+
+### Option 2: OpenRouter (Cloud-based)
+
+1. **Get an OpenRouter API key**: Sign up at [openrouter.ai](https://openrouter.ai/) and get your API key
+
+2. **Set environment variable**:
+   ```bash
+   export OPENROUTER_API_KEY="your_api_key_here"
+   ```
+
+3. **Configure the example**: In `api/examples/minecraft.py`, set:
+   ```python
+   USE_LOCAL_OLLAMA = False
+   ```
+
+4. **Note**: This option uses `anthropic/claude-sonnet-4` and requires credits/tokens
+
+### Additional Dependencies
+
+The MineCraft example also requires additional Python packages for embeddings and LLM functionality. Make sure these are included in your `api/requirements.txt`:
+
+```
+sentence-transformers  # for text embeddings
+openai                 # for LLM API calls (if using OpenRouter)
+```
+
+### Running the MineCraft Example
+
+1. Start the API with LLM support:
+   ```bash
+   cd api
+   pip install -r requirements.txt
+   uvicorn main:app --reload
+   ```
+
+2. Open the frontend and navigate to the MineCraft example
+
+3. The agents will use LLMs for strategic decision-making, communication, and trading while using RL for basic movement and mining actions.
+
+---
+
 ## Roadmap
 
 1. **/basic** 1-D movement – _done_

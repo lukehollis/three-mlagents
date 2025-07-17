@@ -50,6 +50,8 @@ RESOURCE_TYPES = {
 }
 MAX_MESSAGES = 20
 MAX_LLM_LOGS = 30
+LLM_CALL_FREQUENCY = 10
+USE_LOCAL_OLLAMA = False
 
 CRAFTING_RECIPES = {
     "stone_pickaxe": {"craft_time": 2, "value": 25, "recipe": {"stone": 3, "wood": 2}},
@@ -62,7 +64,7 @@ CRAFTING_RECIPES = {
 DISCRETE_ACTIONS = [
     "move_x+", "move_x-", "move_y+", "move_y-", "move_z+", "move_z-",
     "mine_self", "mine_up", "mine_down", "mine_x+", "mine_x-", "mine_z+", "mine_z-",
-    "talk", "wait"
+    "talk"
 ]
 ACTION_MAP_MOVE = {
     "move_x+": np.array([1, 0, 0]),
@@ -227,12 +229,6 @@ class Agent:
             "action": "accept_offer",
             "data": 0
         }}
-        
-        For wait action:
-        {{
-            "action": "wait",
-            "data": null
-        }}
         """
 
         system_prompt = f"""
@@ -262,14 +258,13 @@ Resource map: {resource_map_str}.
 You can see a 5x5x5 area around you. Your view:
 {json.dumps(view)}
 
-Your available actions are "move", "mine", "talk", "craft", "offer", "accept_offer", or "wait".
+Your available actions are "move", "mine", "talk", "craft", "offer", or "accept_offer".
 - move: requires integer [x, y, z] coordinates for the next step. You can only move to an adjacent square (including up/down).
 - mine: requires integer [x, y, z] coordinates of an adjacent resource to mine.
 - talk: requires an object with {{ "message": string, "recipient_id": integer (optional) }}. If no recipient, it's a broadcast.
 - craft: requires the string name of the item to craft from the recipe list.
 - offer: requires an object with {{ "item_to_give": string, "amount_to_give": int, "item_to_receive": string, "amount_to_receive": int }}.
 - accept_offer: requires the integer `offer_id` of the offer to accept.
-- wait: does nothing.
 
 Based on your state, what is your next action? 
 
@@ -289,7 +284,7 @@ Pick ONE action and respond in the exact JSON format shown above.
         action_schema = {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["move", "mine", "talk", "craft", "offer", "accept_offer", "wait"]},
+                "action": {"type": "string", "enum": ["move", "mine", "talk", "craft", "offer", "accept_offer"]},
                 "data": {"oneOf": [
                     {"type": "array", "items": {"type": "integer"}, "minItems": 3, "maxItems": 3},
                     {"type": "string"},
@@ -301,22 +296,36 @@ Pick ONE action and respond in the exact JSON format shown above.
         
         print(f"DEBUG: Agent {self.id}: About to call get_json with prompt length: {len(prompt)}")
         
-        response = await asyncio.wait_for(
-            get_json(
-                system_prompt=system_prompt,
-                prompt=prompt,
-                model="gemma3n:latest",
-                response_schema=action_schema,
-                schema_name="agent_action_decision_3d",
-                should_use_ollama=True
-            ),
-            timeout=4.0 # Based on test results: complex prompts need ~1.5s, so 4s is safe
-        )
+        if USE_LOCAL_OLLAMA:
+            response = await asyncio.wait_for(
+                get_json(
+                    system_prompt=system_prompt,
+                    prompt=prompt,
+                    model="gemma3n:latest",
+                    response_schema=action_schema,
+                    schema_name="agent_action_decision_3d",
+                    should_use_ollama=True
+                ),
+                timeout=20.0
+            )
+        else:
+            response = await asyncio.wait_for(
+                get_json(
+                    system_prompt=system_prompt,
+                    prompt=prompt,
+                    model="anthropic/claude-sonnet-4",
+                    response_schema=action_schema,
+                    schema_name="agent_action_decision_3d",
+                    # should_use_ollama=True
+                ),
+                timeout=20.0
+            )
+
         
         print(f"DEBUG: Agent {self.id}: LLM response received: {response}")
         
         # Instead of returning, store the result as the agent's intent
-        self.llm_intent = (response.get("action", "wait"), response.get("data"))
+        self.llm_intent = (response.get("action", "move"), response.get("data"))
         
         print(f"DEBUG: Agent {self.id}: Intent set to: {self.llm_intent}")
         log_to_frontend(f"🧠 Agent {self.id}: LLM response received - action: {response.get('action')}, data: {response.get('data')}")
@@ -420,8 +429,10 @@ Respond as Agent {self.id} in first person, conversationally:"""
                    grid[mine_pos_int[0], mine_pos_int[1], mine_pos_int[2]] != 0:
                     return (action, mine_pos_int)
                 else:
-                    log_to_frontend(f"🤫 Agent {self.id}: LLM chose to mine invalid block at {mine_pos_int}, waiting instead.")
-                    return ("wait", None) # Override with wait
+                    log_to_frontend(f"🤫 Agent {self.id}: LLM chose to mine invalid block at {mine_pos_int}, moving randomly instead.")
+                    # Override with random movement instead of wait
+                    move = random.choice(list(ACTION_MAP_MOVE.values()))
+                    return ("move", self.pos + move)
 
         # --- Policy Decision (for basic movement/mining) ---
         # Use the trained actor-critic policy for basic actions if available
@@ -446,18 +457,21 @@ Respond as Agent {self.id} in first person, conversationally:"""
                    grid[mine_pos_int[0], mine_pos_int[1], mine_pos_int[2]] != 0:
                     return ("mine", mine_pos_int)
                 else:
-                    # If the action is invalid, the agent waits instead.
+                    # If the action is invalid, the agent moves randomly instead.
                     # This implicitly punishes the policy for choosing bad actions.
-                    log_to_frontend(f"🤫 Agent {self.id}: Policy chose to mine invalid block at {mine_pos_int}, waiting instead.")
-                    return ("wait", None)
+                    log_to_frontend(f"🤫 Agent {self.id}: Policy chose to mine invalid block at {mine_pos_int}, moving randomly instead.")
+                    move = random.choice(list(ACTION_MAP_MOVE.values()))
+                    return ("move", self.pos + move)
             elif action_name == "talk":
                 # NEVER use basic messages - talk actions should ONLY come from LLM
-                # If policy wants to talk but no LLM intent, just wait instead
-                log_to_frontend(f"🤫 Agent {self.id}: Policy wanted to talk but no LLM intent - waiting instead")
-                return ("wait", None)
-            else: # wait
-                log_to_frontend(f"⏸️ Agent {self.id}: Policy wait action")
-                return ("wait", None)
+                # If policy wants to talk but no LLM intent, move randomly instead
+                log_to_frontend(f"🤫 Agent {self.id}: Policy wanted to talk but no LLM intent - moving randomly instead")
+                move = random.choice(list(ACTION_MAP_MOVE.values()))
+                return ("move", self.pos + move)
+            else: # fallback case
+                log_to_frontend(f"🎲 Agent {self.id}: Policy chose unknown action, moving randomly")
+                move = random.choice(list(ACTION_MAP_MOVE.values()))
+                return ("move", self.pos + move)
         
         # --- Default behavior: random walk ---
         log_to_frontend(f"🎲 Agent {self.id}: No policy, using random walk")
@@ -908,9 +922,7 @@ class MineCraftEnv:
                 else:
                     # Record failed trade attempt - offer doesn't exist
                     agent.add_to_memory_stream(f"Failed to accept trade offer #{offer_id} - offer doesn't exist", self.step_count)
-            elif action == "wait":
-                # Record wait action
-                agent.add_to_memory_stream("Waited (no action taken)", self.step_count)
+
 
 
     async def step(self):
@@ -933,11 +945,11 @@ class MineCraftEnv:
                 print(f"DEBUG: Max concurrent LLM calls reached ({max_concurrent_llm})")
                 break
                 
-            # Reduce LLM call frequency - every 5 steps instead of 2
+            # Reduce LLM call frequency - every 8 steps instead of 5
             steps_since_last_llm = self.step_count - agent.last_llm_step
             print(f"DEBUG: Agent {agent.id}: steps_since_last_llm={steps_since_last_llm}, is_thinking={agent.is_thinking}")
             
-            if not agent.is_thinking and steps_since_last_llm >= 5:
+            if not agent.is_thinking and steps_since_last_llm >= LLM_CALL_FREQUENCY:
                 print(f"DEBUG: Creating LLM task for Agent {agent.id}")
                 log_to_frontend(f"🚀 Creating LLM task for Agent {agent.id}")
                 agent.last_llm_step = self.step_count
@@ -1119,13 +1131,14 @@ def get_valid_actions_mask(agent: Agent, grid: np.ndarray) -> np.ndarray:
                 action_idx = DISCRETE_ACTIONS.index(action_name)
                 mask[action_idx] = True
 
-    # Talk and wait are always valid
+    # Talk is always valid
     mask[DISCRETE_ACTIONS.index("talk")] = True
-    mask[DISCRETE_ACTIONS.index("wait")] = True
 
-    # If no actions are valid for some reason (e.g., agent is trapped), allow waiting.
+    # If no actions are valid for some reason (e.g., agent is trapped), enable all movement actions as fallback
     if not np.any(mask):
-        mask[DISCRETE_ACTIONS.index("wait")] = True
+        for action_name in ACTION_MAP_MOVE.keys():
+            action_idx = DISCRETE_ACTIONS.index(action_name)
+            mask[action_idx] = True
         
     return mask
 
@@ -1221,8 +1234,9 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
                     ]
                     message = random.choice(talk_options)
                     agent_actions_for_env.append(("talk", {"message": message}))
-                else: # wait
-                    agent_actions_for_env.append((action_name, None))
+                else: # fallback - move randomly
+                    move = random.choice(list(ACTION_MAP_MOVE.values()))
+                    agent_actions_for_env.append(("move", agent.pos + move))
 
                 # Get reward for the action
                 # Note: The _get_reward function needs the *result* of the action.

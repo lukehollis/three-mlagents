@@ -37,6 +37,349 @@ export default function ExamplesIndex() {
                 overflow: 'hidden'
               }}
             >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/glider" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/glider_example.jpg" 
+                      alt="Glider Dynamic Soaring Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/glider" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    Glider
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  Learn to perform dynamic soaring to stay aloft indefinitely in a wind gradient.
+                </Text>
+                <Link to="/glider" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/minecraft" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/minefarm_example.jpg" 
+                      alt="Minecraft "
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/minecraft" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    Minecraft (RL + LLM)
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  Minecraft-like agents explore a world and mine resources, communicating their goals and working together to craft items using a language model. 
+                </Text>
+                <Link to="/minecraft" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/fish" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/fish_example.jpg" 
+                      alt="Fish Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/fish" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    Fish
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  A school of fish that learn to find food and survive a shark.
+                </Text>
+                <Link to="/fish" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/intersection" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/intersection_example.jpg" 
+                      alt="Intersection Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/intersection" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    Intersection
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  Simulate traffic at an intersection with traffic lights.
+                </Text>
+                <Link to="/intersection" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/brickbreak" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/brick_break_example.jpg" 
+                      alt="BrickBreak Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/brickbreak" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    BrickBreak
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  Destroy all the bricks with a ball and paddle.
+                </Text>
+                <Link to="/brickbreak" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/foodcollector" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/food_collector_example.jpg" 
+                      alt="Food Collector Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/foodcollector" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    Food Collector
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  Multi-agent competition to collect good food and avoid bad food.
+                </Text>
+                <Link to="/foodcollector" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/bicycle" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/bicycle_example.jpg" 
+                      alt="Bicycle Balance Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/bicycle" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    Bicycle Balance
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  Learn to ride a bicycle and keep it from falling over.
+                </Text>
+                <Link to="/bicycle" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    icon={<Play />} 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
               <Card.Content style={{ padding: 0 }}>  
                 <Link to="/basic" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
@@ -357,349 +700,6 @@ export default function ExamplesIndex() {
                   Learn to swim and move towards a goal direction. (Swimmer-v5)
                 </Text>
                 <Link to="/worm" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    icon={<Play />} 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
-                <Link to="/brickbreak" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/brick_break_example.jpg" 
-                      alt="BrickBreak Example"
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/brickbreak" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    BrickBreak
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Destroy all the bricks with a ball and paddle.
-                </Text>
-                <Link to="/brickbreak" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    icon={<Play />} 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
-                <Link to="/foodcollector" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/food_collector_example.jpg" 
-                      alt="Food Collector Example"
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/foodcollector" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Food Collector
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Multi-agent competition to collect good food and avoid bad food.
-                </Text>
-                <Link to="/foodcollector" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    icon={<Play />} 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
-                <Link to="/bicycle" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/bicycle_example.jpg" 
-                      alt="Bicycle Balance Example"
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/bicycle" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Bicycle Balance
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Learn to ride a bicycle and keep it from falling over.
-                </Text>
-                <Link to="/bicycle" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    icon={<Play />} 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
-                <Link to="/glider" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/glider_example.jpg" 
-                      alt="Glider Dynamic Soaring Example"
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/glider" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Glider
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Learn to perform dynamic soaring to stay aloft indefinitely in a wind gradient.
-                </Text>
-                <Link to="/glider" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    icon={<Play />} 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
-                <Link to="/minecraft" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/minefarm_example.jpg" 
-                      alt="Minecraft "
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/minecraft" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Minecraft
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Minecraft-like agents explore a world and mine resources, communicating their goals and working together to craft items. 
-                </Text>
-                <Link to="/minecraft" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    icon={<Play />} 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
-                <Link to="/fish" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/fish_example.jpg" 
-                      alt="Fish Example"
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/fish" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Fish
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  A school of fish that learn to find food and survive a shark.
-                </Text>
-                <Link to="/fish" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    icon={<Play />} 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
-                <Link to="/intersection" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/intersection_example.jpg" 
-                      alt="Intersection Example"
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/intersection" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Intersection
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Simulate traffic at an intersection with traffic lights.
-                </Text>
-                <Link to="/intersection" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
                     icon={<Play />} 
