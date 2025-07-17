@@ -279,19 +279,16 @@ async def websocket_minecraft(websocket: WebSocket):
     await websocket.accept()
     env = MineCraftEnv()
     await websocket.send_json({"type": "init", "state": env.get_state_for_viz()})
-    
-    try:
-        while True:
-            data = await websocket.receive_json()
-            cmd = data.get("cmd")
 
-            if cmd == 'train':
-                await train_minecraft(websocket, env)
-            elif cmd == 'run':
-                await run_minecraft(websocket, env)
+    while True:
+        data = await websocket.receive_json()
+        cmd = data.get("cmd")
 
-    except Exception as e:
-        print(f"MineCraft websocket disconnected: {e}")
+        if cmd == 'train':
+            await train_minecraft(websocket, env)
+        elif cmd == 'run':
+            await run_minecraft(websocket, env)
+
 
 
 # WebSocket endpoint for Fish
