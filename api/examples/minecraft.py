@@ -154,11 +154,25 @@ class Agent:
         self.is_thinking = False # Flag to prevent concurrent LLM calls
         self.last_llm_step = -10 # Last step when LLM was called (start with -10 for immediate first call)
         self.memory_vector = np.zeros(384) # all-MiniLM-L6-v2 produces embeddings of size 384
+        self.memory_stream = [] # Store last 10 events for context
 
     def update_memory(self, text: str):
         # Update agent's memory with a new text embedding using a moving average
         new_embedding = get_embedding(text)
         self.memory_vector = (self.memory_vector * 0.9) + (new_embedding * 0.1)
+    
+    def add_to_memory_stream(self, event: str, step: int = None):
+        """Add an event to the agent's memory stream, keeping only the last 10 events"""
+        if step is not None:
+            event_entry = f"Step {step}: {event}"
+        else:
+            event_entry = event
+        
+        self.memory_stream.append(event_entry)
+        
+        # Keep only the last 10 events
+        if len(self.memory_stream) > 10:
+            self.memory_stream = self.memory_stream[-10:]
 
     async def decide_action_llm(self, grid: np.ndarray, agents: List['Agent'], messages: List[Dict], step_count: int, offers: List[Dict]):
         # This function runs the LLM call in the background.
@@ -180,6 +194,10 @@ Your current position is [x, y, z]: {self.pos.tolist()}. Y is the vertical axis.
 Your inventory is {self.inventory}.
 Your current goal is to collect '{self.goal if self.goal else "anything"}'.
 Your current memory of recent events is summarized as: {np.round(self.memory_vector[:5], 2).tolist()}...
+
+Your recent action history (last 10 events):
+{chr(10).join(self.memory_stream) if self.memory_stream else "No recent events recorded."}
+
 Recent messages from other agents: {json.dumps(recent_messages)}
 Crafting recipes available: {json.dumps(CRAFTING_RECIPES)}
 Open trade offers: {json.dumps(offers)}
@@ -280,6 +298,19 @@ Respond as Agent {self.id} in first person, conversationally:"""
         
         # Send conversation text to frontend MessagePanel
         log_to_frontend(f"💬 {conversation_text}")
+        
+        # Also send directly as a message to ensure it reaches MessagePanel
+        if _current_websocket:
+            try:
+                await _current_websocket.send_json({
+                    "type": "agent_message",
+                    "agent_id": self.id,
+                    "message": conversation_text,
+                    "step": step_count
+                })
+            except Exception as e:
+                print(f"DEBUG: Failed to send conversation message to frontend: {e}")
+        
         await asyncio.sleep(0.01)  # Give time for message to send
         
         log_entry = {
@@ -397,10 +428,14 @@ class MineCraftEnv:
                     y_surface = self._find_surface_height(center_x, center_z)
                     if y_surface != -1 and y_surface + 1 < GRID_SIZE_Y:
                         spawn_y = y_surface + 1
-                        self.agents.append(Agent(i, np.array([center_x, spawn_y, center_z])))
+                        agent = Agent(i, np.array([center_x, spawn_y, center_z]))
+                        agent.add_to_memory_stream(f"Spawned at position {agent.pos.tolist()} with goal: {agent.goal}", 0)
+                        self.agents.append(agent)
                     else:
                         # If center is also invalid (e.g. a pillar to the sky), spawn at a default height
-                        self.agents.append(Agent(i, np.array([center_x, GRID_SIZE_Y // 2, center_z])))
+                        agent = Agent(i, np.array([center_x, GRID_SIZE_Y // 2, center_z]))
+                        agent.add_to_memory_stream(f"Spawned at position {agent.pos.tolist()} with goal: {agent.goal}", 0)
+                        self.agents.append(agent)
                     spawned = True
                     continue
 
@@ -413,7 +448,9 @@ class MineCraftEnv:
                 # If we found a surface and there's space above it, spawn the agent
                 if y_surface != -1 and y_surface + 1 < GRID_SIZE_Y:
                     spawn_y = y_surface + 1
-                    self.agents.append(Agent(i, np.array([start_x, spawn_y, start_z])))
+                    agent = Agent(i, np.array([start_x, spawn_y, start_z]))
+                    agent.add_to_memory_stream(f"Spawned at position {agent.pos.tolist()} with goal: {agent.goal}", 0)
+                    self.agents.append(agent)
                     spawned = True
                 # If the column is all air or the top block is solid, retry
 
@@ -627,6 +664,7 @@ class MineCraftEnv:
                 # Ensure agent stays within bounds
                 new_x = np.clip(data[0], 0, GRID_SIZE_X - 1)
                 new_z = np.clip(data[2], 0, GRID_SIZE_Z - 1)
+                old_pos = agent.pos.copy()
                 
                 # Update position horizontally first
                 agent.pos[0] = new_x
@@ -634,6 +672,9 @@ class MineCraftEnv:
                 
                 # Apply gravity to ensure agent lands on solid ground
                 self._apply_gravity(agent)
+                
+                # Record movement event
+                agent.add_to_memory_stream(f"Moved from {old_pos.tolist()} to {agent.pos.tolist()}", self.step_count)
             elif action == "mine" and data is not None:
                 # Convert mining position to integers to ensure proper grid indexing
                 res_pos = [int(data[0]), int(data[1]), int(data[2])]
@@ -644,19 +685,30 @@ class MineCraftEnv:
                         agent.inventory[res_name] += 1
                         self.grid[res_pos[0], res_pos[1], res_pos[2]] = 0 # Resource depleted
                         log_to_frontend(f"⛏️ Agent {agent.id} mined {res_name} at {res_pos}")  # Debug logging
+                        
+                        # Record successful mining event
+                        agent.add_to_memory_stream(f"Successfully mined {res_name} at {res_pos}. Now have {agent.inventory[res_name]} {res_name}.", self.step_count)
+                        
                         # Assign a new goal instead of setting to None
                         valuable_resources = ["iron", "gold", "diamond", "crystal"]
                         craftable_items = list(CRAFTING_RECIPES.keys())
                         all_goals = valuable_resources + craftable_items
+                        old_goal = agent.goal
                         agent.goal = random.choice(all_goals)
                         agent.update_memory(f"I mined {res_name}. My new goal is {agent.goal}.")
+                        
+                        # Record goal change
+                        if old_goal != agent.goal:
+                            agent.add_to_memory_stream(f"Changed goal from {old_goal} to {agent.goal}", self.step_count)
                         
                         # Apply gravity in case the agent mined the block they were standing on
                         self._apply_gravity(agent)
                     else:
                         log_to_frontend(f"❌ Agent {agent.id} tried to mine empty space at {res_pos}")  # Debug logging
+                        agent.add_to_memory_stream(f"Tried to mine empty space at {res_pos}", self.step_count)
                 else:
                     log_to_frontend(f"❌ Agent {agent.id} tried to mine out of bounds at {res_pos}")  # Debug logging
+                    agent.add_to_memory_stream(f"Tried to mine out of bounds at {res_pos}", self.step_count)
             elif action == "talk" and data is not None:
                 message_data = {
                     "sender_id": agent.id,
@@ -667,15 +719,33 @@ class MineCraftEnv:
                 self.messages.append(message_data)
                 if len(self.messages) > MAX_MESSAGES:
                     self.messages = self.messages[-MAX_MESSAGES:]
+                
+                # Record talk event
+                if data.get("recipient_id") is not None:
+                    agent.add_to_memory_stream(f"Sent message to Agent {data.get('recipient_id')}: '{data.get('message')}'", self.step_count)
+                else:
+                    agent.add_to_memory_stream(f"Broadcast message: '{data.get('message')}'", self.step_count)
+                
+                # Send talk message immediately to frontend MessagePanel
+                if _current_websocket:
+                    asyncio.create_task(_current_websocket.send_json({
+                        "type": "agent_message",
+                        "agent_id": agent.id,
+                        "message": data.get("message"),
+                        "step": self.step_count,
+                        "recipient_id": data.get("recipient_id")
+                    }))
                 # All agents that hear the message update their memory
                 if "recipient_id" in data and data["recipient_id"] is not None:
                     recipient = next((a for a in self.agents if a.id == data["recipient_id"]), None)
                     if recipient:
                         recipient.update_memory(f"Agent {agent.id} said: {data['message']}")
+                        recipient.add_to_memory_stream(f"Received private message from Agent {agent.id}: '{data['message']}'", self.step_count)
                 else: # Broadcast
                     for a in self.agents:
                         if a.id != agent.id:
                             a.update_memory(f"Agent {agent.id} said: {data['message']}")
+                            a.add_to_memory_stream(f"Heard Agent {agent.id} say: '{data['message']}'", self.step_count)
 
             elif action == "craft" and data is not None:
                 recipe_info = CRAFTING_RECIPES.get(data)
@@ -687,15 +757,34 @@ class MineCraftEnv:
                             break
                     
                     if can_craft:
+                        # Record resources used
+                        used_resources = ", ".join([f"{amount} {resource}" for resource, amount in recipe_info["recipe"].items()])
+                        
                         for resource, amount in recipe_info["recipe"].items():
                             agent.inventory[resource] -= amount
                         agent.inventory[data] = agent.inventory.get(data, 0) + 1
+                        
+                        # Record successful crafting event
+                        agent.add_to_memory_stream(f"Successfully crafted {data} using {used_resources}. Now have {agent.inventory[data]} {data}.", self.step_count)
+                        
                         # Assign a new goal instead of setting to None  
                         valuable_resources = ["iron", "gold", "diamond", "crystal"]
                         craftable_items = list(CRAFTING_RECIPES.keys())
                         all_goals = valuable_resources + craftable_items
+                        old_goal = agent.goal
                         agent.goal = random.choice(all_goals)
                         agent.update_memory(f"I crafted a {data}. My new goal is {agent.goal}.")
+                        
+                        # Record goal change
+                        if old_goal != agent.goal:
+                            agent.add_to_memory_stream(f"Changed goal from {old_goal} to {agent.goal}", self.step_count)
+                    else:
+                        # Record failed crafting attempt
+                        missing_resources = []
+                        for resource, amount in recipe_info["recipe"].items():
+                            if agent.inventory.get(resource, 0) < amount:
+                                missing_resources.append(f"{amount - agent.inventory.get(resource, 0)} {resource}")
+                        agent.add_to_memory_stream(f"Failed to craft {data} - missing: {', '.join(missing_resources)}", self.step_count)
             elif action == "offer" and data is not None:
                 item_to_give = data.get("item_to_give")
                 amount_to_give = data.get("amount_to_give")
@@ -709,6 +798,12 @@ class MineCraftEnv:
                         "status": "open",
                     })
                     agent.update_memory(f"I offered {amount_to_give} {item_to_give} for {data.get('amount_to_receive')} {data.get('item_to_receive')}.")
+                    
+                    # Record trade offer event
+                    agent.add_to_memory_stream(f"Created trade offer #{offer_id}: give {amount_to_give} {item_to_give} for {data.get('amount_to_receive')} {data.get('item_to_receive')}", self.step_count)
+                else:
+                    # Record failed offer attempt
+                    agent.add_to_memory_stream(f"Failed to create trade offer - not enough {item_to_give} (have {agent.inventory.get(item_to_give, 0)}, need {amount_to_give})", self.step_count)
             elif action == "accept_offer" and data is not None:
                 offer_id = data
                 if 0 <= offer_id < len(self.trade_offers):
@@ -735,6 +830,25 @@ class MineCraftEnv:
                                 offer_text = f"{offer['gives']['amount']} {offer['gives']['item']} for {offer['receives']['amount']} {offer['receives']['item']}"
                                 agent.update_memory(f"I accepted an offer for {offer_text}.")
                                 offering_agent.update_memory(f"My offer for {offer_text} was accepted.")
+                                
+                                # Record trade completion events
+                                agent.add_to_memory_stream(f"Successfully accepted trade offer #{offer_id}: gave {receives_amount} {receives_item}, received {gives_amount} {gives_item}", self.step_count)
+                                offering_agent.add_to_memory_stream(f"My trade offer #{offer_id} was accepted: gave {gives_amount} {gives_item}, received {receives_amount} {receives_item}", self.step_count)
+                            else:
+                                # Record failed trade attempt
+                                agent.add_to_memory_stream(f"Failed to accept trade offer #{offer_id} - not enough {receives_item} (have {agent.inventory.get(receives_item, 0)}, need {receives_amount})", self.step_count)
+                        else:
+                            # Record failed trade attempt - offering agent not found
+                            agent.add_to_memory_stream(f"Failed to accept trade offer #{offer_id} - offering agent not found", self.step_count)
+                    else:
+                        # Record failed trade attempt - invalid offer
+                        agent.add_to_memory_stream(f"Failed to accept trade offer #{offer_id} - offer closed or invalid", self.step_count)
+                else:
+                    # Record failed trade attempt - offer doesn't exist
+                    agent.add_to_memory_stream(f"Failed to accept trade offer #{offer_id} - offer doesn't exist", self.step_count)
+            elif action == "wait":
+                # Record wait action
+                agent.add_to_memory_stream("Waited (no action taken)", self.step_count)
 
 
     async def step(self):
@@ -823,7 +937,7 @@ class MineCraftEnv:
                                 "message": log_entry.get('conversation'),
                                 "recipient_id": None,  # Broadcast
                                 "step": self.step_count,
-                                "type": "llm_thought"
+                                # Remove "type" field so it appears as regular message in MessagePanel
                             }
                             self.messages.append(message_data)
                             if len(self.messages) > MAX_MESSAGES:
@@ -859,7 +973,7 @@ class MineCraftEnv:
     def get_state_for_viz(self) -> Dict[str, Any]:
         return {
             "grid": self.grid.tolist(),
-            "agents": [{"id": a.id, "pos": a.pos.tolist(), "inventory": a.inventory, "color": a.color} for a in self.agents],
+            "agents": [{"id": a.id, "pos": a.pos.tolist(), "inventory": a.inventory, "color": a.color, "memory_stream": a.memory_stream, "goal": a.goal} for a in self.agents],
             "llm_logs": self.llm_logs,
             "grid_size": [GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z],
             "resource_types": RESOURCE_TYPES,
@@ -872,7 +986,7 @@ class MineCraftEnv:
         """A lightweight version of get_state_for_viz for frequent updates."""
         # Only send the parts of the state that change frequently
         return {
-            "agents": [{"id": a.id, "pos": a.pos.tolist(), "inventory": a.inventory, "color": a.color} for a in self.agents],
+            "agents": [{"id": a.id, "pos": a.pos.tolist(), "inventory": a.inventory, "color": a.color, "memory_stream": a.memory_stream, "goal": a.goal} for a in self.agents],
             "trade_offers": self.trade_offers,
             "messages": self.messages,
             # The grid is sent once on init and we can send incremental updates if needed

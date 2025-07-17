@@ -114,13 +114,22 @@ const ScorePanel = ({ agents }) => {
     const resourceColors = {
         gold: '#FFD700',
         diamond: '#00BFFF', 
+        crystal: '#abdbe3',
         wood: '#8B4513',
         stone: '#708090',
         iron: '#C0C0C0',
         coal: '#36454F',
         food: '#32CD32',
         water: '#1E90FF',
-        default: '#FFFFFF'
+        default: '#FFFFFF',
+        grass: '#00FF00',
+        obsidian: '#aaaaaa',
+        dirt: '#e28743',
+        stone_pickaxe: '#708090',
+        iron_pickaxe: '#C0C0C0',
+        gold_pickaxe: '#FFD700',
+        diamond_pickaxe: '#FFFFFF',
+        crystal_wand: '#abdbe3',
     };
 
     const getResourceColor = (resourceName) => {
