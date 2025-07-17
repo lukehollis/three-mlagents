@@ -84,3 +84,4 @@ dmypy.json
 cython_debug/
 
 policies/*.onnx
+*.log
