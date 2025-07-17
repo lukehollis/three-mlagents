@@ -745,23 +745,40 @@ class MineCraftEnv:
         max_concurrent_llm = 5
         current_thinking_count = sum(1 for agent in self.agents if agent.is_thinking)
         
+        print(f"DEBUG: Step {self.step_count}: Current thinking count: {current_thinking_count}")
+        
         for agent in self.agents:
             if current_thinking_count >= max_concurrent_llm:
+                print(f"DEBUG: Max concurrent LLM calls reached ({max_concurrent_llm})")
                 break
                 
             # Reduce LLM call frequency - every 5 steps instead of 2
             steps_since_last_llm = self.step_count - agent.last_llm_step
+            print(f"DEBUG: Agent {agent.id}: steps_since_last_llm={steps_since_last_llm}, is_thinking={agent.is_thinking}")
+            
             if not agent.is_thinking and steps_since_last_llm >= 5:
+                print(f"DEBUG: Creating LLM task for Agent {agent.id}")
                 log_to_frontend(f"🚀 Creating LLM task for Agent {agent.id}")
                 agent.last_llm_step = self.step_count
-                task = asyncio.create_task(
-                    agent.decide_action_llm(self.grid, self.agents, self.messages, self.step_count, self.trade_offers)
-                )
+                
+                # Wrap in try-catch to handle any errors
+                async def safe_llm_call(agent_ref):
+                    print(f"DEBUG: Starting safe_llm_call for Agent {agent_ref.id}")
+                    log_entry = await agent_ref.decide_action_llm(
+                        self.grid, self.agents, self.messages, self.step_count, self.trade_offers
+                    )
+                    print(f"DEBUG: safe_llm_call completed for Agent {agent_ref.id}")
+                    return log_entry
+                
+                task = asyncio.create_task(safe_llm_call(agent))
                 llm_tasks.append(task)
                 current_thinking_count += 1
         
         if len(llm_tasks) > 0:
+            print(f"DEBUG: Step {self.step_count}: Created {len(llm_tasks)} LLM tasks")
             log_to_frontend(f"📋 Step {self.step_count}: Created {len(llm_tasks)} LLM tasks")
+        else:
+            print(f"DEBUG: Step {self.step_count}: No LLM tasks created")
 
         # --- Fast Action Execution (Synchronous) ---
         agent_actions = []
@@ -952,6 +969,7 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
         step_buffer: list[dict] = []
         ep_counter = 0
         total_steps = 0
+        current_loss = None  # Track the most recent loss value
 
         while ep_counter < 5000: # Train for a fixed number of agent "episodes" or interactions
             if env.step_count % 25 == 0:
@@ -1029,6 +1047,11 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
             env.step_count += 1
             total_steps += len(env.agents)
             ep_counter += len(env.agents) # Count each agent step as an "episode" for progress
+
+            # --- Send progress updates more frequently for chart ---
+            if env.step_count % 16 == 0: # Send progress every 16 steps
+                current_reward = float(torch.tensor(rewards, dtype=torch.float32).mean().cpu().item())
+                await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": current_reward, "loss": current_loss})
 
             # --- Visualize state on the frontend periodically ---
             if env.step_count % 8 == 0: # Update frontend every 8 steps
@@ -1111,11 +1134,12 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
 
                 # --- Post-update ---
                 avg_reward = float(torch.stack([b["reward"] for b in step_buffer]).mean().cpu().item())
+                current_loss = loss.item()  # Update the tracked loss value
                 
                 step_buffer = []
                 total_steps = 0
                 
-                await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": avg_reward, "loss": loss.item()})
+                await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": avg_reward, "loss": current_loss})
                 await websocket.send_json({"type": "debug", "message": "Completed PPO update"})
 
         await websocket.send_json({"type": "trained", "model_info": {"epochs": ep_counter, "loss": loss.item()}})
