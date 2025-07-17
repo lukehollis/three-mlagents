@@ -239,6 +239,11 @@ export default function MineCraftExample() {
           return;
         }
 
+        if (parsed.type === 'log') {
+          addLog(`[SERVER] ${parsed.message}`);
+          return;
+        }
+
         if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
           console.log('[MineCraft] Received state update, type:', parsed.type); // Debug log
           console.log('[MineCraft] Grid dimensions:', parsed.state?.grid?.length, parsed.state?.grid?.[0]?.length, parsed.state?.grid?.[0]?.[0]?.length); // Debug log
