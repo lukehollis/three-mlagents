@@ -88,6 +88,7 @@ class Agent:
 
     async def decide_action_llm(self, grid: np.ndarray, agents: List['Agent'], messages: List[Dict], step_count: int, offers: List[Dict]):
         # This function runs the LLM call in the background.
+        print(f"🤖 Agent {self.id}: Starting LLM call at step {step_count}")
         self.is_thinking = True
         try:
             # The existing LLM decision logic is moved here.
@@ -122,7 +123,13 @@ Your available actions are "move", "mine", "talk", "craft", "offer", "accept_off
 - accept_offer: requires the integer `offer_id` of the offer to accept.
 - wait: does nothing.
 
-Based on your state, what is your next action? If you need resources for crafting, check for trade offers or create your own. If you have surplus resources, offer them for trade. If you have no goal, set one by talking about a valuable resource or a craftable item. If you see your goal, move towards it or mine it. If you have the resources, craft a valuable item. If you don't see your goal, explore randomly (especially downwards for valuable ores) or ask for help.
+Based on your state, what is your next action? 
+
+PRIORITIZE COMMUNICATION: Talk frequently to coordinate with other agents, ask for help, offer trades, or share information about resources you've found. Communication is key to success in this world.
+
+If you need resources for crafting, check for trade offers or create your own. If you have surplus resources, offer them for trade. If you have no goal, set one by talking about a valuable resource or a craftable item. If you see your goal, move towards it or mine it. If you have the resources, craft a valuable item. If you don't see your goal, explore randomly (especially downwards for valuable ores) or ask for help.
+
+Consider talking if: you just found something valuable, you need help finding resources, you want to make a trade, you want to share your location, or you want to coordinate with other agents.
 """
 
             action_schema = {
@@ -151,28 +158,52 @@ Based on your state, what is your next action? If you need resources for craftin
             
             # Instead of returning, store the result as the agent's intent
             self.llm_intent = (response.get("action", "wait"), response.get("data"))
+            logger.info(f"Agent {self.id} LLM set intent: {self.llm_intent}")
             
             log_entry = {"agent_id": self.id, "step": step_count, "prompt": prompt, "response": response}
             # This log will be collected by the environment later
             return log_entry
 
         except asyncio.TimeoutError:
+            print(f"⏰ Agent {self.id}: LLM call TIMED OUT")
             log_entry = {"agent_id": self.id, "step": step_count, "prompt": "LLM Timeout", "error": "Timeout"}
             self.llm_intent = ("wait", None) # On timeout, just wait
             return log_entry
         except Exception as e:
+            print(f"💥 Agent {self.id}: LLM call ERROR: {e}")
             log_entry = {"agent_id": self.id, "step": step_count, "prompt": "LLM Error", "error": str(e)}
             self.llm_intent = ("wait", None) # On error, just wait
             return log_entry
         finally:
+            print(f"✅ Agent {self.id}: LLM call finished, is_thinking = False")
             self.is_thinking = False
 
     def get_fast_action(self, trained_policy: "ActorCritic", grid: np.ndarray) -> Tuple[str, Any]:
-        # --- Policy Decision ---
-        # 1. Use the trained actor-critic policy if available
+        # --- LLM Intent Check First (for communication) ---
+        # Always prioritize LLM intent for talk actions, even with trained policy
+        if self.llm_intent:
+            action, data = self.llm_intent
+            logger.info(f"Agent {self.id} using LLM intent: {action}, {data}")
+            # If it's a communication action, always use LLM
+            if action in ["talk", "craft", "offer", "accept_offer"]:
+                self.llm_intent = None  # Consume the intent
+                return (action, data)
+            # For move actions, validate and use if reasonable
+            elif action == "move" and data:
+                target_pos = np.array(data)
+                direction = np.sign(target_pos - self.pos)
+                if np.sum(np.abs(direction)) == 1:
+                    self.llm_intent = None  # Consume the intent
+                    return ("move", self.pos + direction)
+            # For mine actions, use directly
+            elif action == "mine" and data:
+                self.llm_intent = None  # Consume the intent
+                return (action, data)
+
+        # --- Policy Decision (for basic movement/mining) ---
+        # Use the trained actor-critic policy for basic actions if available
         if trained_policy:
             state_vector = get_agent_state_vector(self, grid)
-            # The get_action method on the policy will return action_index, log_prob, value
             action_index, _, _ = trained_policy.get_action(state_vector) 
             action_name = DISCRETE_ACTIONS[action_index]
 
@@ -181,24 +212,13 @@ Based on your state, what is your next action? If you need resources for craftin
             elif action_name in ACTION_MAP_MINE:
                 return ("mine", self.pos + ACTION_MAP_MINE[action_name])
             elif action_name == "talk":
-                 return ("talk", {"message": f"My goal is {self.goal}"})
+                # NEVER use basic messages - talk actions should ONLY come from LLM
+                # If policy wants to talk but no LLM intent, just wait instead
+                return ("wait", None)
             else: # wait
                 return ("wait", None)
-
-        # 2. If no trained policy, use the LLM's most recent intent
-        if self.llm_intent:
-            action, data = self.llm_intent
-            self.llm_intent = None  # Consume the intent
-
-            if action == "move" and data:
-                target_pos = np.array(data)
-                direction = np.sign(target_pos - self.pos)
-                if np.sum(np.abs(direction)) == 1:
-                     return ("move", self.pos + direction)
-            elif action in ["mine", "talk", "craft", "offer", "accept_offer"]:
-                return (action, data)
         
-        # 3. Default behavior: random walk
+        # --- Default behavior: random walk ---
         move = random.choice(list(ACTION_MAP_MOVE.values()))
         next_pos = self.pos + np.array(move)
         return ("move", next_pos)
@@ -472,8 +492,12 @@ class MineCraftEnv:
                         res_name = list(RESOURCE_TYPES.keys())[int(res_idx) - 1]
                         agent.inventory[res_name] += 1
                         self.grid[res_pos[0], res_pos[1], res_pos[2]] = 0 # Resource depleted
-                        agent.goal = None # Find a new goal
-                        agent.update_memory(f"I mined {res_name}.")
+                        # Assign a new goal instead of setting to None
+                        valuable_resources = ["iron", "gold", "diamond", "crystal"]
+                        craftable_items = list(CRAFTING_RECIPES.keys())
+                        all_goals = valuable_resources + craftable_items
+                        agent.goal = random.choice(all_goals)
+                        agent.update_memory(f"I mined {res_name}. My new goal is {agent.goal}.")
                         
                         # Apply gravity in case the agent mined the block they were standing on
                         self._apply_gravity(agent)
@@ -510,8 +534,12 @@ class MineCraftEnv:
                         for resource, amount in recipe_info["recipe"].items():
                             agent.inventory[resource] -= amount
                         agent.inventory[data] = agent.inventory.get(data, 0) + 1
-                        agent.goal = None # Crafted, find a new goal
-                        agent.update_memory(f"I crafted a {data}.")
+                        # Assign a new goal instead of setting to None  
+                        valuable_resources = ["iron", "gold", "diamond", "crystal"]
+                        craftable_items = list(CRAFTING_RECIPES.keys())
+                        all_goals = valuable_resources + craftable_items
+                        agent.goal = random.choice(all_goals)
+                        agent.update_memory(f"I crafted a {data}. My new goal is {agent.goal}.")
             elif action == "offer" and data is not None:
                 item_to_give = data.get("item_to_give")
                 amount_to_give = data.get("amount_to_give")
@@ -562,9 +590,10 @@ class MineCraftEnv:
         # --- LLM Thinking (Asynchronous) ---
         llm_tasks = []
         for agent in self.agents:
-            # Only allow LLM calls every 5 steps per agent to avoid overwhelming the system
+            # Allow LLM calls every 2 steps per agent for maximum communication
+            # Agents should be constantly thinking and talking via LLM
             steps_since_last_llm = self.step_count - agent.last_llm_step
-            if not agent.is_thinking and steps_since_last_llm >= 5:
+            if not agent.is_thinking and steps_since_last_llm >= 2:
                 agent.last_llm_step = self.step_count
                 task = asyncio.create_task(
                     agent.decide_action_llm(self.grid, self.agents, self.messages, self.step_count, self.trade_offers)
@@ -732,7 +761,21 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
                 elif action_name in ACTION_MAP_MINE:
                     action_data = agent.pos + ACTION_MAP_MINE[action_name]
                     agent_actions_for_env.append(("mine", action_data))
-                else: # talk, wait
+                elif action_name == "talk":
+                    # Generate varied talk messages for better communication
+                    talk_options = [
+                        f"My goal is {agent.goal}",
+                        f"I have {sum(agent.inventory.values())} items total",
+                        f"Looking for {agent.goal}, anyone seen it?",
+                        f"I'm at position {agent.pos.tolist()}",
+                        f"Anyone want to trade?",
+                        "Hello everyone!",
+                        f"I just mined something valuable!",
+                        f"Has anyone found {agent.goal}?"
+                    ]
+                    message = random.choice(talk_options)
+                    agent_actions_for_env.append(("talk", {"message": message}))
+                else: # wait
                     agent_actions_for_env.append((action_name, None))
 
                 # Get reward for the action

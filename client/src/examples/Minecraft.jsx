@@ -259,7 +259,7 @@ export default function MineCraftExample() {
         if (parsed.type === 'training_progress') {
           addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);
         }
-        if (parsed.type === 'training_complete') {
+        if (parsed.type === 'trained') {
           setTraining(false);
           setTrained(true);
           setModelInfo(parsed.model_info);
@@ -366,8 +366,6 @@ export default function MineCraftExample() {
         <div style={{ display: 'flex', gap: '8px' }}>
           <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
           <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
-          <Button auto type="error" onClick={reset}>Reset </Button>
-          {trained && <Button auto type="error" onClick={resetTraining}>Reset Training</Button>}
         </div>
       </div>
       
