@@ -60,10 +60,24 @@ const Fish = ({ agent, gridSize }) => {
 
   return (
     <group ref={groupRef}>
-      <mesh rotation={[-Math.PI / 2, 0, 0]}>
-        <coneGeometry args={[0.4, 1.2, 8]} />
+      {/* Head cone - pointing forward */}
+      <mesh position={[0, 0, 0.9]} rotation={[Math.PI / 2, 0, 0]}>
+        <coneGeometry args={[0.5, 0.8, 8]} />
         <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} />
       </mesh>
+      
+      {/* Body cone - pointing backward */}
+      <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <coneGeometry args={[0.5, 1, 8]} />
+        <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} wireframe={true} />
+      </mesh>
+      
+      {/* Tail cone - small, at the back */}
+      <mesh position={[0, 0, -0.8]} rotation={[Math.PI / 2, 0, 0]}>
+        <coneGeometry args={[0.3, 0.4, 6]} wireframe={true} />
+        <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} wireframe={true} />
+      </mesh>
+      
       {/* <DreiText position={[0, 0.8, 0]} fontSize={0.5} color="white" anchorX="center" anchorY="middle">
         {id}
       </DreiText> */}
@@ -106,6 +120,8 @@ const Shark = ({ agent, gridSize }) => {
                     new THREE.Vector3(velocity[0], velocity[1], velocity[2])
                 );
                 groupRef.current.lookAt(targetRotationPosition);
+                // Adjust for shark's geometry - head points in +X direction, so rotate 90 degrees around Y
+                groupRef.current.rotateY(Math.PI / 2);
             }
         }
     });
@@ -321,7 +337,7 @@ export default function FishExample() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
-      <Canvas camera={{ position: [-50, 50, 50], fov: 60 }}>
+      <Canvas camera={{ position: [-100, 100, 100], fov: 60 }}>
         <fog attach="fog" args={['#000011', 50, 250]} />
         <ambientLight intensity={0.4} />
         <directionalLight 
@@ -358,7 +374,7 @@ export default function FishExample() {
         </div>
       </div>
       
-      <div style={{
+      {/* <div style={{
         position: 'absolute',
         top: '10px',
         right: '10px',
@@ -370,7 +386,7 @@ export default function FishExample() {
         height: 'calc(100vh - 20px)',
       }}>
         {state && state.agents && <EnergyPanel agents={state.agents} />}
-      </div>
+      </div> */}
       
       <InfoPanel logs={logs} chartState={chartState} />
       <ModelInfoPanel modelInfo={modelInfo} />
