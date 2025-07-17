@@ -15,9 +15,20 @@ const WS_URL = `${config.WS_BASE_URL}/ws/fish`;
 const Fish = ({ agent, gridSize }) => {
   const { pos, id, energy, velocity } = agent;
   const groupRef = useRef();
+  const targetPositionRef = useRef([0, 0, 0]);
+  const currentPositionRef = useRef([0, 0, 0]);
 
   const offsetX = gridSize ? gridSize[0] / 2 : 0;
   const offsetZ = gridSize ? gridSize[2] / 2 : 0;
+
+  // Update target position when agent position changes
+  const targetPosition = [pos[0] - offsetX, pos[1], pos[2] - offsetZ];
+  targetPositionRef.current = targetPosition;
+
+  // Initialize current position to target position on first render
+  if (currentPositionRef.current[0] === 0 && currentPositionRef.current[1] === 0 && currentPositionRef.current[2] === 0) {
+    currentPositionRef.current = [...targetPosition];
+  }
 
   const energyColor = useMemo(() => {
     const blue = new THREE.Color("#55aaff");
@@ -26,18 +37,29 @@ const Fish = ({ agent, gridSize }) => {
     return blue.clone().lerp(white, alpha);
   }, [energy]);
 
-  useFrame(() => {
-    if (groupRef.current && velocity && new THREE.Vector3(...velocity).lengthSq() > 0.001) {
-      const targetPosition = new THREE.Vector3().addVectors(
-        groupRef.current.position,
-        new THREE.Vector3(velocity[0], velocity[1], velocity[2])
-      );
-      groupRef.current.lookAt(targetPosition);
+  useFrame((state, delta) => {
+    if (groupRef.current) {
+      // Lerp position smoothly
+      const lerpFactor = Math.min(1, delta * 2); // Slower, smoother lerping
+      currentPositionRef.current[0] += (targetPositionRef.current[0] - currentPositionRef.current[0]) * lerpFactor;
+      currentPositionRef.current[1] += (targetPositionRef.current[1] - currentPositionRef.current[1]) * lerpFactor;
+      currentPositionRef.current[2] += (targetPositionRef.current[2] - currentPositionRef.current[2]) * lerpFactor;
+      
+      groupRef.current.position.set(...currentPositionRef.current);
+
+      // Handle rotation based on velocity
+      if (velocity && new THREE.Vector3(...velocity).lengthSq() > 0.001) {
+        const targetRotationPosition = new THREE.Vector3().addVectors(
+          groupRef.current.position,
+          new THREE.Vector3(velocity[0], velocity[1], velocity[2])
+        );
+        groupRef.current.lookAt(targetRotationPosition);
+      }
     }
   });
 
   return (
-    <group ref={groupRef} position={[pos[0] - offsetX, pos[1], pos[2] - offsetZ]}>
+    <group ref={groupRef}>
       <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <coneGeometry args={[0.4, 1.2, 8]} />
         <meshPhongMaterial color={energyColor} emissive={energyColor} emissiveIntensity={energy / 100} />
@@ -50,13 +72,46 @@ const Fish = ({ agent, gridSize }) => {
 };
 
 const Shark = ({ agent, gridSize }) => {
-    const { pos, color } = agent;
+    const { pos, color, velocity } = agent;
     const groupRef = useRef();
+    const targetPositionRef = useRef([0, 0, 0]);
+    const currentPositionRef = useRef([0, 0, 0]);
+    
     const offsetX = gridSize ? gridSize[0] / 2 : 0;
     const offsetZ = gridSize ? gridSize[2] / 2 : 0;
 
+    // Update target position when agent position changes
+    const targetPosition = [pos[0] - offsetX, pos[1], pos[2] - offsetZ];
+    targetPositionRef.current = targetPosition;
+
+    // Initialize current position to target position on first render
+    if (currentPositionRef.current[0] === 0 && currentPositionRef.current[1] === 0 && currentPositionRef.current[2] === 0) {
+        currentPositionRef.current = [...targetPosition];
+    }
+
+    useFrame((state, delta) => {
+        if (groupRef.current) {
+            // Lerp position smoothly
+            const lerpFactor = Math.min(1, delta * 3); // Slower, smoother lerping (slightly slower than fish)
+            currentPositionRef.current[0] += (targetPositionRef.current[0] - currentPositionRef.current[0]) * lerpFactor;
+            currentPositionRef.current[1] += (targetPositionRef.current[1] - currentPositionRef.current[1]) * lerpFactor;
+            currentPositionRef.current[2] += (targetPositionRef.current[2] - currentPositionRef.current[2]) * lerpFactor;
+            
+            groupRef.current.position.set(...currentPositionRef.current);
+
+            // Handle rotation based on velocity
+            if (velocity && new THREE.Vector3(...velocity).lengthSq() > 0.001) {
+                const targetRotationPosition = new THREE.Vector3().addVectors(
+                    groupRef.current.position,
+                    new THREE.Vector3(velocity[0], velocity[1], velocity[2])
+                );
+                groupRef.current.lookAt(targetRotationPosition);
+            }
+        }
+    });
+
     return (
-        <group ref={groupRef} position={[pos[0] - offsetX, pos[1], pos[2] - offsetZ]}>
+        <group ref={groupRef}>
             <mesh>
                 <boxGeometry args={[4, 1.5, 2]} />
                 <meshPhongMaterial color={"white"} emissive={"white"} wireframe={true} emissiveIntensity={0.2} />
@@ -114,7 +169,7 @@ const StaticScenery = ({ gridSize }) => {
         if (!gridSize) return null;
 
         const meshes = [];
-        const count = 64; // Add number of scenery objects
+        const count = 128; // Add number of scenery objects
         const offsetX = gridSize[0] / 2;
         const offsetZ = gridSize[2] / 2;
 
@@ -167,7 +222,7 @@ const EnergyPanel = ({ agents }) => {
                   <div key={agent.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
                       <Text span>Fish {agent.id}:</Text>
                       <Text span>
-                        <progress value={agent.energy} max="100" style={{width: '100px'}} />
+                        <progress value={agent.energy} max="64" style={{width: '100px'}} />
                         <span style={{marginLeft: '8px'}}>{agent.energy.toFixed(0)}</span>
                       </Text>
                   </div>
@@ -286,7 +341,7 @@ export default function FishExample() {
         <EffectComposer>
           <Bloom intensity={0.9} luminanceThreshold={0.2} luminanceSmoothing={0.8} />
         </EffectComposer>
-        <OrbitControls maxDistance={100} minDistance={10} target={[0, 32, 0]} />
+        <OrbitControls maxDistance={200} minDistance={10} target={[0, 64, 0]} />
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
