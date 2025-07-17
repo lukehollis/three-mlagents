@@ -51,7 +51,7 @@ RESOURCE_TYPES = {
 MAX_MESSAGES = 20
 MAX_LLM_LOGS = 30
 LLM_CALL_FREQUENCY = 10
-USE_LOCAL_OLLAMA = False
+USE_LOCAL_OLLAMA = True 
 
 CRAFTING_RECIPES = {
     "stone_pickaxe": {"craft_time": 2, "value": 25, "recipe": {"stone": 3, "wood": 2}},
