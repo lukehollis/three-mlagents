@@ -1,6 +1,14 @@
 # Three ML-Agents
 
-[![Live demo](https://img.shields.io/badge/web-live%20demo-brightgreen?style=flat&logo=github)](https://lukehollis.github.io/three-mlagents/)  [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat)](#license)
+[![Live demo](https://img.shields.io/badge/web-live%20demo-brightgreen?style=flat&logo=github)](https://lukehollis.github.io/three-mlagents/)
+![GitHub stars](https://img.shields.io/github/stars/lukehollis/three-mlagents?style=flat&logo=github)
+![GitHub last commit](https://img.shields.io/github/last-commit/lukehollis/three-mlagents?style=flat&logo=github)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg?style=flat)](#license)
+
+![React](https://img.shields.io/badge/React-18+-61dafb?style=flat&logo=react)
+![Three.js](https://img.shields.io/badge/Three.js-r150+-000000?style=flat&logo=three.js)
+![Python](https://img.shields.io/badge/Python-3.9+-3776ab?style=flat&logo=python)
+![FastAPI](https://img.shields.io/badge/FastAPI-latest-009688?style=flat&logo=fastapi)
 
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples.
 
@@ -240,15 +248,6 @@ openai                 # for LLM API calls (if using OpenRouter)
 2. Open the frontend and navigate to the MineCraft example
 
 3. The agents will use LLMs for strategic decision-making, communication, and trading while using RL for basic movement and mining actions.
-
----
-
-## Roadmap
-
-1. **/basic** 1-D movement – _done_
-2. **/3dball** continuous control & physics
-3. Curriculum learning (+ curriculum visualiser)
-4. On-policy & off-policy training notebook examples
 
 ---
 
