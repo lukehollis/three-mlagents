@@ -189,6 +189,61 @@ class Agent:
         z_start, z_end = max(0, self.pos[2]-2), min(GRID_SIZE_Z, self.pos[2]+3)
         view = grid[x_start:x_end, y_start:y_end, z_start:z_end].tolist()
 
+        template = f"""
+        Examples of valid JSON responses:
+        
+        For move action:
+        {{
+            "action": "move",
+            "data": [32, 8, 32]
+        }}
+        
+        For mine action:
+        {{
+            "action": "mine", 
+            "data": [32, 7, 32]
+        }}
+        
+        For talk action:
+        {{
+            "action": "talk",
+            "data": {{"message": "Hello everyone!", "recipient_id": null}}
+        }}
+        
+        For craft action:
+        {{
+            "action": "craft",
+            "data": "stone_pickaxe"
+        }}
+        
+        For offer action:
+        {{
+            "action": "offer",
+            "data": {{"item_to_give": "stone", "amount_to_give": 2, "item_to_receive": "wood", "amount_to_receive": 1}}
+        }}
+        
+        For accept_offer action:
+        {{
+            "action": "accept_offer",
+            "data": 0
+        }}
+        
+        For wait action:
+        {{
+            "action": "wait",
+            "data": null
+        }}
+        """
+
+        system_prompt = f"""
+        You are a mining agent in a 3D grid world. Your ID is {self.id}.
+        You must respond in valid JSON format only. Here are the valid response formats:
+        
+        {template}
+        
+        Choose the appropriate action and provide the data in the exact format shown above.
+        """
+
         prompt = f"""You are a mining agent in a 3D grid world. Your ID is {self.id}.
 Your current position is [x, y, z]: {self.pos.tolist()}. Y is the vertical axis.
 Your inventory is {self.inventory}.
@@ -223,6 +278,12 @@ PRIORITIZE COMMUNICATION: Talk frequently to coordinate with other agents, ask f
 If you need resources for crafting, check for trade offers or create your own. If you have surplus resources, offer them for trade. If you have no goal, set one by talking about a valuable resource or a craftable item. If you see your goal, move towards it or mine it. If you have the resources, craft a valuable item. If you don't see your goal, explore randomly (especially downwards for valuable ores) or ask for help.
 
 Consider talking if: you just found something valuable, you need help finding resources, you want to make a trade, you want to share your location, or you want to coordinate with other agents.
+
+CRITICAL: You MUST respond with valid JSON only. No explanations, no text outside JSON.
+
+{template}
+
+Pick ONE action and respond in the exact JSON format shown above.
 """
 
         action_schema = {
@@ -242,6 +303,7 @@ Consider talking if: you just found something valuable, you need help finding re
         
         response = await asyncio.wait_for(
             get_json(
+                system_prompt=system_prompt,
                 prompt=prompt,
                 model="gemma3n:latest",
                 response_schema=action_schema,
