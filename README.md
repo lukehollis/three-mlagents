@@ -101,12 +101,12 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 [Live demo](https://lukehollis.github.io/three-mlagents/glider)
 
 
-### 11. MineFarm
+### 11. MineCraft
 
-![minefarm_example](https://github.com/user-attachments/assets/1338e926-8c8d-412e-bc2c-0627e47df165)
+![minecraft_example](https://github.com/user-attachments/assets/1338e926-8c8d-412e-bc2c-0627e47df165)
 
 
-[Live demo](https://lukehollis.github.io/three-mlagents/minefarm)
+[Live demo](https://lukehollis.github.io/three-mlagents/minecraft)
 
 
 ### 12. Fish

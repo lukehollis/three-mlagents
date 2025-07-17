@@ -10,7 +10,7 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 
-const WS_URL = `${config.WS_BASE_URL}/ws/minefarm`;
+const WS_URL = `${config.WS_BASE_URL}/ws/minecraft`;
 
 
 const Agent = ({ agent, gridSize }) => {
@@ -197,7 +197,7 @@ const MessagePanel = ({ messages }) => {
 };
 
 
-export default function MineFarmExample() {
+export default function MineCraftExample() {
   const [state, setState] = useState(null);
   const [running, setRunning] = useState(false);
   const [training, setTraining] = useState(false);
@@ -221,9 +221,9 @@ export default function MineFarmExample() {
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
-    ws.onopen = () => addLog('MineFarm WS opened');
+    ws.onopen = () => addLog('MineCraft WS opened');
     ws.onmessage = (ev) => {
-      console.log('[MineFarm] WS message:', ev.data); // DEBUG
+      console.log('[MineCraft] WS message:', ev.data); // DEBUG
       addLog(`Received data: ${ev.data.substring(0, 100)}...`); // Log incoming data
       try {
         const parsed = JSON.parse(ev.data);
@@ -270,12 +270,12 @@ export default function MineFarmExample() {
         console.error("Failed to process message: ", e);
       }
     };
-    ws.onclose = () => addLog('MineFarm WS closed');
+    ws.onclose = () => addLog('MineCraft WS closed');
     return () => ws.close();
   }, []);
 
   const send = (obj) => {
-    console.log('[MineFarm] Sending to WS:', obj); // DEBUG
+    console.log('[MineCraft] Sending to WS:', obj); // DEBUG
     addLog(`Sending: ${JSON.stringify(obj)}`);
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(obj));
@@ -292,9 +292,9 @@ export default function MineFarmExample() {
   };
 
   const startTraining = () => {
-    console.log('[MineFarm] startTraining clicked'); // DEBUG
+    console.log('[MineCraft] startTraining clicked'); // DEBUG
     if (training || running) {
-      console.log('[MineFarm] Training already in progress or simulation running.');
+      console.log('[MineCraft] Training already in progress or simulation running.');
       return;
     }
     setTraining(true);
@@ -362,7 +362,7 @@ export default function MineFarmExample() {
         >
           Home
         </Link>
-        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Mine Farm</Text>
+        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Minecraft</Text>
         <div style={{ display: 'flex', gap: '8px' }}>
           <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
           <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>

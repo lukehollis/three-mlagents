@@ -577,11 +577,11 @@ export default function ExamplesIndex() {
               }}
             >
               <Card.Content style={{ padding: 0 }}>
-                <Link to="/minefarm" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <Link to="/minecraft" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
                       src="/three-mlagents/minefarm_example.jpg" 
-                      alt="Mine Farm Example"
+                      alt="Minecraft "
                       style={{
                         width: '100%',
                         height: '200px',
@@ -593,15 +593,15 @@ export default function ExamplesIndex() {
                 </Link>
               </Card.Content>
               <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/minefarm" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <Link to="/minecraft" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Mine Farm
+                    Minecraft
                   </Text>
                 </Link>
                 <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  An agent-based simulation of 20 Minecraft-like agents that randomly explore a world to mine resources. Agents communicate their goals and their inventories are tracked.
+                  Minecraft-like agents explore a world and mine resources, communicating their goals and working together to craft items. 
                 </Text>
-                <Link to="/minefarm" style={{ textDecoration: 'none' }}>
+                <Link to="/minecraft" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
                     icon={<Play />} 

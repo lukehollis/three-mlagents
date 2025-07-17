@@ -18,7 +18,7 @@ from examples.brick_break import train_brick_break, run_brick_break, BrickBreakE
 from examples.food_collector import train_food_collector, run_food_collector, FoodCollectorEnv
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
-from examples.minefarm import run_minefarm, train_minefarm, MineFarmEnv
+from examples.minecraft import run_minecraft, train_minecraft, MineCraftEnv
 from examples.fish import run_fish, train_fish, FishEnv
 from examples.intersection import run_intersection, train_intersection, MultiVehicleEnv as IntersectionEnv
 
@@ -273,11 +273,11 @@ async def websocket_glider(websocket: WebSocket):
         print(f"Glider websocket disconnected: {e}")
 
 
-# WebSocket endpoint for MineFarm
-@app.websocket("/ws/minefarm")
-async def websocket_minefarm(websocket: WebSocket):
+# WebSocket endpoint for MineCraft
+@app.websocket("/ws/minecraft")
+async def websocket_minecraft(websocket: WebSocket):
     await websocket.accept()
-    env = MineFarmEnv()
+    env = MineCraftEnv()
     await websocket.send_json({"type": "init", "state": env.get_state_for_viz()})
     
     try:
@@ -286,12 +286,12 @@ async def websocket_minefarm(websocket: WebSocket):
             cmd = data.get("cmd")
 
             if cmd == 'train':
-                await train_minefarm(websocket, env)
+                await train_minecraft(websocket, env)
             elif cmd == 'run':
-                await run_minefarm(websocket, env)
+                await run_minecraft(websocket, env)
 
     except Exception as e:
-        print(f"MineFarm websocket disconnected: {e}")
+        print(f"MineCraft websocket disconnected: {e}")
 
 
 # WebSocket endpoint for Fish

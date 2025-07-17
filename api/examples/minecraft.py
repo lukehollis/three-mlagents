@@ -7,10 +7,12 @@ from fastapi import WebSocket
 import logging
 
 from services.llm import get_json, get_embedding
+
+logger = logging.getLogger(__name__)
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from policies.minefarm_policy import ActorCritic
+from policies.minecraft_policy import ActorCritic
 
 # --- Constants ---
 GRID_SIZE_X = 64
@@ -69,11 +71,14 @@ class Agent:
         self.id = agent_id
         self.pos = pos
         self.inventory = {res: 0 for res in list(RESOURCE_TYPES.keys()) + list(CRAFTING_RECIPES.keys())}
-        self.goal = None # e.g., "wood" or "stone"
+        # Give agents initial goals to encourage exploration and communication
+        valuable_resources = ["iron", "gold", "diamond", "crystal"]
+        self.goal = random.choice(valuable_resources)
         self.path = []
         self.color = [random.random() * 0.8, random.random() * 0.8, random.random() * 0.8]
         self.llm_intent = None # Stores the action suggested by the LLM
         self.is_thinking = False # Flag to prevent concurrent LLM calls
+        self.last_llm_step = -10 # Last step when LLM was called (start with -10 for immediate first call)
         self.memory_vector = np.zeros(384) # all-MiniLM-L6-v2 produces embeddings of size 384
 
     def update_memory(self, text: str):
@@ -200,7 +205,7 @@ Based on your state, what is your next action? If you need resources for craftin
 
 
 # --- Environment Class ---
-class MineFarmEnv:
+class MineCraftEnv:
     def __init__(self):
         self.grid = np.zeros((GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z), dtype=int)
         self.llm_logs: List[Dict] = []
@@ -220,11 +225,7 @@ class MineFarmEnv:
                     logger.warning(f"Could not find a random spawn point for agent {i}. Using fallback.")
                     # Fallback: find the surface height at the center of the map
                     center_x, center_z = GRID_SIZE_X // 2, GRID_SIZE_Z // 2
-                    y_surface = -1
-                    for y in range(GRID_SIZE_Y - 1, -1, -1):
-                        if self.grid[center_x, y, center_z] != 0:
-                            y_surface = y
-                            break
+                    y_surface = self._find_surface_height(center_x, center_z)
                     if y_surface != -1 and y_surface + 1 < GRID_SIZE_Y:
                         spawn_y = y_surface + 1
                         self.agents.append(Agent(i, np.array([center_x, spawn_y, center_z])))
@@ -238,11 +239,7 @@ class MineFarmEnv:
                 start_z = random.randint(0, GRID_SIZE_Z - 1)
 
                 # Find the highest solid block y-coordinate by scanning down from the top
-                y_surface = -1
-                for y in range(GRID_SIZE_Y - 1, -1, -1):
-                    if self.grid[start_x, y, start_z] != 0:
-                        y_surface = y
-                        break
+                y_surface = self._find_surface_height(start_x, start_z)
 
                 # If we found a surface and there's space above it, spawn the agent
                 if y_surface != -1 and y_surface + 1 < GRID_SIZE_Y:
@@ -250,7 +247,6 @@ class MineFarmEnv:
                     self.agents.append(Agent(i, np.array([start_x, spawn_y, start_z])))
                     spawned = True
                 # If the column is all air or the top block is solid, retry
-
 
     def _spawn_resources(self):
         # 1. Generate a height map for the terrain using sine waves for smooth hills
@@ -376,6 +372,33 @@ class MineFarmEnv:
                             if self.grid[x, y, z] == stone_idx:
                                 self.grid[x, y, z] = res_idx
 
+    def _find_surface_height(self, x: int, z: int) -> int:
+        """Find the highest solid block at the given x,z coordinate. Returns -1 if no solid block found."""
+        if not (0 <= x < GRID_SIZE_X and 0 <= z < GRID_SIZE_Z):
+            return -1
+        
+        for y in range(GRID_SIZE_Y - 1, -1, -1):
+            if self.grid[x, y, z] != 0:
+                return y
+        return -1
+
+    def _apply_gravity(self, agent: Agent) -> None:
+        """Apply gravity to an agent, making them fall to the nearest solid surface."""
+        x, y, z = int(agent.pos[0]), int(agent.pos[1]), int(agent.pos[2])
+        
+        # Find the surface height at this x,z position
+        surface_y = self._find_surface_height(x, z)
+        
+        if surface_y != -1:
+            # Agent should be standing on the surface (one block above the highest solid block)
+            target_y = surface_y + 1
+            # Make sure target_y is within bounds
+            target_y = max(0, min(GRID_SIZE_Y - 1, target_y))
+            agent.pos[1] = target_y
+        else:
+            # No solid ground found, keep agent at a safe height
+            agent.pos[1] = max(0, min(GRID_SIZE_Y - 1, agent.pos[1]))
+
     def _calculate_reward(self):
         total_value = 0
         for agent in self.agents:
@@ -432,10 +455,15 @@ class MineFarmEnv:
 
             if action == "move" and data is not None:
                 # Ensure agent stays within bounds
-                data[0] = np.clip(data[0], 0, GRID_SIZE_X - 1)
-                data[1] = np.clip(data[1], 0, GRID_SIZE_Y - 1)
-                data[2] = np.clip(data[2], 0, GRID_SIZE_Z - 1)
-                agent.pos = data
+                new_x = np.clip(data[0], 0, GRID_SIZE_X - 1)
+                new_z = np.clip(data[2], 0, GRID_SIZE_Z - 1)
+                
+                # Update position horizontally first
+                agent.pos[0] = new_x
+                agent.pos[2] = new_z
+                
+                # Apply gravity to ensure agent lands on solid ground
+                self._apply_gravity(agent)
             elif action == "mine" and data is not None:
                 res_pos = data
                 if 0 <= res_pos[0] < GRID_SIZE_X and 0 <= res_pos[1] < GRID_SIZE_Y and 0 <= res_pos[2] < GRID_SIZE_Z:
@@ -446,6 +474,9 @@ class MineFarmEnv:
                         self.grid[res_pos[0], res_pos[1], res_pos[2]] = 0 # Resource depleted
                         agent.goal = None # Find a new goal
                         agent.update_memory(f"I mined {res_name}.")
+                        
+                        # Apply gravity in case the agent mined the block they were standing on
+                        self._apply_gravity(agent)
             elif action == "talk" and data is not None:
                 message_data = {
                     "sender_id": agent.id,
@@ -531,7 +562,10 @@ class MineFarmEnv:
         # --- LLM Thinking (Asynchronous) ---
         llm_tasks = []
         for agent in self.agents:
-            if not agent.is_thinking:
+            # Only allow LLM calls every 5 steps per agent to avoid overwhelming the system
+            steps_since_last_llm = self.step_count - agent.last_llm_step
+            if not agent.is_thinking and steps_since_last_llm >= 5:
+                agent.last_llm_step = self.step_count
                 task = asyncio.create_task(
                     agent.decide_action_llm(self.grid, self.agents, self.messages, self.step_count, self.trade_offers)
                 )
@@ -544,15 +578,31 @@ class MineFarmEnv:
 
         # Collect logs from completed LLM tasks without blocking
         if llm_tasks:
-            done, _ = await asyncio.wait(llm_tasks, timeout=0.1) # Short timeout to not block the loop
+            if self.step_count % 10 == 0:  # Only log every 10 steps to reduce spam
+                logger.info(f"Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
+            
+            done, pending = await asyncio.wait(llm_tasks, timeout=3.0) # Allow more time for LLM calls to complete
+            
+            if self.step_count % 10 == 0:
+                logger.info(f"Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
+            
             for task in done:
                 log_entry = task.result()
                 if log_entry:
                     self.llm_logs.append(log_entry)
                     if len(self.llm_logs) > MAX_LLM_LOGS:
                         self.llm_logs = self.llm_logs[-MAX_LLM_LOGS:]
+                    logger.info(f"Agent {log_entry.get('agent_id')} LLM call completed")
+            
+            # Cancel pending tasks to avoid accumulation
+            for task in pending:
+                task.cancel()
         
         self._execute_actions(agent_actions)
+        
+        # Apply gravity to all agents to ensure they stay grounded
+        for agent in self.agents:
+            self._apply_gravity(agent)
 
     def get_state_for_viz(self) -> Dict[str, Any]:
         return {
@@ -623,13 +673,13 @@ CLIP_EPS = 0.2
 ENT_COEF = 0.01
 LR = 3e-4
 
-async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
+async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
     """
-    Train the MineFarm agents using Proximal Policy Optimization (PPO).
+    Train the MineCraft agents using Proximal Policy Optimization (PPO).
     """
     try:
-        await websocket.send_json({"type": "debug", "message": "Entered train_minefarm()"})
-        # env = MineFarmEnv() # DO NOT CREATE A NEW ENV
+        await websocket.send_json({"type": "debug", "message": "Entered train_minecraft()"})
+        # env = MineCraftEnv() # DO NOT CREATE A NEW ENV
         
         # Determine obs and action sizes from the environment
         # Note: This is a multi-agent environment, but we use a shared policy.
@@ -797,14 +847,14 @@ async def train_minefarm(websocket: WebSocket, env: MineFarmEnv):
         await websocket.send_json({"type": "trained", "model_info": {"epochs": ep_counter, "loss": loss.item()}})
         await websocket.send_json({"type": "debug", "message": "Training complete"})
     except Exception as e:
-        logger.error(f"Error during MineFarm training: {e}", exc_info=True)
+        logger.error(f"Error during MineCraft training: {e}", exc_info=True)
         await websocket.send_json({"type": "error", "message": f"Training failed: {e}"})
 
 
 # --- Websocket runner ---
-async def run_minefarm(websocket: WebSocket, env: MineFarmEnv):
+async def run_minecraft(websocket: WebSocket, env: MineCraftEnv):
     """
-    Runs the MineFarm simulation loop.
+    Runs the MineCraft simulation loop.
     Assumes the environment is already created and the initial state has been sent.
     """
     running = True
