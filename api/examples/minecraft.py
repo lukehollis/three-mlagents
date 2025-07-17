@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from policies.minecraft_policy import ActorCritic
+from torch.distributions.categorical import Categorical
 
 # --- Constants ---
 GRID_SIZE_X = 64
@@ -63,6 +63,62 @@ ACTION_MAP_MINE = {
     "mine_z+":   np.array([0, 0, 1]),
     "mine_z-":   np.array([0, 0, -1]),
 }
+
+
+class ActorCritic(nn.Module):
+    def __init__(self, obs_size: int, action_size: int):
+        super().__init__()
+        self.shared = nn.Sequential(
+            nn.Linear(obs_size, 256), nn.Tanh(),
+            nn.Linear(256, 128), nn.Tanh()
+        )
+        self.actor_logits = nn.Linear(128, action_size)
+        self.critic = nn.Linear(128, 1)
+
+    def forward(self, obs: torch.Tensor, valid_actions_mask: torch.Tensor = None):
+        h = self.shared(obs)
+        logits = self.actor_logits(h)
+        
+        if valid_actions_mask is not None:
+            # Where the mask is False, we set logits to a very low number to make their probability ~0
+            logits[~valid_actions_mask] = -1e9
+
+        dist = Categorical(logits=logits)
+        value = self.critic(h)
+        return dist, value
+
+    def get_action(self, obs: np.ndarray, action: torch.Tensor = None, valid_actions_mask: torch.Tensor = None):
+        """
+        Get an action from the policy, either by sampling or using a provided action.
+        Handles both single observations and batches.
+        Applies an action mask to prevent selection of invalid actions.
+        """
+        if not isinstance(obs, torch.Tensor):
+            obs_t = torch.from_numpy(obs).float()
+        else:
+            obs_t = obs
+
+        if valid_actions_mask is not None and not isinstance(valid_actions_mask, torch.Tensor):
+            valid_actions_mask = torch.from_numpy(valid_actions_mask).bool()
+        
+        # Add a batch dimension if it's a single observation
+        if obs_t.dim() == 1:
+            obs_t = obs_t.unsqueeze(0)
+            if valid_actions_mask is not None and valid_actions_mask.dim() == 1:
+                valid_actions_mask = valid_actions_mask.unsqueeze(0)
+
+        dist, value = self.forward(obs_t, valid_actions_mask=valid_actions_mask)
+        
+        if action is None:
+            action = dist.sample()
+            
+        log_prob = dist.log_prob(action)
+
+        # If it was a single observation, return single items
+        if obs_t.shape[0] == 1:
+            return action.item(), log_prob.item(), value.item()
+        
+        return action, log_prob, value 
 
 
 # --- Agent Class ---
@@ -158,7 +214,9 @@ Consider talking if: you just found something valuable, you need help finding re
             
             # Instead of returning, store the result as the agent's intent
             self.llm_intent = (response.get("action", "wait"), response.get("data"))
-            logger.info(f"Agent {self.id} LLM set intent: {self.llm_intent}")
+            print(f"🧠 Agent {self.id}: LLM response received - action: {response.get('action')}, data: {response.get('data')}")
+            print(f"💭 Agent {self.id}: Intent set to: {self.llm_intent}")
+            print(f"Agent {self.id} LLM set intent: {self.llm_intent}")
             
             log_entry = {"agent_id": self.id, "step": step_count, "prompt": prompt, "response": response}
             # This log will be collected by the environment later
@@ -179,14 +237,18 @@ Consider talking if: you just found something valuable, you need help finding re
             self.is_thinking = False
 
     def get_fast_action(self, trained_policy: "ActorCritic", grid: np.ndarray) -> Tuple[str, Any]:
+        print(f"🎯 Agent {self.id}: get_fast_action called, llm_intent = {self.llm_intent}")
+        
         # --- LLM Intent Check First (for communication) ---
         # Always prioritize LLM intent for talk actions, even with trained policy
         if self.llm_intent:
             action, data = self.llm_intent
-            logger.info(f"Agent {self.id} using LLM intent: {action}, {data}")
+            print(f"💬 Agent {self.id}: Using LLM intent: {action}, {data}")
+            print(f"Agent {self.id} using LLM intent: {action}, {data}")
             # If it's a communication action, always use LLM
             if action in ["talk", "craft", "offer", "accept_offer"]:
                 self.llm_intent = None  # Consume the intent
+                print(f"🗣️ Agent {self.id}: Returning LLM communication action: {action}")
                 return (action, data)
             # For move actions, validate and use if reasonable
             elif action == "move" and data:
@@ -195,30 +257,58 @@ Consider talking if: you just found something valuable, you need help finding re
                 if np.sum(np.abs(direction)) == 1:
                     self.llm_intent = None  # Consume the intent
                     return ("move", self.pos + direction)
-            # For mine actions, use directly
+            # For mine actions, validate before using
             elif action == "mine" and data:
                 self.llm_intent = None  # Consume the intent
-                return (action, data)
+                mine_pos_int = [int(p) for p in data]
+                # Check if target is within bounds and not empty
+                if 0 <= mine_pos_int[0] < GRID_SIZE_X and \
+                   0 <= mine_pos_int[1] < GRID_SIZE_Y and \
+                   0 <= mine_pos_int[2] < GRID_SIZE_Z and \
+                   grid[mine_pos_int[0], mine_pos_int[1], mine_pos_int[2]] != 0:
+                    return (action, mine_pos_int)
+                else:
+                    print(f"🤫 Agent {self.id}: LLM chose to mine invalid block at {mine_pos_int}, waiting instead.")
+                    return ("wait", None) # Override with wait
 
         # --- Policy Decision (for basic movement/mining) ---
         # Use the trained actor-critic policy for basic actions if available
         if trained_policy:
+            print(f"🧮 Agent {self.id}: Using trained policy")
             state_vector = get_agent_state_vector(self, grid)
             action_index, _, _ = trained_policy.get_action(state_vector) 
             action_name = DISCRETE_ACTIONS[action_index]
+            print(f"🎲 Agent {self.id}: Policy chose action: {action_name}")
 
             if action_name in ACTION_MAP_MOVE:
+                print(f"🚶 Agent {self.id}: Policy move action")
                 return ("move", self.pos + ACTION_MAP_MOVE[action_name])
             elif action_name in ACTION_MAP_MINE:
-                return ("mine", self.pos + ACTION_MAP_MINE[action_name])
+                print(f"⛏️ Agent {self.id}: Policy mine action")
+                mine_pos = self.pos + ACTION_MAP_MINE[action_name]
+                mine_pos_int = [int(p) for p in mine_pos]
+                # Action Masking: Check if the target is valid before returning the action
+                if 0 <= mine_pos_int[0] < GRID_SIZE_X and \
+                   0 <= mine_pos_int[1] < GRID_SIZE_Y and \
+                   0 <= mine_pos_int[2] < GRID_SIZE_Z and \
+                   grid[mine_pos_int[0], mine_pos_int[1], mine_pos_int[2]] != 0:
+                    return ("mine", mine_pos_int)
+                else:
+                    # If the action is invalid, the agent waits instead.
+                    # This implicitly punishes the policy for choosing bad actions.
+                    print(f"🤫 Agent {self.id}: Policy chose to mine invalid block at {mine_pos_int}, waiting instead.")
+                    return ("wait", None)
             elif action_name == "talk":
                 # NEVER use basic messages - talk actions should ONLY come from LLM
                 # If policy wants to talk but no LLM intent, just wait instead
+                print(f"🤫 Agent {self.id}: Policy wanted to talk but no LLM intent - waiting instead")
                 return ("wait", None)
             else: # wait
+                print(f"⏸️ Agent {self.id}: Policy wait action")
                 return ("wait", None)
         
         # --- Default behavior: random walk ---
+        print(f"🎲 Agent {self.id}: No policy, using random walk")
         move = random.choice(list(ACTION_MAP_MOVE.values()))
         next_pos = self.pos + np.array(move)
         return ("move", next_pos)
@@ -439,10 +529,11 @@ class MineCraftEnv:
         reward -= 0.01
 
         if action == "move":
-            reward -= 0.02 # Cost of moving
+            reward -= 0.05 # Increased cost of moving to encourage deliberate action
 
         elif action == "mine":
-            res_pos = data
+            # Ensure coords are integers for grid access
+            res_pos = [int(p) for p in data]
             if 0 <= res_pos[0] < GRID_SIZE_X and 0 <= res_pos[1] < GRID_SIZE_Y and 0 <= res_pos[2] < GRID_SIZE_Z:
                 res_idx = self.grid[res_pos[0], res_pos[1], res_pos[2]]
                 if res_idx > 0:
@@ -450,9 +541,9 @@ class MineCraftEnv:
                     res_value = RESOURCE_TYPES[res_name]["value"]
                     reward += res_value if res_value > 0 else 0.1 # Reward for mining something
                 else:
-                    reward -= 0.1 # Penalty for mining empty space
+                    reward -= 0.5 # Sharper penalty for mining empty space
             else:
-                reward -= 0.2 # Penalty for mining out of bounds
+                reward -= 1.0 # Even sharper penalty for mining out of bounds
 
         elif action == "craft":
              recipe_info = CRAFTING_RECIPES.get(data)
@@ -485,13 +576,15 @@ class MineCraftEnv:
                 # Apply gravity to ensure agent lands on solid ground
                 self._apply_gravity(agent)
             elif action == "mine" and data is not None:
-                res_pos = data
+                # Convert mining position to integers to ensure proper grid indexing
+                res_pos = [int(data[0]), int(data[1]), int(data[2])]
                 if 0 <= res_pos[0] < GRID_SIZE_X and 0 <= res_pos[1] < GRID_SIZE_Y and 0 <= res_pos[2] < GRID_SIZE_Z:
                     res_idx = self.grid[res_pos[0], res_pos[1], res_pos[2]]
                     if res_idx > 0:
                         res_name = list(RESOURCE_TYPES.keys())[int(res_idx) - 1]
                         agent.inventory[res_name] += 1
                         self.grid[res_pos[0], res_pos[1], res_pos[2]] = 0 # Resource depleted
+                        print(f"⛏️ Agent {agent.id} mined {res_name} at {res_pos}")  # Debug logging
                         # Assign a new goal instead of setting to None
                         valuable_resources = ["iron", "gold", "diamond", "crystal"]
                         craftable_items = list(CRAFTING_RECIPES.keys())
@@ -501,6 +594,10 @@ class MineCraftEnv:
                         
                         # Apply gravity in case the agent mined the block they were standing on
                         self._apply_gravity(agent)
+                    else:
+                        print(f"❌ Agent {agent.id} tried to mine empty space at {res_pos}")  # Debug logging
+                else:
+                    print(f"❌ Agent {agent.id} tried to mine out of bounds at {res_pos}")  # Debug logging
             elif action == "talk" and data is not None:
                 message_data = {
                     "sender_id": agent.id,
@@ -593,12 +690,16 @@ class MineCraftEnv:
             # Allow LLM calls every 2 steps per agent for maximum communication
             # Agents should be constantly thinking and talking via LLM
             steps_since_last_llm = self.step_count - agent.last_llm_step
+            print(f"🔍 Agent {agent.id}: is_thinking={agent.is_thinking}, steps_since_llm={steps_since_last_llm}")
             if not agent.is_thinking and steps_since_last_llm >= 2:
+                print(f"🚀 Creating LLM task for Agent {agent.id}")
                 agent.last_llm_step = self.step_count
                 task = asyncio.create_task(
                     agent.decide_action_llm(self.grid, self.agents, self.messages, self.step_count, self.trade_offers)
                 )
                 llm_tasks.append(task)
+        
+        print(f"📋 Step {self.step_count}: Created {len(llm_tasks)} LLM tasks")
 
         # --- Fast Action Execution (Synchronous) ---
         agent_actions = []
@@ -607,24 +708,28 @@ class MineCraftEnv:
 
         # Collect logs from completed LLM tasks without blocking
         if llm_tasks:
+            print(f"⏳ Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             if self.step_count % 10 == 0:  # Only log every 10 steps to reduce spam
-                logger.info(f"Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
+                print(f"Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             
             done, pending = await asyncio.wait(llm_tasks, timeout=3.0) # Allow more time for LLM calls to complete
             
+            print(f"✅ Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
             if self.step_count % 10 == 0:
-                logger.info(f"Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
+                print(f"Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
             
             for task in done:
                 log_entry = task.result()
                 if log_entry:
+                    print(f"📝 Collected log entry from Agent {log_entry.get('agent_id')}")
                     self.llm_logs.append(log_entry)
                     if len(self.llm_logs) > MAX_LLM_LOGS:
                         self.llm_logs = self.llm_logs[-MAX_LLM_LOGS:]
-                    logger.info(f"Agent {log_entry.get('agent_id')} LLM call completed")
+                    print(f"Agent {log_entry.get('agent_id')} LLM call completed")
             
             # Cancel pending tasks to avoid accumulation
             for task in pending:
+                print(f"❌ Cancelling pending LLM task")
                 task.cancel()
         
         self._execute_actions(agent_actions)
@@ -692,6 +797,45 @@ def get_agent_state_vector(agent: Agent, grid: np.ndarray) -> np.ndarray:
     state_vector = np.concatenate([view_flat, inventory_vec, memory_vec])
     return state_vector
 
+
+def get_valid_actions_mask(agent: Agent, grid: np.ndarray) -> np.ndarray:
+    """
+    Generates a boolean mask for all discrete actions, where True means the action is valid.
+    """
+    mask = np.zeros(len(DISCRETE_ACTIONS), dtype=bool)
+    
+    # Check move actions
+    for i, (action_name, move_dir) in enumerate(ACTION_MAP_MOVE.items()):
+        target_pos = agent.pos + move_dir
+        # For simplicity, we assume moves are generally valid unless they go into a solid block.
+        # A more complex check would look at clipping and gravity.
+        # But for masking, we just check if the target block is not solid (value > 0).
+        if 0 <= target_pos[0] < GRID_SIZE_X and 0 <= target_pos[1] < GRID_SIZE_Y and 0 <= target_pos[2] < GRID_SIZE_Z:
+            # Allow moving into air
+            if grid[int(target_pos[0]), int(target_pos[1]), int(target_pos[2])] == 0:
+                 action_idx = DISCRETE_ACTIONS.index(action_name)
+                 mask[action_idx] = True
+
+    # Check mine actions
+    for i, (action_name, mine_dir) in enumerate(ACTION_MAP_MINE.items()):
+        target_pos = agent.pos + mine_dir
+        if 0 <= target_pos[0] < GRID_SIZE_X and 0 <= target_pos[1] < GRID_SIZE_Y and 0 <= target_pos[2] < GRID_SIZE_Z:
+            # Allow mining non-air blocks
+            if grid[int(target_pos[0]), int(target_pos[1]), int(target_pos[2])] != 0:
+                action_idx = DISCRETE_ACTIONS.index(action_name)
+                mask[action_idx] = True
+
+    # Talk and wait are always valid
+    mask[DISCRETE_ACTIONS.index("talk")] = True
+    mask[DISCRETE_ACTIONS.index("wait")] = True
+
+    # If no actions are valid for some reason (e.g., agent is trapped), allow waiting.
+    if not np.any(mask):
+        mask[DISCRETE_ACTIONS.index("wait")] = True
+        
+    return mask
+
+
 # --- PPO Hyperparameters ---
 BATCH_SIZE = 2048
 MINI_BATCH = 256
@@ -739,9 +883,13 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
             
             agent_states = [get_agent_state_vector(agent, env.grid) for agent in env.agents]
             obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
+            
+            # Generate valid action masks for each agent
+            valid_masks = np.array([get_valid_actions_mask(agent, env.grid) for agent in env.agents])
+            masks_t = torch.from_numpy(valid_masks).bool()
 
             with torch.no_grad():
-                dist, value = model(obs_t)
+                dist, value = model(obs_t, valid_actions_mask=masks_t)
                 actions_t = dist.sample()
                 logp_t = dist.log_prob(actions_t)
                 
@@ -792,7 +940,8 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
                 "logp": logp_t, 
                 "reward": torch.tensor(rewards, dtype=torch.float32), 
                 "done": torch.tensor(dones, dtype=torch.float32), 
-                "value": value.flatten()
+                "value": value.flatten(),
+                "mask": masks_t
             })
             
             # --- Update environment state ---
@@ -842,6 +991,7 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
                 b_logp = torch.cat([b["logp"] for b in step_buffer])
                 b_adv = advantages.flatten()
                 b_returns = returns.flatten()
+                b_masks = torch.cat([b["mask"] for b in step_buffer])
                 
                 # Normalize advantages
                 b_adv = (b_adv - b_adv.mean()) / (b_adv.std() + 1e-8)
@@ -857,8 +1007,9 @@ async def train_minecraft(websocket: WebSocket, env: MineCraftEnv):
                         mb_logp_old = b_logp[mb_idxs]
                         mb_adv = b_adv[mb_idxs]
                         mb_returns = b_returns[mb_idxs]
+                        mb_masks = b_masks[mb_idxs]
 
-                        dist, value = model(mb_obs)
+                        dist, value = model(mb_obs, valid_actions_mask=mb_masks)
                         logp_new = dist.log_prob(mb_actions)
                         entropy_bonus = dist.entropy().mean()
                         
@@ -939,3 +1090,5 @@ async def run_minecraft(websocket: WebSocket, env: MineCraftEnv):
 
     if not cmd_task.done():
         cmd_task.cancel() 
+
+

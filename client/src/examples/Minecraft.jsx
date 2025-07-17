@@ -42,6 +42,8 @@ const Resources = ({ grid, resourceTypes, gridSize }) => {
     const offsetX = gridSize[0] / 2;
     const offsetZ = gridSize[2] / 2;
 
+    console.log('[Resources] Regenerating meshes, grid length:', grid.length); // Debug log
+
     grid.forEach((plane, x) => {
       plane.forEach((row, y) => {
         row.forEach((cell, z) => {
@@ -57,6 +59,8 @@ const Resources = ({ grid, resourceTypes, gridSize }) => {
         });
       });
     });
+    
+    console.log('[Resources] Generated', meshes.length, 'resource meshes'); // Debug log
     return meshes;
   }, [grid, resourceTypes, gridSize]);
 
@@ -235,6 +239,8 @@ export default function MineCraftExample() {
         }
 
         if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
+          console.log('[MineCraft] Received state update, type:', parsed.type); // Debug log
+          console.log('[MineCraft] Grid dimensions:', parsed.state?.grid?.length, parsed.state?.grid?.[0]?.length, parsed.state?.grid?.[0]?.[0]?.length); // Debug log
           setState(parsed.state);
         } else if (parsed.type === 'train_step_update') {
           setState(prevState => {
