@@ -370,7 +370,7 @@ export default function FishExample() {
         <div style={{ display: 'flex', gap: '8px' }}>
           <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
           <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
-          <Button auto type="error" onClick={reset}>Reset </Button>
+          {/* <Button auto type="error" onClick={reset}>Reset </Button> */}
         </div>
       </div>
       
