@@ -19,7 +19,7 @@ from examples.food_collector import train_food_collector, run_food_collector, Fo
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
 from examples.minefarm import run_minefarm, train_minefarm, MineFarmEnv
-from examples.fish import run_fish, train_fish, MultiFishEnv
+from examples.fish import run_fish, train_fish, FishEnv
 from examples.intersection import run_intersection, train_intersection, MultiVehicleEnv as IntersectionEnv
 
 app = FastAPI(title="ML-Agents API")
@@ -298,7 +298,7 @@ async def websocket_minefarm(websocket: WebSocket):
 @app.websocket("/ws/fish")
 async def websocket_fish(websocket: WebSocket):
     await websocket.accept()
-    env = MultiFishEnv()
+    env = FishEnv()
     initial_state = env.get_state_for_viz()
     initial_state['agents'] = initial_state.pop('agents') # Rename for frontend
     await websocket.send_json({"type": "init", "state": initial_state})
