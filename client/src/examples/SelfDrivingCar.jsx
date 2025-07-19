@@ -18,7 +18,7 @@ const WS_URL = `${config.WS_BASE_URL}/ws/self_driving_car`;
 
 const TRAINING_FRAME_RENDER_INTERVAL = 100;
 
-const Agent = ({ agent, coordinateTransformer, onCamerasCreated }) => {
+const Agent = ({ agent, coordinateTransformer, onCamerasCreated, training }) => {
   const { pos, color, id, heading, pitch } = agent;
   const groupRef = useRef();
   const [carPosition, setCarPosition] = useState(null);
@@ -121,7 +121,7 @@ const Agent = ({ agent, coordinateTransformer, onCamerasCreated }) => {
       <DreiText position={[0, 15, 0]} fontSize={5} color="white" anchorX="center" anchorY="middle">
         {id}
       </DreiText>
-      <Lidar />
+      {!training && <Lidar />}
     </group>
   );
 };
@@ -502,7 +502,7 @@ const SceneContent = ({
             }} />
 
             {state && coordinateTransformer && <Roads roadNetwork={state.road_network} coordinateTransformer={coordinateTransformer} />}
-            {state && coordinateTransformer && state.agents.map(agent => <Agent key={agent.id} agent={agent} coordinateTransformer={coordinateTransformer} onCamerasCreated={handleCamerasCreated} />)}
+            {state && coordinateTransformer && state.agents.map(agent => <Agent key={agent.id} agent={agent} coordinateTransformer={coordinateTransformer} onCamerasCreated={handleCamerasCreated} training={training} />)}
             {state && coordinateTransformer && state.pedestrians.map(ped => <Pedestrian key={ped.id} pedestrian={ped} coordinateTransformer={coordinateTransformer} />)}
             {state && coordinateTransformer && state.traffic_lights.map(light => <TrafficLight key={light.id} light={light} coordinateTransformer={coordinateTransformer} />)}
 

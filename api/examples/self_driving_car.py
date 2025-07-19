@@ -708,6 +708,8 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                         loss.backward()
                         optimizer.step()
 
+                    await asyncio.sleep(0)
+
                 avg_reward = float(torch.stack([b["reward"] for b in step_buffer]).mean().cpu().item())
                 current_loss = loss.item()
                 
