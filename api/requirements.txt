@@ -1,12 +1,20 @@
 fastapi
 uvicorn
-python-multipart
+python-dotenv
+websockets
 numpy
 torch
-transformers
+pandas
+matplotlib
+scikit-learn
+requests
+beautifulsoup4
 sentence-transformers
-onnxruntime
-scipy
+# Added for interpretability
+instructor
+litellm
+lru-dict
+# For self-driving car example
 osmnx
 geopandas
-Shapely
+shapely

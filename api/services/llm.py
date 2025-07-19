@@ -8,6 +8,8 @@ from openai import AsyncOpenAI
 from typing import List, Dict, Any, Generator, Optional, Callable, Union, AsyncGenerator
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
+import instructor
+from functools import lru_cache
 
 load_dotenv()
 
@@ -26,9 +28,12 @@ def get_embedding_model():
         embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
     return embedding_model
 
-def get_embedding(text: str):
-    model = get_embedding_model()
-    return model.encode(text)
+@lru_cache(maxsize=128)
+def get_embedding(text, use_local=False):
+    model = "ollama/mxbai-embed-large" if use_local else "text-embedding-3-small"
+    response = litellm.embedding(model=model, input=[text])
+    return response.data[0].embedding
+
 
 async def stream_text(
     prompt: str,
@@ -620,46 +625,39 @@ async def stream_text_anakin(
         raise
 
 
-async def get_json(
-    prompt: str,
-    model: str = default_model,
-    max_tokens: int = 4096,
-    system_prompt: Optional[str] = None,
-    messages: Optional[List[Dict[str, Any]]] = None,
-    response_schema: Optional[Dict[str, Any]] = None,
-    schema_name: Optional[str] = "structured_response",
-    schema_strict: bool = True,
-    include_reasoning: bool = False,
-    should_use_anakin: bool = False,
-    should_use_ollama: bool = False,
-) -> Dict[str, Any]:
-    """
-    Get a single JSON response from the API (non-streaming).
-    """
-    if not response_schema:
-        raise ValueError("response_schema must be provided for get_json")
+def get_json(prompt, name, description, properties, use_local=False):
+    # Enables response_model keyword
+    # from instructor import Mode
+    client = instructor.patch(
+        litellm.completion,
+        mode=instructor.Mode.TOOLS,
+    )
 
-    full_response = ""
-    async for chunk in stream_text(
-        prompt=prompt,
+    model = "ollama/llama3" if use_local else "gpt-4o"
+
+    response = client(
         model=model,
-        max_tokens=max_tokens,
-        system_prompt=system_prompt,
-        messages=messages,
-        response_schema=response_schema,
-        schema_name=schema_name,
-        schema_strict=schema_strict,
-        include_reasoning=include_reasoning,
-        should_use_anakin=should_use_anakin,
-        should_use_ollama=should_use_ollama,
-    ):
-        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-            full_response += chunk.choices[0].delta.content
-
-    try:
-        return json.loads(full_response)
-    except json.JSONDecodeError:
-        logger.error(f"Failed to parse LLM JSON response: {full_response}")
-        # Return a default/error structure
-        return {"action": "wait", "data": f"LLM response was not valid JSON: {full_response}"}
+        messages=[
+            {
+                "role": "user",
+                "content": prompt,
+            }
+        ],
+        tools=[
+            {
+                "type": "function",
+                "function": {
+                    "name": name,
+                    "description": description,
+                    "parameters": {
+                        "type": "object",
+                        "properties": properties,
+                        "required": list(properties.keys()),
+                    },
+                },
+            }
+        ],
+        tool_choice={"type": "function", "function": {"name": name}},
+    )
+    return json.loads(response.tool_calls[0].function.arguments)
 

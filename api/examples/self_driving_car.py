@@ -24,6 +24,15 @@ from torch.distributions.categorical import Categorical
 # Global websocket reference for logging to frontend
 _current_websocket = None
 
+RETRO_SCIFI_COLORS = [
+    [0.0, 1.0, 1.0],  # Cyan
+    [1.0, 0.0, 1.0],  # Magenta
+    [1.0, 0.6, 0.0],  # Bright Orange
+    [0.7, 1.0, 0.0],  # Lime Green
+    [0.1, 0.5, 1.0],  # Electric Blue
+    [1.0, 1.0, 0.2],  # Bright Yellow
+]
+
 def log_to_frontend(message: str):
     """Send log message to frontend InfoPanel if websocket is available"""
     if _current_websocket:
@@ -45,18 +54,35 @@ DISCRETE_ACTIONS = [
     "accelerate", "decelerate", "maintain_speed", "slight_left", "slight_right"
 ]
 
-FEATURE_LABELS = {
-    0: "Path Direction X",
-    1: "Path Direction Y",
-    2: "Current Speed",
-    3: "Distance to Next Turn",
-    4: "Total Distance Remaining",
-    5: "Is On Final Segment",
-    6: "Current Heading",
-    7: "Heading Error",
-    8: "Nearest Pedestrian Distance",
-    9: "Nearest Traffic Light State"
-}
+# --- New Feature Set (64 dimensions) ---
+FEATURE_LABELS = {}
+# Agent Kinematics (5)
+FEATURE_LABELS.update({
+    0: "Speed", 1: "Acceleration", 2: "Heading", 3: "Angular Velocity", 4: "Pitch"
+})
+# Path & Navigation (13)
+FEATURE_LABELS.update({
+    5: "Dist to Next Waypoint", 6: "Vec to Next Waypoint X", 7: "Vec to Next Waypoint Y",
+    8: "Heading Error to Waypoint", 9: "Total Dist Remaining on Path", 10: "Is on Final Segment",
+    11: "Path Curvature at Waypoint+1", 12: "Path Curvature at Waypoint+2",
+    13: "Upcoming Elevation Change", 14: "Current Road Speed Limit",
+    15: "Dist to Goal (Air)", 16: "Vec to Goal X", 17: "Vec to Goal Y"
+})
+# Nearby Traffic Lights (4 * 4 = 16)
+for i in range(4):
+    base = 18 + i * 4
+    FEATURE_LABELS.update({
+        base + 0: f"Light {i+1} Dist", base + 1: f"Light {i+1} Vec X",
+        base + 2: f"Light {i+1} Vec Y", base + 3: f"Light {i+1} State"
+    })
+# Nearby Pedestrians (6 * 5 = 30)
+for i in range(6):
+    base = 18 + 16 + i * 5
+    FEATURE_LABELS.update({
+        base + 0: f"Ped {i+1} Dist", base + 1: f"Ped {i+1} Vec X", base + 2: f"Ped {i+1} Vec Y",
+        base + 3: f"Ped {i+1} Speed", base + 4: f"Ped {i+1} State"
+    })
+
 
 class ActorCritic(nn.Module):
     def __init__(self, obs_size: int, action_size: int):
@@ -80,31 +106,44 @@ class ActorCritic(nn.Module):
         value = self.critic(h)
         return dist, value
 
-    def get_local_feature_importance(self, obs: torch.Tensor, action: torch.Tensor, top_k=3):
+    def get_local_feature_importance(self, obs: torch.Tensor, action: torch.Tensor, top_k=5):
         """Calculates local, instance-based feature importance using gradients."""
         # Ensure the observation tensor can have gradients calculated for it
         obs.requires_grad_(True)
 
-        # Re-compute the forward pass to build the computation graph
+        # Re-compute the forward pass to build the computation graph for the specific observation
         dist, _ = self.forward(obs)
         log_prob = dist.log_prob(action)
 
         # Calculate the gradients of the log-probability of the action with respect to the inputs
-        # using torch.autograd.grad to avoid interfering with the main training gradients.
         grads = torch.autograd.grad(log_prob, obs)[0]
         
-        feature_importance = grads.abs().squeeze()
+        feature_importance_scores = grads.abs().squeeze()
+        obs_values = obs.squeeze()
 
         # We can now disable grad on obs as we are done with it.
         obs.requires_grad_(False)
 
         # Get the indices of the top_k most important features
-        top_indices = torch.topk(feature_importance, k=top_k).indices.tolist()
+        top_scores, top_indices = torch.topk(feature_importance_scores, k=top_k)
 
-        # Map indices to labels
-        top_features = [FEATURE_LABELS.get(i, f"Unknown Feature {i}") for i in top_indices]
+        # Sum of the top_k scores for normalization
+        total_importance = torch.sum(top_scores)
         
-        return top_features
+        feature_details = []
+        if total_importance > 0:
+            for i in range(top_k):
+                index = top_indices[i].item()
+                importance_score = top_scores[i].item()
+                percentage = (importance_score / total_importance) * 100
+                feature_details.append({
+                    "feature": FEATURE_LABELS.get(index, f"Unknown Feature {index}"),
+                    "value": obs_values[index].item(),
+                    "importance": importance_score,
+                    "percentage": percentage
+                })
+        
+        return feature_details
 
     def get_action(self, obs: np.ndarray, action: torch.Tensor = None, valid_actions_mask: torch.Tensor = None):
         """
@@ -208,26 +247,23 @@ class Agent:
         
         self.pos = np.array([self.graph.nodes[self.path[0]]['y'], self.graph.nodes[self.path[0]]['x']])
         self.heading = 0
-        self._update_heading()
         self.pitch = 0
+        self.acceleration = 0.0
+        self.angular_velocity = 0.0
 
         self.speed = 0.0
-        self.color = [random.random() * 0.8, random.random() * 0.8, random.random() * 0.8]
+        self.color = random.choice(RETRO_SCIFI_COLORS)
         self.memory_stream = []
 
-    def reset(self, start_node: int, goal_node: int, path: list):
-        self.start_node = start_node
-        self.goal_node = goal_node
-        self.path = path
-        self.path_index = 0
-        self.distance_on_segment = 0.0
-        self.pos = np.array([self.graph.nodes[self.path[0]]['y'], self.graph.nodes[self.path[0]]['x']])
-        self.heading = 0
-        self._update_heading()
-        self.pitch = 0
-        self.speed = 0.0
-        self.memory_stream = []
-
+    def _calculate_remaining_len(self):
+        """Calculates the total remaining distance along the agent's path."""
+        if self.path_index >= len(self.path) - 1:
+            return 0.0
+        
+        # Sum of lengths of future segments from the projected graph
+        path_len = sum(self.graph_proj[u][v][0]['length'] for i in range(self.path_index, len(self.path) - 1) for u,v in [(self.path[i], self.path[i+1])])
+        
+        return path_len - self.distance_on_segment
 
     def _update_heading(self):
         if self.path_index < len(self.path) - 1:
@@ -384,29 +420,34 @@ class SelfDrivingCarEnv:
                 lines.append([[ys[i], xs[i]] for i in range(len(xs))])
         return lines
 
-    def _get_reward(self, agent: Agent, action: str, data: Any) -> float:
+    def _get_reward(self, agent: Agent, action: str, data: Any, progress_made: float) -> float:
         reward = 0
         
-        # Big penalty for collisions or red lights
+        # REWARD: Progress towards goal
+        # The primary reward is for making progress along the path.
+        reward += progress_made * 0.1 # Scale the progress reward
+
+        # PENALTY: Collisions
         for ped in self.pedestrians:
             if np.linalg.norm(agent.pos - ped.pos) < 0.0002: # Collision threshold
                 reward -= 200
         
-        # Check for red light violation
+        # PENALTY: Red light violation
         for light in self.traffic_lights:
-            # Is agent near this light?
             if np.linalg.norm(agent.pos - light.pos) < 0.0003:
                 if light.state == 'red':
-                    # Penalize based on speed, more for going faster through a red
                     reward -= 50 * (agent.speed + 1)
 
+        # REWARD: Reaching goal
         if agent.path_index >= len(agent.path) - 1:
-            return 100.0
+            return 100.0 # Large terminal reward
         
-        # Reward for speed, penalize for being too slow or stopped
-        reward += agent.speed * 0.1 - 0.05
+        # REWARD/PENALTY: Speed
+        # Small penalty for being stopped to encourage movement.
+        reward += agent.speed * 0.05 - 0.05
         
-        # Penalize for turning when not necessary
+        # PENALTY: Unnecessary Turning
+        # Penalize for turning when not necessary to encourage smooth driving.
         if "left" in action or "right" in action:
             reward -= 0.2
             
@@ -417,6 +458,11 @@ class SelfDrivingCarEnv:
         dones = []
 
         for agent, (action, data) in zip(self.agents, agent_actions):
+            # Store state before action
+            last_speed = agent.speed
+            last_heading = agent.heading
+            old_remaining_len = agent._calculate_remaining_len()
+
             if action == "accelerate": agent.speed += 0.5
             elif action == "decelerate": agent.speed -= 0.5
             elif action == "slight_left": agent.heading -= 5
@@ -425,9 +471,15 @@ class SelfDrivingCarEnv:
             agent.speed = np.clip(agent.speed, 0, 15)
             agent.heading %= 360
 
+            # Update derivatives
+            agent.acceleration = agent.speed - last_speed
+            heading_change = (agent.heading - last_heading + 180) % 360 - 180
+            agent.angular_velocity = heading_change
+
             if agent.path_index >= len(agent.path) - 1:
                 agent.speed = 0
-                rewards.append(self._get_reward(agent, action, data))
+                progress = old_remaining_len - agent._calculate_remaining_len()
+                rewards.append(self._get_reward(agent, action, data, progress))
                 dones.append(True)
                 continue
 
@@ -451,7 +503,8 @@ class SelfDrivingCarEnv:
                 agent.pos = np.array([self.graph.nodes[agent.path[-1]]['y'], self.graph.nodes[agent.path[-1]]['x']])
                 agent.speed = 0
                 agent.add_to_memory_stream("Goal reached!", self.step_count)
-                rewards.append(self._get_reward(agent, action, data))
+                progress = old_remaining_len - agent._calculate_remaining_len()
+                rewards.append(self._get_reward(agent, action, data, progress))
                 dones.append(True)
                 continue
 
@@ -474,7 +527,8 @@ class SelfDrivingCarEnv:
             agent.pos = np.array([p1_geo['y'], p1_geo['x']]) + ratio * vec_geo
 
             agent.add_to_memory_stream(f"{action}, Speed: {agent.speed:.1f}", self.step_count)
-            rewards.append(self._get_reward(agent, action, data))
+            progress = old_remaining_len - agent._calculate_remaining_len()
+            rewards.append(self._get_reward(agent, action, data, progress))
             dones.append(False)
         
         # Update traffic lights and pedestrians
@@ -501,41 +555,107 @@ class SelfDrivingCarEnv:
         }
 
 def get_agent_state_vector(agent: Agent, env: "SelfDrivingCarEnv") -> np.ndarray:
+    """
+    Generate the 64-dimensional feature vector for the agent.
+    """
     if agent.path_index >= len(agent.path) - 1:
-        return np.zeros(10) # Updated size
+        return np.zeros(64)
 
+    # 1. Agent Kinematics (5 features)
+    kinematics_features = np.array([
+        agent.speed / 15.0,  # Max speed normalization
+        agent.acceleration / 0.5,  # Max acceleration per step normalization
+        agent.heading / 360.0,
+        agent.angular_velocity / 5.0,  # Max turn degrees per step normalization
+        np.clip(agent.pitch / 45.0, -1.0, 1.0) # Pitch normalization
+    ])
+
+    # 2. Path and Navigation (13 features)
+    path_features = np.zeros(13)
+    # Waypoint features
     p1_proj = agent.graph_proj.nodes[agent.path[agent.path_index]]
     p2_proj = agent.graph_proj.nodes[agent.path[agent.path_index + 1]]
-
     vec_to_next = np.array([p2_proj['x'] - p1_proj['x'], p2_proj['y'] - p1_proj['y']])
-    heading_to_next = np.degrees(np.arctan2(vec_to_next[1], vec_to_next[0]))
-    
     dist_to_next = np.linalg.norm(vec_to_next) - agent.distance_on_segment
+    vec_to_next_norm = vec_to_next / (np.linalg.norm(vec_to_next) + 1e-6)
+    heading_to_next = np.degrees(np.arctan2(vec_to_next_norm[1], vec_to_next_norm[0]))
+    heading_error = (heading_to_next - agent.heading + 180) % 360 - 180
     
-    remaining_len = sum(agent.graph_proj[u][v][0]['length'] for i in range(agent.path_index, len(agent.path) - 1) for u,v in [(agent.path[i], agent.path[i+1])])
-    remaining_len -= agent.distance_on_segment
+    # Path features
+    remaining_len = sum(agent.graph_proj[u][v][0]['length'] for i in range(agent.path_index, len(agent.path) - 1) for u,v in [(agent.path[i], agent.path[i+1])]) - agent.distance_on_segment
+    is_final_segment = float(agent.path_index == len(agent.path) - 2)
 
-    # Normalize heading difference
-    heading_diff = (heading_to_next - agent.heading + 180) % 360 - 180
-    
-    # Find nearest pedestrian and traffic light
-    nearest_ped = min(env.pedestrians, key=lambda p: np.linalg.norm(agent.pos - p.pos)) if env.pedestrians else None
-    dist_to_ped = np.linalg.norm(agent.pos - nearest_ped.pos) if nearest_ped else 1.0 # Normalized distance
-    
-    nearest_light = min(env.traffic_lights, key=lambda l: np.linalg.norm(agent.pos - l.pos)) if env.traffic_lights else None
-    light_state = 1.0 if nearest_light and nearest_light.state == 'green' else 0.0
+    # Curvature features
+    def get_path_curvature(p_current, p_next, p_future):
+        vec1 = np.array([p_next['x'] - p_current['x'], p_next['y'] - p_current['y']])
+        vec2 = np.array([p_future['x'] - p_next['x'], p_future['y'] - p_next['y']])
+        vec1_norm = vec1 / (np.linalg.norm(vec1) + 1e-6)
+        vec2_norm = vec2 / (np.linalg.norm(vec2) + 1e-6)
+        dot_product = np.dot(vec1_norm, vec2_norm)
+        return (1.0 - np.clip(dot_product, -1.0, 1.0)) / 2.0 # Normalize to [0, 1]
+
+    curvature1 = 0.0
+    if agent.path_index < len(agent.path) - 2:
+        p3_proj = agent.graph_proj.nodes[agent.path[agent.path_index + 2]]
+        curvature1 = get_path_curvature(p1_proj, p2_proj, p3_proj)
+
+    curvature2 = 0.0
+    if agent.path_index < len(agent.path) - 3:
+        p3_proj = agent.graph_proj.nodes[agent.path[agent.path_index + 2]]
+        p4_proj = agent.graph_proj.nodes[agent.path[agent.path_index + 3]]
+        curvature2 = get_path_curvature(p2_proj, p3_proj, p4_proj)
+
+    # Elevation
+    p1_geo = agent.graph.nodes[agent.path[agent.path_index]]
+    p2_geo = agent.graph.nodes[agent.path[agent.path_index + 1]]
+    elevation_change = p2_geo.get('elevation', 0) - p1_geo.get('elevation', 0)
+
+    # Goal features
+    goal_pos = np.array([agent.graph.nodes[agent.goal_node]['y'], agent.graph.nodes[agent.goal_node]['x']])
+    dist_to_goal = np.linalg.norm(goal_pos - agent.pos)
+    vec_to_goal = (goal_pos - agent.pos) / (dist_to_goal + 1e-6)
+
+    path_features = np.array([
+        dist_to_next / 100.0, vec_to_next_norm[0], vec_to_next_norm[1],
+        heading_error / 180.0, remaining_len / 1000.0, is_final_segment,
+        curvature1, curvature2,
+        np.clip(elevation_change / 10, -1.0, 1.0), 50.0 / 100.0, # Placeholder speed limit
+        dist_to_goal / 0.01, vec_to_goal[0], vec_to_goal[1]
+    ])
+
+    # 3. Nearby Traffic Lights (4 lights * 4 features = 16 features)
+    all_lights = sorted(env.traffic_lights, key=lambda l: np.linalg.norm(agent.pos - l.pos))
+    light_features = []
+    for i in range(4):
+        if i < len(all_lights):
+            light = all_lights[i]
+            dist = np.linalg.norm(agent.pos - light.pos)
+            vec = (light.pos - agent.pos) / (dist + 1e-6)
+            state = 1.0 if light.state == 'green' else 0.0
+            light_features.extend([min(dist / 0.01, 1.0), vec[0], vec[1], state])
+        else:
+            light_features.extend([1.0, 0, 0, -1.0])  # Padding
+
+    # 4. Nearby Pedestrians (6 peds * 5 features = 30 features)
+    all_peds = sorted(env.pedestrians, key=lambda p: np.linalg.norm(agent.pos - p.pos))
+    ped_features = []
+    state_map = {'waiting': 0, 'crossing': 1, 'jaywalking': 2}
+    for i in range(6):
+        if i < len(all_peds):
+            ped = all_peds[i]
+            dist = np.linalg.norm(agent.pos - ped.pos)
+            vec = (ped.pos - agent.pos) / (dist + 1e-6)
+            state = state_map.get(ped.state, 0)
+            ped_features.extend([min(dist / 0.01, 1.0), vec[0], vec[1], ped.speed / 2.0, state / 2.0])
+        else:
+            ped_features.extend([1.0, 0, 0, 0, -1.0]) # Padding
 
     return np.concatenate([
-        vec_to_next / (np.linalg.norm(vec_to_next) + 1e-6),
-        [agent.speed / 15.0],
-        [dist_to_next / 100.0],
-        [remaining_len / 1000.0],
-        [float(len(agent.path) - 1 - agent.path_index > 0)],
-        [agent.heading / 360.0],
-        [heading_diff / 180.0],
-        [dist_to_ped],
-        [light_state]
-    ])
+        kinematics_features,
+        path_features,
+        np.array(light_features),
+        np.array(ped_features)
+    ]).astype(np.float32)
 
 def get_valid_actions_mask(agent: Agent) -> np.ndarray:
     mask = np.ones(len(DISCRETE_ACTIONS), dtype=bool)
@@ -557,7 +677,7 @@ def get_valid_actions_mask(agent: Agent) -> np.ndarray:
     return mask
 
 # --- PPO Hyperparameters ---
-BATCH_SIZE = 2048
+BATCH_SIZE = 512
 MINI_BATCH = 256
 EPOCHS = 4
 GAMMA = 0.99
@@ -609,9 +729,11 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                 agent_actions_for_env.append((action_name, None))
 
             if model:
-                top_features = model.get_local_feature_importance(obs_t, actions_t)
-                explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {', '.join(top_features)}"
+                top_features_list = model.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
+                causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
+                explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {causes_str}"
                 env.add_message(agent_id=env.agents[0].id, message=explanation)
+
 
             rewards, dones = env._execute_actions(agent_actions_for_env)
             
@@ -637,14 +759,12 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
             obs_t = torch.tensor(np.array(next_obs_list), dtype=torch.float32)
 
 
-            if env.step_count % 16 == 0:
+            if env.step_count % 64 == 0:
                 current_reward = float(torch.tensor(rewards, dtype=torch.float32).mean().cpu().item())
                 await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": current_reward, "loss": current_loss})
 
-            if env.step_count % 8 == 0:
                 state = env.get_state_for_viz()
                 await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
-                await asyncio.sleep(0.01)
 
             if total_steps >= BATCH_SIZE:
                 with torch.no_grad():
@@ -762,9 +882,45 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                     action_name = DISCRETE_ACTIONS[actions_np[i]]
                     agent_actions_for_env.append((action_name, None))
                 
-                top_features = env.trained_policy.get_local_feature_importance(obs_t, actions_t)
-                explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {', '.join(top_features)}"
-                env.add_message(agent_id=env.agents[0].id, message=explanation)
+                if env.step_count % LLM_CALL_FREQUENCY == 0:
+                    try:
+                        top_features = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
+                        
+                        prompt = (
+                            f"The self-driving car is at step {env.step_count}. "
+                            f"It's currently moving at {env.agents[0].speed:.1f} m/s with a heading of {env.agents[0].heading:.1f} degrees. "
+                            f"The chosen action is to '{DISCRETE_ACTIONS[actions_np[0]]}'.\n\n"
+                            "The policy model's decision was influenced by these top features, with their contribution to the decision shown as a percentage:\n"
+                        )
+                        for f in top_features:
+                            prompt += f"- {f['feature']} ({f['percentage']:.0f}%): Current Value = {f['value']:.2f}\n"
+                        
+                        prompt += "\nBased on this context, provide a concise, one-sentence explanation for why the car chose this action. For example: 'The car is accelerating because it's on a straight path with no immediate obstacles.' or 'The car is turning left to correct its heading towards the next waypoint.'"
+
+                        explanation_json = get_json(
+                            prompt,
+                            name="format_explanation",
+                            description="Formats the explanation into a structured JSON object.",
+                            properties={"explanation": {"type": "string"}},
+                            use_local=USE_LOCAL_OLLAMA,
+                        )
+                        explanation = explanation_json.get("explanation", "Could not generate explanation.")
+                        env.add_message(agent_id=env.agents[0].id, message=explanation)
+                    except Exception as e:
+                        logger.warning(f"LLM explanation failed: {e}")
+                        top_features_list = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
+                        causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
+                        explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {causes_str}"
+                        env.add_message(agent_id=env.agents[0].id, message=explanation)
+                elif env.step_count % LLM_CALL_FREQUENCY != 0 and len(env.messages) > 0 and "Action:" in env.messages[-1].get("message", ""):
+                    # If it's not an LLM call step, do nothing to avoid replacing the detailed message with a simple one
+                    pass
+                else:
+                    # Fallback for the very first steps or if there are no messages
+                    top_features_list = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
+                    causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
+                    explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {causes_str}"
+                    env.add_message(agent_id=env.agents[0].id, message=explanation)
 
             else:
                 for agent in env.agents:

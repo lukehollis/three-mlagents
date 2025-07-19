@@ -26,6 +26,11 @@ const Agent = ({ agent, coordinateTransformer, onCamerasCreated, training }) => 
   const camerasRef = useRef({});
 
   useEffect(() => {
+      if (training) {
+          onCamerasCreated(id, {});
+          return;
+      }
+
       const cameras = {
           'Front (Wide)': new THREE.PerspectiveCamera(90, 4 / 3, 1, 1000),
           'Front (Narrow)': new THREE.PerspectiveCamera(45, 4 / 3, 1, 1000),
@@ -68,7 +73,7 @@ const Agent = ({ agent, coordinateTransformer, onCamerasCreated, training }) => 
           }
       };
 
-  }, [id, onCamerasCreated]);
+  }, [id, onCamerasCreated, training]);
 
 
   useEffect(() => {
@@ -241,15 +246,28 @@ const MessagePanel = ({ messages }) => {
                 color: '#fff', border: '1px solid #444',
             }}
         >
-          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No interpretability messages yet.]</Text>}
-          {messages.map((msg, i) => (
-              <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
-                  <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                      <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
-                  </Text>
-                  <Text p style={{ margin: 0 }}>{msg.message}</Text>
-              </div>
-          ))}
+          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No messages yet.]</Text>}
+          {messages.map((msg, i) => {
+              const isSimpleAction = msg.message.startsWith("Action:");
+              let actionText = "";
+              let explanationText = msg.message;
+
+              if (isSimpleAction) {
+                  const parts = msg.message.split(", Causes: ");
+                  actionText = parts[0];
+                  explanationText = `Causes: ${parts[1]}`;
+              }
+
+              return (
+                  <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
+                      <Text p style={{ margin: 0, fontWeight: 'bold' }}>
+                          <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
+                          {actionText && <span style={{ color: '#888', marginLeft: '8px' }}>{actionText}</span>}
+                      </Text>
+                      <Text p style={{ margin: 0, marginTop: '4px' }}>{explanationText}</Text>
+                  </div>
+              );
+          })}
         </Card>
     );
 };
@@ -367,6 +385,7 @@ export default function SelfDrivingCarExample() {
       return;
     }
     setTraining(true);
+    setCameraFeedData({});
     addLog('Starting training run...');
     send({ cmd: 'train' });
   };
@@ -446,13 +465,13 @@ const SceneContent = ({
     const frameCountRef = useRef(0);
 
     useFrame(({ gl, scene }) => {
+        if (training) {
+            return;
+        }
+
         gl.autoClear = true;
 
         frameCountRef.current++;
-        if (training && (frameCountRef.current % TRAINING_FRAME_RENDER_INTERVAL !== 1)) {
-            // During training, only render camera feeds intermittently to save performance
-            return;
-        }
 
         const newFeedData = {};
         const renderWidth = 400;
