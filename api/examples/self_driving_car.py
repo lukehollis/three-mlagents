@@ -117,6 +117,7 @@ class Agent:
         self.pos = np.array([self.graph.nodes[self.path[0]]['y'], self.graph.nodes[self.path[0]]['x']])
         self.heading = 0
         self._update_heading()
+        self.pitch = 0
 
         self.speed = 0.0
         self.color = [random.random() * 0.8, random.random() * 0.8, random.random() * 0.8]
@@ -131,6 +132,7 @@ class Agent:
         self.pos = np.array([self.graph.nodes[self.path[0]]['y'], self.graph.nodes[self.path[0]]['x']])
         self.heading = 0
         self._update_heading()
+        self.pitch = 0
         self.speed = 0.0
         self.memory_stream = []
 
@@ -163,6 +165,7 @@ class SelfDrivingCarEnv:
         
         self.location_point = (40.758896, -73.985130) # Times Square
         self.graph = ox.graph_from_point(self.location_point, dist=500, network_type='drive')
+        ox.add_node_elevations_opentopodata(self.graph)
         self.graph_proj = ox.project_graph(self.graph)
         
         self.road_network_for_viz = self._get_road_network_for_viz()
@@ -255,6 +258,13 @@ class SelfDrivingCarEnv:
             p2_proj = agent.graph_proj.nodes[agent.path[agent.path_index+1]]
             seg_len_proj = np.linalg.norm(np.array([p2_proj['x'] - p1_proj['x'], p2_proj['y'] - p1_proj['y']]))
 
+            dx = p2_proj['x'] - p1_proj['x']
+            dy = p2_proj['y'] - p1_proj['y']
+            dz = p2_geo.get('elevation', 0) - p1_geo.get('elevation', 0)
+            d_xy = np.sqrt(dx**2 + dy**2)
+            pitch_rad = np.arctan2(dz, d_xy)
+            agent.pitch = np.degrees(pitch_rad)
+
             ratio = agent.distance_on_segment / seg_len_proj if seg_len_proj > 0 else 0
             agent.pos = np.array([p1_geo['y'], p1_geo['x']]) + ratio * vec_geo
 
@@ -266,7 +276,7 @@ class SelfDrivingCarEnv:
 
     def get_state_for_viz(self) -> Dict[str, Any]:
         return {
-            "agents": [{"id": a.id, "pos": a.pos.tolist(), "heading": a.heading, "color": a.color, "memory_stream": a.memory_stream, "goal": a.get_goal().tolist()} for a in self.agents],
+            "agents": [{"id": a.id, "pos": a.pos.tolist(), "heading": a.heading, "pitch": a.pitch, "color": a.color, "memory_stream": a.memory_stream, "goal": a.get_goal().tolist()} for a in self.agents],
             "llm_logs": self.llm_logs,
             "messages": self.messages,
             "road_network": self.road_network_for_viz

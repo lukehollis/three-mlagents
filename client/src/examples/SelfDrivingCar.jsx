@@ -30,6 +30,7 @@ const Agent = ({ agent, coordinateTransformer }) => {
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.rotation.y = -THREE.MathUtils.degToRad(heading);
+      groupRef.current.rotation.z = -THREE.MathUtils.degToRad(pitch);
     }
   }, [heading]);
 
@@ -45,7 +46,6 @@ const Agent = ({ agent, coordinateTransformer }) => {
           color={agentColor}
           emissive={agentColor}
           emissiveIntensity={0.5}
-          wireframe={true}
         />
       </mesh>
 
