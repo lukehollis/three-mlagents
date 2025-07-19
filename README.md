@@ -251,6 +251,11 @@ openai                 # for LLM API calls (if using OpenRouter)
 
 ---
 
+
+[![Star History Chart](https://api.star-history.com/svg?repos=lukehollis/three-mlagents&type=Date)](https://star-history.com/#lukehollis/three-mlagents&Date)
+
+---
+
 ## License
 
 MIT © 2025
