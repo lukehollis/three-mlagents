@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Text as DreiText } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button, Text, Card, Code } from '@geist-ui/core';
@@ -9,17 +9,63 @@ import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import CameraFeeds from '../components/CameraFeeds.jsx';
 import Map from '../components/Map.jsx';
 import Roads from '../components/Roads.jsx';
-import { Geodetic } from '@takram/three-geospatial';
+import Lidar, { LIDAR_LAYER } from '../components/Lidar.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/self_driving_car`;
 
-const Agent = ({ agent, coordinateTransformer }) => {
+const Agent = ({ agent, coordinateTransformer, onCamerasCreated }) => {
   const { pos, color, id, heading, pitch } = agent;
   const groupRef = useRef();
   const [carPosition, setCarPosition] = useState(null);
   const [orientation, setOrientation] = useState(new THREE.Quaternion());
+  const camerasRef = useRef({});
+
+  useEffect(() => {
+      const cameras = {
+          'Front (Wide)': new THREE.PerspectiveCamera(90, 4 / 3, 1, 1000),
+          'Front (Narrow)': new THREE.PerspectiveCamera(45, 4 / 3, 1, 1000),
+          'Left': new THREE.PerspectiveCamera(75, 4 / 3, 1, 1000),
+          'Right': new THREE.PerspectiveCamera(75, 4 / 3, 1, 1000),
+          'Rear': new THREE.PerspectiveCamera(120, 4 / 3, 1, 1000),
+          'Lidar (Top-Down)': new THREE.OrthographicCamera(-500, 500, 500, -500, 1, 2000)
+      };
+
+      cameras['Front (Wide)'].position.set(0, 10, 20);
+      cameras['Front (Narrow)'].position.set(0, 10, 20);
+      cameras['Left'].position.set(-10, 10, 0);
+      cameras['Left'].rotateY(THREE.MathUtils.degToRad(-90));
+      cameras['Right'].position.set(10, 10, 0);
+      cameras['Right'].rotateY(THREE.MathUtils.degToRad(90));
+      cameras['Rear'].position.set(0, 10, -20);
+      cameras['Rear'].rotateY(THREE.MathUtils.degToRad(180));
+      cameras['Lidar (Top-Down)'].position.set(0, 1000, 0);
+      cameras['Lidar (Top-Down)'].lookAt(0, 0, 0);
+      cameras['Lidar (Top-Down)'].layers.enable(LIDAR_LAYER);
+
+      camerasRef.current = cameras;
+      onCamerasCreated(id, cameras);
+
+      const group = groupRef.current;
+      if (group) {
+        Object.values(cameras).forEach(cam => group.add(cam));
+      }
+
+      return () => {
+          Object.values(cameras).forEach(cam => {
+              if (cam.parent) {
+                  cam.parent.remove(cam);
+              }
+          });
+          if (group) {
+            Object.values(cameras).forEach(cam => group.remove(cam));
+          }
+      };
+
+  }, [id, onCamerasCreated]);
+
 
   useEffect(() => {
     if (coordinateTransformer) {
@@ -71,6 +117,7 @@ const Agent = ({ agent, coordinateTransformer }) => {
       <DreiText position={[0, 15, 0]} fontSize={5} color="white" anchorX="center" anchorY="middle">
         {id}
       </DreiText>
+      <Lidar />
     </group>
   );
 };
@@ -96,6 +143,76 @@ const calculateOrientation = (lat, lon, heading, pitch, coordinateTransformer) =
   finalOrientation.multiply(modelCorrection);
 
   return finalOrientation;
+};
+
+const TrafficLight = ({ light, coordinateTransformer }) => {
+    const { pos, state } = light;
+    const [ecefPosition, setEcefPosition] = useState(null);
+    const [orientation, setOrientation] = useState(new THREE.Quaternion());
+
+    useEffect(() => {
+        if (coordinateTransformer) {
+            const [lat, lng] = pos;
+            const vector = coordinateTransformer.latLngToECEF(lat, lng, 1);
+            setEcefPosition(vector);
+            
+            const up = vector.clone().normalize();
+            const newOrientation = new THREE.Quaternion().setFromUnitVectors(
+                new THREE.Vector3(0, 1, 0), // Default cylinder's 'up'
+                up                          // Target 'up' on the globe
+            );
+            setOrientation(newOrientation);
+        }
+    }, [pos, coordinateTransformer]);
+
+    const color = state === 'green' ? '#00ff00' : '#ff0000';
+
+    if (!ecefPosition) return null;
+
+    return (
+        <group position={ecefPosition} quaternion={orientation}>
+            <mesh position={[0, 15, 0]}>
+                <cylinderGeometry args={[1, 1, 30, 12]} />
+                <meshStandardMaterial color="#333333" />
+            </mesh>
+            <mesh position={[0, 31, 0]}>
+                <sphereGeometry args={[3, 16, 16]} />
+                <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3} />
+            </mesh>
+        </group>
+    );
+};
+
+const Pedestrian = ({ pedestrian, coordinateTransformer }) => {
+    const { pos, state } = pedestrian;
+    const [pedPosition, setPedPosition] = useState(null);
+    const [orientation, setOrientation] = useState(new THREE.Quaternion());
+
+    useEffect(() => {
+        if (coordinateTransformer) {
+            const [lat, lng] = pos;
+            const vector = coordinateTransformer.latLngToECEF(lat, lng, 1); // Elevate slightly
+            setPedPosition(vector);
+
+            const up = vector.clone().normalize();
+            const newOrientation = new THREE.Quaternion().setFromUnitVectors(
+                new THREE.Vector3(0, 1, 0), // Default cylinder's 'up'
+                up                          // Target 'up' on the globe
+            );
+            setOrientation(newOrientation);
+        }
+    }, [pos, coordinateTransformer]);
+
+    const color = state === 'jaywalking' ? 'red' : 'white';
+
+    if (!pedPosition) return null;
+    
+    return (
+        <mesh position={pedPosition} quaternion={orientation}>
+            <cylinderGeometry args={[5, 5, 20, 8]} />
+            <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1} />
+        </mesh>
+    );
 };
 
 
@@ -147,6 +264,77 @@ export default function SelfDrivingCarExample() {
   const { isMobile } = useResponsive();
   const [mapLoaded, setMapLoaded] = useState(false);
   const [coordinateTransformer, setCoordinateTransformer] = useState(null);
+  const cameraTargetsRef = useRef({});
+  const [cameraFeedData, setCameraFeedData] = useState({});
+  const agentCamerasRef = useRef({});
+
+  useEffect(() => {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+      ws.onopen = () => addLog('SelfDrivingCar WS opened');
+      ws.onmessage = (ev) => {
+          addLog(`Received data: ${ev.data.substring(0, 100)}...`);
+          try {
+              const parsed = JSON.parse(ev.data);
+
+              if (parsed.type === 'error') {
+                  setError(parsed.message);
+                  addLog(`ERROR: ${parsed.message}`);
+                  return;
+              }
+
+              if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
+                  setState(parsed.state);
+              } else if (parsed.type === 'train_step_update') {
+                  setState(prevState => {
+                      if (!prevState) return null;
+                      return {
+                          ...prevState,
+                          ...parsed.state,
+                      };
+                  });
+              }
+              if (parsed.type === 'progress') {
+                  setChartState((prev) => ({
+                      labels: [...prev.labels, parsed.episode],
+                      rewards: [...prev.rewards, parsed.reward],
+                      losses: [...prev.losses, parsed.loss ?? null],
+                  }));
+              }
+              if (parsed.type === 'data_collection_progress') {
+                  addLog(`Collecting training data... ${parsed.progress.toFixed(0)}% (${parsed.samples} samples)`);
+              }
+              if (parsed.type === 'training_progress') {
+                  addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);
+              }
+              if (parsed.type === 'trained') {
+                  setTraining(false);
+                  setTrained(true);
+                  setModelInfo(parsed.model_info);
+                  addLog('Training complete! Agents are now using the trained policy.');
+              }
+          } catch (e) {
+              addLog(`Error processing message: ${e}`);
+              console.error("Failed to process message: ", e);
+          }
+      };
+      ws.onclose = () => addLog('SelfDrivingCar WS closed');
+
+      return () => {
+          ws.close();
+      };
+  }, []);
+
+  useEffect(() => {
+      return () => {
+          Object.values(cameraTargetsRef.current).forEach(target => target.dispose());
+      }
+  }, []);
+
+  const handleCamerasCreated = (agentId, cameras) => {
+      agentCamerasRef.current[agentId] = cameras;
+  };
+
   
   const addLog = (txt) => {
     setLogs((l) => {
@@ -154,60 +342,6 @@ export default function SelfDrivingCarExample() {
       return upd.length > 200 ? upd.slice(upd.length - 200) : upd;
     });
   };
-
-  useEffect(() => {
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-    ws.onopen = () => addLog('SelfDrivingCar WS opened');
-    ws.onmessage = (ev) => {
-      addLog(`Received data: ${ev.data.substring(0, 100)}...`);
-      try {
-        const parsed = JSON.parse(ev.data);
-        
-        if (parsed.type === 'error') {
-          setError(parsed.message);
-          addLog(`ERROR: ${parsed.message}`);
-          return;
-        }
-
-        if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
-          setState(parsed.state);
-        } else if (parsed.type === 'train_step_update') {
-          setState(prevState => {
-            if (!prevState) return null;
-            return {
-              ...prevState,
-              ...parsed.state,
-            };
-          });
-        }
-        if (parsed.type === 'progress') {
-          setChartState((prev) => ({
-            labels: [...prev.labels, parsed.episode],
-            rewards: [...prev.rewards, parsed.reward],
-            losses: [...prev.losses, parsed.loss ?? null],
-          }));
-        }
-        if (parsed.type === 'data_collection_progress') {
-          addLog(`Collecting training data... ${parsed.progress.toFixed(0)}% (${parsed.samples} samples)`);
-        }
-        if (parsed.type === 'training_progress') {
-          addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);
-        }
-        if (parsed.type === 'trained') {
-          setTraining(false);
-          setTrained(true);
-          setModelInfo(parsed.model_info);
-          addLog('Training complete! Agents are now using the trained policy.');
-        }
-      } catch (e) {
-        addLog(`Error processing message: ${e}`);
-        console.error("Failed to process message: ", e);
-      }
-    };
-    ws.onclose = () => addLog('SelfDrivingCar WS closed');
-    return () => ws.close();
-  }, []);
 
   const send = (obj) => {
     addLog(`Sending: ${JSON.stringify(obj)}`);
@@ -251,29 +385,16 @@ export default function SelfDrivingCarExample() {
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
       <Canvas camera={{ fov: 60 }}>
-        <ambientLight intensity={0.6} />
-        <directionalLight 
-          castShadow 
-          position={[100, 100, 100]} 
-          intensity={1.6} 
+        <SceneContent
+            state={state}
+            coordinateTransformer={coordinateTransformer}
+            handleCamerasCreated={handleCamerasCreated}
+            setMapLoaded={setMapLoaded}
+            setCoordinateTransformer={setCoordinateTransformer}
+            agentCamerasRef={agentCamerasRef}
+            cameraTargetsRef={cameraTargetsRef}
+            setCameraFeedData={setCameraFeedData}
         />
-        <directionalLight 
-          castShadow 
-          position={[-100, 100, -100]} 
-          intensity={0.5} 
-        />
-        
-        <Map onMapLoaded={(transformer) => {
-          setMapLoaded(true);
-          setCoordinateTransformer(transformer);
-        }} />
-
-        {state && coordinateTransformer && <Roads roadNetwork={state.road_network} coordinateTransformer={coordinateTransformer} />}
-        {state && coordinateTransformer && state.agents.map(agent => <Agent key={agent.id} agent={agent} coordinateTransformer={coordinateTransformer} />)}
-        
-        <EffectComposer>
-          <Bloom intensity={1.2} luminanceThreshold={0.1} luminanceSmoothing={0.9} toneMapped={false} />
-        </EffectComposer>
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
@@ -297,9 +418,83 @@ export default function SelfDrivingCarExample() {
       </div>
       
       {state && <MessagePanel messages={state.messages} />}
+      <CameraFeeds cameraFeedData={cameraFeedData} />
       <InfoPanel logs={logs} chartState={chartState} />
       <ModelInfoPanel modelInfo={modelInfo} />
 
     </div>
   );
 } 
+
+const SceneContent = ({
+    state,
+    coordinateTransformer,
+    handleCamerasCreated,
+    setMapLoaded,
+    setCoordinateTransformer,
+    agentCamerasRef,
+    cameraTargetsRef,
+    setCameraFeedData
+}) => {
+    const { scene } = useThree();
+
+    useFrame(({ gl, scene }) => {
+        gl.autoClear = true;
+        const newFeedData = {};
+        const renderWidth = 400;
+        const renderHeight = 300;
+
+        Object.entries(agentCamerasRef.current).forEach(([agentId, cameras]) => {
+            Object.entries(cameras).forEach(([cameraName, camera]) => {
+                const targetName = `${agentId}-${cameraName}`;
+                let renderTarget = cameraTargetsRef.current[targetName];
+
+                if (!renderTarget) {
+                    renderTarget = new THREE.WebGLRenderTarget(renderWidth, renderHeight);
+                    cameraTargetsRef.current[targetName] = renderTarget;
+                }
+
+                gl.setRenderTarget(renderTarget);
+                gl.render(scene, camera);
+
+                const buffer = new Uint8Array(renderWidth * renderHeight * 4);
+                gl.readRenderTargetPixels(renderTarget, 0, 0, renderWidth, renderHeight, buffer);
+
+                newFeedData[targetName] = { buffer, width: renderWidth, height: renderHeight };
+            });
+        });
+
+        gl.setRenderTarget(null);
+        setCameraFeedData(newFeedData);
+    });
+
+    return (
+        <>
+            <ambientLight intensity={0.6} />
+            <directionalLight
+                castShadow
+                position={[100, 100, 100]}
+                intensity={1.6}
+            />
+            <directionalLight
+                castShadow
+                position={[-100, 100, -100]}
+                intensity={0.5}
+            />
+
+            <Map onMapLoaded={(transformer) => {
+                setMapLoaded(true);
+                setCoordinateTransformer(transformer);
+            }} />
+
+            {state && coordinateTransformer && <Roads roadNetwork={state.road_network} coordinateTransformer={coordinateTransformer} />}
+            {state && coordinateTransformer && state.agents.map(agent => <Agent key={agent.id} agent={agent} coordinateTransformer={coordinateTransformer} onCamerasCreated={handleCamerasCreated} />)}
+            {state && coordinateTransformer && state.pedestrians.map(ped => <Pedestrian key={ped.id} pedestrian={ped} coordinateTransformer={coordinateTransformer} />)}
+            {state && coordinateTransformer && state.traffic_lights.map(light => <TrafficLight key={light.id} light={light} coordinateTransformer={coordinateTransformer} />)}
+
+            <EffectComposer>
+                <Bloom intensity={1.2} luminanceThreshold={0.1} luminanceSmoothing={0.9} toneMapped={false} />
+            </EffectComposer>
+        </>
+    );
+}; 

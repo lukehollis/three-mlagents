@@ -53,7 +53,9 @@ FEATURE_LABELS = {
     4: "Total Distance Remaining",
     5: "Is On Final Segment",
     6: "Current Heading",
-    7: "Heading Error"
+    7: "Heading Error",
+    8: "Nearest Pedestrian Distance",
+    9: "Nearest Traffic Light State"
 }
 
 class ActorCritic(nn.Module):
@@ -78,17 +80,27 @@ class ActorCritic(nn.Module):
         value = self.critic(h)
         return dist, value
 
-    def get_top_features(self, top_k=3):
-        """Analyzes the weights of the first layer to find the most influential features."""
-        first_layer_weights = self.shared[0].weight.data
+    def get_local_feature_importance(self, obs: torch.Tensor, action: torch.Tensor, top_k=3):
+        """Calculates local, instance-based feature importance using gradients."""
+        # Ensure the observation tensor can have gradients calculated for it
+        obs.requires_grad_(True)
+
+        # Re-compute the forward pass to build the computation graph
+        dist, _ = self.forward(obs)
+        log_prob = dist.log_prob(action)
+
+        # Calculate the gradients of the log-probability of the action with respect to the inputs
+        # using torch.autograd.grad to avoid interfering with the main training gradients.
+        grads = torch.autograd.grad(log_prob, obs)[0]
         
-        # We take the sum of the absolute values of the weights for each input feature
-        # to gauge its overall influence on the first hidden layer.
-        feature_influence = torch.sum(torch.abs(first_layer_weights), dim=0)
-        
-        # Get the indices of the top_k most influential features
-        top_indices = torch.topk(feature_influence, k=top_k).indices.tolist()
-        
+        feature_importance = grads.abs().squeeze()
+
+        # We can now disable grad on obs as we are done with it.
+        obs.requires_grad_(False)
+
+        # Get the indices of the top_k most important features
+        top_indices = torch.topk(feature_importance, k=top_k).indices.tolist()
+
         # Map indices to labels
         top_features = [FEATURE_LABELS.get(i, f"Unknown Feature {i}") for i in top_indices]
         
@@ -126,6 +138,59 @@ class ActorCritic(nn.Module):
             return action.item(), log_prob.item(), value.item()
         
         return action, log_prob, value 
+
+# --- New Entity Classes ---
+class TrafficLight:
+    def __init__(self, light_id: int, pos: np.ndarray, initial_state: str = 'green', cycle_time: int = 200):
+        self.id = light_id
+        self.pos = pos
+        self.state = initial_state 
+        self.cycle_time = cycle_time
+        self.timer = random.randint(0, cycle_time)
+
+    def step(self):
+        self.timer += 1
+        if self.timer >= self.cycle_time:
+            self.timer = 0
+            self.state = 'green' if self.state == 'red' else 'red'
+
+class Pedestrian:
+    def __init__(self, ped_id: int, start_pos: np.ndarray, end_pos: np.ndarray, speed: float = 1.0, initial_state: str = 'waiting'):
+        self.id = ped_id
+        self.start_pos = start_pos
+        self.end_pos = end_pos
+        self.pos = start_pos.copy()
+        self.speed = speed
+        self.state = initial_state # 'waiting', 'crossing', 'jaywalking'
+        self.path_progress = 0.0
+        self.wait_timer = 0
+    
+    def step(self, traffic_light_state: str):
+        if self.state == 'waiting':
+            # Jaywalking logic
+            if random.random() < 0.005: # 0.5% chance to jaywalk each step
+                self.state = 'jaywalking'
+                self.wait_timer = 0
+                return # Start jaywalking on the next step
+
+            if traffic_light_state == 'green': # Assuming green for cars means red for peds
+                self.wait_timer = 0
+                self.state = 'crossing'
+            else:
+                self.wait_timer += 1
+        
+        elif self.state == 'crossing' or self.state == 'jaywalking':
+            total_dist = np.linalg.norm(self.end_pos - self.start_pos)
+            if total_dist > 0:
+                self.path_progress += self.speed / total_dist
+                self.pos = self.start_pos + (self.end_pos - self.start_pos) * self.path_progress
+            
+            if self.path_progress >= 1.0:
+                self.state = 'waiting'
+                self.path_progress = 0
+                # Swap start and end to walk back and forth
+                self.start_pos, self.end_pos = self.end_pos, self.start_pos
+                self.pos = self.start_pos.copy()
 
 
 # --- Agent Class ---
@@ -188,6 +253,8 @@ class SelfDrivingCarEnv:
         self.messages: List[Dict] = []
         self.step_count = 0
         self.agents = []
+        self.pedestrians: List[Pedestrian] = []
+        self.traffic_lights: List[TrafficLight] = []
         self.trained_policy: "ActorCritic" = None
         
         self.location_point = (40.758896, -73.985130) # Times Square
@@ -204,7 +271,72 @@ class SelfDrivingCarEnv:
         self.graph_proj = ox.project_graph(self.graph)
         
         self.road_network_for_viz = self._get_road_network_for_viz()
+        self._create_traffic_lights_and_pedestrians()
         self._create_agents(NUM_AGENTS)
+
+    def _create_traffic_lights_and_pedestrians(self):
+        # Find intersections (nodes with more than 2 edges)
+        intersections = [node for node, degree in self.graph.degree() if degree > 2]
+        
+        # Place traffic lights and pedestrian crossings at some intersections
+        num_to_place = min(len(intersections), 5) # Limit to 5 for performance
+        selected_nodes = random.sample(intersections, num_to_place)
+
+        for i, node_id in enumerate(selected_nodes):
+            node_data = self.graph.nodes[node_id]
+            light_pos = np.array([node_data['y'], node_data['x']])
+            self.traffic_lights.append(TrafficLight(light_id=i, pos=light_pos))
+
+            # Add a pedestrian crossing at this light
+            # Define a simple crossing path across the intersection
+            crosswalk_start = light_pos + np.array([0.0001, 0.0001]) # small offset
+            crosswalk_end = light_pos - np.array([0.0001, 0.0001])
+            self.pedestrians.append(Pedestrian(ped_id=i, start_pos=crosswalk_start, end_pos=crosswalk_end))
+
+        # Add more random pedestrians along sidewalks
+        ped_id_counter = len(self.pedestrians)
+        all_edges = list(self.graph.edges())
+        num_peds_to_add = 30
+        
+        if not all_edges: return
+
+        sampled_edges = random.sample(all_edges, min(num_peds_to_add, len(all_edges)))
+        
+        for u, v in sampled_edges:
+            p_start = np.array([self.graph.nodes[u]['y'], self.graph.nodes[u]['x']])
+            p_end = np.array([self.graph.nodes[v]['y'], self.graph.nodes[v]['x']])
+            
+            vec = p_end - p_start
+            if np.linalg.norm(vec) < 1e-6: continue
+                
+            perp_vec = np.array([-vec[1], vec[0]])
+            perp_vec_norm = perp_vec / np.linalg.norm(perp_vec)
+            
+            offset_dist_degrees = 0.00004 
+            
+            side = random.choice([-1, 1])
+            offset = side * offset_dist_degrees * perp_vec_norm
+            
+            sidewalk_start = p_start + offset
+            
+            if random.random() < 0.3: # 30% chance to be a jaywalker
+                jaywalk_end = p_end - offset # Target the other side of the street
+                new_ped = Pedestrian(
+                    ped_id=ped_id_counter, 
+                    start_pos=sidewalk_start, 
+                    end_pos=jaywalk_end,
+                    initial_state='jaywalking'
+                )
+            else: # Normal sidewalk pedestrian
+                sidewalk_end = p_end + offset
+                new_ped = Pedestrian(
+                    ped_id=ped_id_counter,
+                    start_pos=sidewalk_start,
+                    end_pos=sidewalk_end
+                )
+                
+            self.pedestrians.append(new_ped)
+            ped_id_counter += 1
 
     def add_message(self, agent_id: int, message: str):
         """Adds a message to the environment's message list."""
@@ -254,6 +386,20 @@ class SelfDrivingCarEnv:
 
     def _get_reward(self, agent: Agent, action: str, data: Any) -> float:
         reward = 0
+        
+        # Big penalty for collisions or red lights
+        for ped in self.pedestrians:
+            if np.linalg.norm(agent.pos - ped.pos) < 0.0002: # Collision threshold
+                reward -= 200
+        
+        # Check for red light violation
+        for light in self.traffic_lights:
+            # Is agent near this light?
+            if np.linalg.norm(agent.pos - light.pos) < 0.0003:
+                if light.state == 'red':
+                    # Penalize based on speed, more for going faster through a red
+                    reward -= 50 * (agent.speed + 1)
+
         if agent.path_index >= len(agent.path) - 1:
             return 100.0
         
@@ -331,6 +477,17 @@ class SelfDrivingCarEnv:
             rewards.append(self._get_reward(agent, action, data))
             dones.append(False)
         
+        # Update traffic lights and pedestrians
+        for light in self.traffic_lights:
+            light.step()
+        
+        for ped in self.pedestrians:
+            # Find closest light to determine state
+            # A real system would link them, but this is a simple approximation
+            closest_light = min(self.traffic_lights, key=lambda l: np.linalg.norm(l.pos - ped.pos)) if self.traffic_lights else None
+            light_state = closest_light.state if closest_light else 'red'
+            ped.step(light_state)
+
         return rewards, dones
 
     def get_state_for_viz(self) -> Dict[str, Any]:
@@ -338,12 +495,14 @@ class SelfDrivingCarEnv:
             "agents": [{"id": a.id, "pos": a.pos.tolist(), "heading": a.heading, "pitch": a.pitch, "color": a.color, "memory_stream": a.memory_stream, "goal": a.get_goal().tolist()} for a in self.agents],
             "llm_logs": self.llm_logs,
             "messages": self.messages,
-            "road_network": self.road_network_for_viz
+            "road_network": self.road_network_for_viz,
+            "pedestrians": [{"id": p.id, "pos": p.pos.tolist(), "state": p.state} for p in self.pedestrians],
+            "traffic_lights": [{"id": l.id, "pos": l.pos.tolist(), "state": l.state} for l in self.traffic_lights]
         }
 
-def get_agent_state_vector(agent: Agent) -> np.ndarray:
+def get_agent_state_vector(agent: Agent, env: "SelfDrivingCarEnv") -> np.ndarray:
     if agent.path_index >= len(agent.path) - 1:
-        return np.zeros(8)
+        return np.zeros(10) # Updated size
 
     p1_proj = agent.graph_proj.nodes[agent.path[agent.path_index]]
     p2_proj = agent.graph_proj.nodes[agent.path[agent.path_index + 1]]
@@ -359,6 +518,13 @@ def get_agent_state_vector(agent: Agent) -> np.ndarray:
     # Normalize heading difference
     heading_diff = (heading_to_next - agent.heading + 180) % 360 - 180
     
+    # Find nearest pedestrian and traffic light
+    nearest_ped = min(env.pedestrians, key=lambda p: np.linalg.norm(agent.pos - p.pos)) if env.pedestrians else None
+    dist_to_ped = np.linalg.norm(agent.pos - nearest_ped.pos) if nearest_ped else 1.0 # Normalized distance
+    
+    nearest_light = min(env.traffic_lights, key=lambda l: np.linalg.norm(agent.pos - l.pos)) if env.traffic_lights else None
+    light_state = 1.0 if nearest_light and nearest_light.state == 'green' else 0.0
+
     return np.concatenate([
         vec_to_next / (np.linalg.norm(vec_to_next) + 1e-6),
         [agent.speed / 15.0],
@@ -366,7 +532,9 @@ def get_agent_state_vector(agent: Agent) -> np.ndarray:
         [remaining_len / 1000.0],
         [float(len(agent.path) - 1 - agent.path_index > 0)],
         [agent.heading / 360.0],
-        [heading_diff / 180.0]
+        [heading_diff / 180.0],
+        [dist_to_ped],
+        [light_state]
     ])
 
 def get_valid_actions_mask(agent: Agent) -> np.ndarray:
@@ -406,7 +574,7 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
     try:
         env = SelfDrivingCarEnv()
         dummy_agent = env.agents[0]
-        dummy_obs = get_agent_state_vector(dummy_agent)
+        dummy_obs = get_agent_state_vector(dummy_agent, env)
         obs_size = dummy_obs.shape[0]
         action_size = len(DISCRETE_ACTIONS)
 
@@ -419,10 +587,10 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
         total_steps = 0
         current_loss = None
         
-        obs_t = torch.tensor(np.array([get_agent_state_vector(agent) for agent in env.agents]), dtype=torch.float32)
+        obs_t = torch.tensor(np.array([get_agent_state_vector(agent, env) for agent in env.agents]), dtype=torch.float32)
 
         while ep_counter < EPISODES:
-            agent_states = [get_agent_state_vector(agent) for agent in env.agents]
+            agent_states = [get_agent_state_vector(agent, env) for agent in env.agents]
             obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
             
             valid_masks = np.array([get_valid_actions_mask(agent) for agent in env.agents])
@@ -441,7 +609,7 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                 agent_actions_for_env.append((action_name, None))
 
             if model:
-                top_features = model.get_top_features()
+                top_features = model.get_local_feature_importance(obs_t, actions_t)
                 explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {', '.join(top_features)}"
                 env.add_message(agent_id=env.agents[0].id, message=explanation)
 
@@ -465,7 +633,7 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                     ep_counter += 1
                     env.reset_agent(i)
             
-            next_obs_list = [get_agent_state_vector(agent) for agent in env.agents]
+            next_obs_list = [get_agent_state_vector(agent, env) for agent in env.agents]
             obs_t = torch.tensor(np.array(next_obs_list), dtype=torch.float32)
 
 
@@ -480,7 +648,7 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
 
             if total_steps >= BATCH_SIZE:
                 with torch.no_grad():
-                    next_agent_states = [get_agent_state_vector(agent) for agent in env.agents]
+                    next_agent_states = [get_agent_state_vector(agent, env) for agent in env.agents]
                     next_obs_t = torch.tensor(np.array(next_agent_states), dtype=torch.float32)
                     _, next_value_t = model(next_obs_t)
                     next_value = next_value_t.squeeze()
@@ -576,7 +744,7 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
         try:
             agent_actions_for_env = []
             if env.trained_policy:
-                agent_states = [get_agent_state_vector(agent) for agent in env.agents]
+                agent_states = [get_agent_state_vector(agent, env) for agent in env.agents]
                 obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
                 
                 valid_masks = np.array([get_valid_actions_mask(agent) for agent in env.agents])
@@ -592,7 +760,7 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                     action_name = DISCRETE_ACTIONS[actions_np[i]]
                     agent_actions_for_env.append((action_name, None))
                 
-                top_features = env.trained_policy.get_top_features()
+                top_features = env.trained_policy.get_local_feature_importance(obs_t, actions_t)
                 explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {', '.join(top_features)}"
                 env.add_message(agent_id=env.agents[0].id, message=explanation)
 
