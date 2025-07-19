@@ -25,7 +25,14 @@ const CameraFeed = ({ feedData, name }) => {
 
 
     return (
-        <div>
+        <div 
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'start',
+                justifyContent: 'start',
+            }}
+        >
             <Text style={{ 
                 margin: '0 0 5px 0', 
                 fontSize: '10px', color: '#fff', background: 'rgba(0,0,0,0.6)', padding: '4px', borderRadius: '4px', width: 'auto', textTransform: 'uppercase', display: 'inline-block' 
@@ -34,9 +41,15 @@ const CameraFeed = ({ feedData, name }) => {
                 {name}
             </Text>
             <canvas 
-            ref={canvasRef} 
-            width="120"
-             height="90" style={{ border: '1px solid #555', borderRadius: '4px', width: '120px' }} />
+                ref={canvasRef} 
+                width="120"
+                height="90" 
+                style={{ 
+                    border: '1px solid #555', borderRadius: '4px', 
+                    width: '120px',
+                    background: 'rgba(0,0,0,0.6)',
+                }} 
+            />
         </div>
     );
 };
@@ -51,15 +64,15 @@ const CameraFeeds = ({ cameraFeedData }) => {
         <div
             style={{
                 position: 'absolute', 
-                top: '150px', 
+                top: '180px', 
                 left: '10px',
-                width: '450px',
+                width: '260px',
                 color: '#fff',
                 display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px'
             }}
         >
             {Object.entries(cameraFeedData).map(([name, data]) => (
-                <CameraFeed key={name} name={name} feedData={data} />
+                <CameraFeed key={name} name={name.replace(/^\d+-/, '')} feedData={data} />
             ))}
         </div>
     );

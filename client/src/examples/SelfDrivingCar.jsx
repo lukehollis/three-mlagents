@@ -16,6 +16,8 @@ import Lidar, { LIDAR_LAYER } from '../components/Lidar.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/self_driving_car`;
 
+const TRAINING_FRAME_RENDER_INTERVAL = 100;
+
 const Agent = ({ agent, coordinateTransformer, onCamerasCreated }) => {
   const { pos, color, id, heading, pitch } = agent;
   const groupRef = useRef();
@@ -30,20 +32,22 @@ const Agent = ({ agent, coordinateTransformer, onCamerasCreated }) => {
           'Left': new THREE.PerspectiveCamera(75, 4 / 3, 1, 1000),
           'Right': new THREE.PerspectiveCamera(75, 4 / 3, 1, 1000),
           'Rear': new THREE.PerspectiveCamera(120, 4 / 3, 1, 1000),
-          'Lidar (Top-Down)': new THREE.OrthographicCamera(-500, 500, 500, -500, 1, 2000)
+          'Lidar': new THREE.OrthographicCamera(-500, 500, 500, -500, 1, 2000)
       };
 
-      cameras['Front (Wide)'].position.set(0, 10, 20);
-      cameras['Front (Narrow)'].position.set(0, 10, 20);
-      cameras['Left'].position.set(-10, 10, 0);
-      cameras['Left'].rotateY(THREE.MathUtils.degToRad(-90));
-      cameras['Right'].position.set(10, 10, 0);
-      cameras['Right'].rotateY(THREE.MathUtils.degToRad(90));
-      cameras['Rear'].position.set(0, 10, -20);
-      cameras['Rear'].rotateY(THREE.MathUtils.degToRad(180));
-      cameras['Lidar (Top-Down)'].position.set(0, 1000, 0);
-      cameras['Lidar (Top-Down)'].lookAt(0, 0, 0);
-      cameras['Lidar (Top-Down)'].layers.enable(LIDAR_LAYER);
+      const y = 15;
+      cameras['Front (Wide)'].position.set(0, y, 21);
+      cameras['Front (Wide)'].rotateY(Math.PI);
+      cameras['Front (Narrow)'].position.set(0, y, 21);
+      cameras['Front (Narrow)'].rotateY(Math.PI);
+      cameras['Left'].position.set(-11, y, 0);
+      cameras['Left'].rotateY(Math.PI / 2);
+      cameras['Right'].position.set(11, y, 0);
+      cameras['Right'].rotateY(-Math.PI / 2);
+      cameras['Rear'].position.set(0, y, -21);
+      cameras['Lidar'].position.set(0, 1000, 0);
+      cameras['Lidar'].lookAt(0, 0, 0);
+      cameras['Lidar'].layers.enable(LIDAR_LAYER);
 
       camerasRef.current = cameras;
       onCamerasCreated(id, cameras);
@@ -233,11 +237,11 @@ const MessagePanel = ({ messages }) => {
             ref={containerRef}
             style={{
                 position: 'absolute', bottom: '10px', left: '10px', width: '450px',
-                maxHeight: '40vh', overflowY: 'auto', background: 'rgba(0,0,0,0.6)',
+                maxHeight: '30vh', overflowY: 'auto', background: 'rgba(0,0,0,0.6)',
                 color: '#fff', border: '1px solid #444',
             }}
         >
-          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No messages]</Text>}
+          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No interpretability messages yet.]</Text>}
           {messages.map((msg, i) => (
               <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
                   <Text p style={{ margin: 0, fontWeight: 'bold' }}>
@@ -394,6 +398,7 @@ export default function SelfDrivingCarExample() {
             agentCamerasRef={agentCamerasRef}
             cameraTargetsRef={cameraTargetsRef}
             setCameraFeedData={setCameraFeedData}
+            training={training}
         />
       </Canvas>
 
@@ -434,12 +439,21 @@ const SceneContent = ({
     setCoordinateTransformer,
     agentCamerasRef,
     cameraTargetsRef,
-    setCameraFeedData
+    setCameraFeedData,
+    training,
 }) => {
     const { scene } = useThree();
+    const frameCountRef = useRef(0);
 
     useFrame(({ gl, scene }) => {
         gl.autoClear = true;
+
+        frameCountRef.current++;
+        if (training && (frameCountRef.current % TRAINING_FRAME_RENDER_INTERVAL !== 1)) {
+            // During training, only render camera feeds intermittently to save performance
+            return;
+        }
+
         const newFeedData = {};
         const renderWidth = 400;
         const renderHeight = 300;
