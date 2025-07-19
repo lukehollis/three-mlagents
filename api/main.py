@@ -21,6 +21,10 @@ from examples.glider import train_glider, run_glider, GliderEnv
 from examples.minecraft import run_minecraft, train_minecraft, MineCraftEnv
 from examples.fish import run_fish, train_fish, FishEnv
 from examples.intersection import run_intersection, train_intersection, MultiVehicleEnv as IntersectionEnv
+from examples.self_driving_car import run_self_driving_car, train_self_driving_car, SelfDrivingCarEnv
+from fastapi import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
+import logging
 
 app = FastAPI(title="ML-Agents API")
 
@@ -290,7 +294,6 @@ async def websocket_minecraft(websocket: WebSocket):
             await run_minecraft(websocket, env)
 
 
-
 # WebSocket endpoint for Fish
 @app.websocket("/ws/fish")
 async def websocket_fish(websocket: WebSocket):
@@ -331,4 +334,26 @@ async def websocket_intersection(websocket: WebSocket):
                 
     except Exception as e:
         print(f"Intersection websocket disconnected: {e}")
+
+
+# WebSocket endpoint for SelfDrivingCar
+@app.websocket("/ws/self_driving_car")
+async def websocket_self_driving_car(websocket: WebSocket):
+    await websocket.accept()
+    env = SelfDrivingCarEnv()
+    initial_state = env.get_state_for_viz()
+    await websocket.send_json({"type": "init", "state": initial_state})
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            cmd = data.get("cmd")
+
+            if cmd == 'train':
+                await train_self_driving_car(websocket, env)
+            elif cmd == 'run':
+                await run_self_driving_car(websocket, env)
+                
+    except Exception as e:
+        print(f"SelfDrivingCar websocket disconnected: {e}")
 
