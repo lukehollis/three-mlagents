@@ -15,6 +15,7 @@ import GliderExample from './examples/Glider.jsx';
 import MineCraftExample from './examples/MineCraft.jsx';
 import FishExample from './examples/Fish.jsx';
 import IntersectionExample from './examples/Intersection.jsx';
+import SelfDrivingCarExample from './examples/SelfDrivingCar.jsx';
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="/minecraft" element={<MineCraftExample />} />
         <Route path="/fish" element={<FishExample />} />
         <Route path="/intersection" element={<IntersectionExample />} />
+        <Route path="/self-driving-car" element={<SelfDrivingCarExample />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
