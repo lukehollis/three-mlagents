@@ -239,11 +239,8 @@ class Agent:
         
         self.graph = graph
         self.graph_proj = graph_proj
-        self.start_node = start_node
-        self.goal_node = goal_node
-        self.path = path
-        self.path_index = 0
-        self.distance_on_segment = 0.0
+        
+        self._set_new_path(start_node, goal_node, path)
         
         self.pos = np.array([self.graph.nodes[self.path[0]]['y'], self.graph.nodes[self.path[0]]['x']])
         self.heading = 0
@@ -255,15 +252,40 @@ class Agent:
         self.color = random.choice(RETRO_SCIFI_COLORS)
         self.memory_stream = []
 
+    def _set_new_path(self, start_node: int, goal_node: int, path: list):
+        self.start_node = start_node
+        self.goal_node = goal_node
+        self.path = path
+        self.path_index = 0
+        self.distance_on_segment = 0.0
+
+        # Pre-calculate projected path lengths for efficiency
+        self.path_segment_lengths_proj = [self.graph_proj[u][v][0]['length'] for u, v in zip(path[:-1], path[1:])]
+        self.total_path_len_proj = sum(self.path_segment_lengths_proj)
+        self.traveled_dist_proj = 0.0
+
+    def reset(self, start_node: int, goal_node: int, path: list):
+        self._set_new_path(start_node, goal_node, path)
+        self.pos = np.array([self.graph.nodes[self.path[0]]['y'], self.graph.nodes[self.path[0]]['x']])
+        self.heading = 0
+        self.pitch = 0
+        self.acceleration = 0.0
+        self.angular_velocity = 0.0
+        self.speed = 0.0
+        self.memory_stream = []
+
     def _calculate_remaining_len(self):
         """Calculates the total remaining distance along the agent's path."""
         if self.path_index >= len(self.path) - 1:
             return 0.0
         
-        # Sum of lengths of future segments from the projected graph
-        path_len = sum(self.graph_proj[u][v][0]['length'] for i in range(self.path_index, len(self.path) - 1) for u,v in [(self.path[i], self.path[i+1])])
+        # Sum of lengths of remaining future segments
+        remaining_segments_len = sum(self.path_segment_lengths_proj[self.path_index+1:])
         
-        return path_len - self.distance_on_segment
+        # Length of current segment not yet traveled
+        current_segment_remaining = self.path_segment_lengths_proj[self.path_index] - self.distance_on_segment
+        
+        return remaining_segments_len + current_segment_remaining
 
     def _update_heading(self):
         if self.path_index < len(self.path) - 1:
@@ -442,9 +464,8 @@ class SelfDrivingCarEnv:
         if agent.path_index >= len(agent.path) - 1:
             return 100.0 # Large terminal reward
         
-        # REWARD/PENALTY: Speed
-        # Small penalty for being stopped to encourage movement.
-        reward += agent.speed * 0.05 - 0.05
+        # PENALTY: Time step penalty to encourage finishing the episode.
+        reward -= 0.1
         
         # PENALTY: Unnecessary Turning
         # Penalize for turning when not necessary to encourage smooth driving.
@@ -487,9 +508,7 @@ class SelfDrivingCarEnv:
             agent.distance_on_segment += dist_to_move
             
             while agent.path_index < len(agent.path) - 1:
-                p1_proj = agent.graph_proj.nodes[agent.path[agent.path_index]]
-                p2_proj = agent.graph_proj.nodes[agent.path[agent.path_index + 1]]
-                segment_len = np.linalg.norm(np.array([p2_proj['x'] - p1_proj['x'], p2_proj['y'] - p1_proj['y']]))
+                segment_len = agent.path_segment_lengths_proj[agent.path_index]
 
                 if agent.distance_on_segment >= segment_len:
                     agent.distance_on_segment -= segment_len
@@ -683,7 +702,7 @@ EPOCHS = 4
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 CLIP_EPS = 0.2
-ENT_COEF = 0.01
+ENT_COEF = 0.02
 LR = 3e-4
 EPISODES = 1000
 
