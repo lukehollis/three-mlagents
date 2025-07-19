@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, Text as DreiText } from '@react-three/drei';
+import { OrbitControls, Text as DreiText } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button, Text, Card, Code } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
@@ -11,6 +11,7 @@ import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import Map from '../components/Map.jsx';
 import Roads from '../components/Roads.jsx';
+import { Geodetic } from '@takram/three-geospatial';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/self_driving_car`;
 
@@ -18,28 +19,26 @@ const Agent = ({ agent, coordinateTransformer }) => {
   const { pos, color, id, heading, pitch } = agent;
   const groupRef = useRef();
   const [carPosition, setCarPosition] = useState(null);
+  const [orientation, setOrientation] = useState(new THREE.Quaternion());
 
   useEffect(() => {
     if (coordinateTransformer) {
       const [lat, lng] = pos;
       const vector = coordinateTransformer.latLngToECEF(lat, lng);
       setCarPosition(vector);
-    }
-  }, [pos, coordinateTransformer]);
 
-  useEffect(() => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y = -THREE.MathUtils.degToRad(heading);
-      groupRef.current.rotation.z = -THREE.MathUtils.degToRad(pitch || 0);
+      const newOrientation = calculateOrientation(lat, lng, heading, pitch || 0, coordinateTransformer);
+      newOrientation.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / -2, Math.PI / 2, 0)));
+      setOrientation(newOrientation);
     }
-  }, [heading, pitch]);
+  }, [pos, heading, pitch, coordinateTransformer]);
 
   const agentColor = useMemo(() => new THREE.Color(...color), [color]);
 
   if (!carPosition) return null;
 
   return (
-    <group ref={groupRef} position={carPosition}>
+    <group ref={groupRef} position={carPosition} quaternion={orientation}>
       <mesh>
         <boxGeometry args={[20, 10, 40]} />
         <meshPhongMaterial
@@ -76,6 +75,30 @@ const Agent = ({ agent, coordinateTransformer }) => {
   );
 };
 
+const calculateOrientation = (lat, lon, heading, pitch, coordinateTransformer) => {
+  const ecefPosition = coordinateTransformer.latLngToECEF(lat, lon);
+  const up = ecefPosition.clone().normalize();
+
+  // Calculate a point slightly ahead of the car for the "lookAt" target
+  const lookAtLat = lat + 0.0001 * Math.cos(THREE.MathUtils.degToRad(heading));
+  const lookAtLon = lon + 0.0001 * Math.sin(THREE.MathUtils.degToRad(heading));
+  const lookAtPosition = coordinateTransformer.latLngToECEF(lookAtLat, lookAtLon);
+
+  // Create a rotation matrix that makes the car look at the target point
+  const lookAtMatrix = new THREE.Matrix4();
+  lookAtMatrix.lookAt(ecefPosition, lookAtPosition, up);
+
+  // Convert the rotation matrix to a quaternion
+  const finalOrientation = new THREE.Quaternion().setFromRotationMatrix(lookAtMatrix);
+  
+  // Apply a model correction if necessary (this aligns the model's forward vector)
+  const modelCorrection = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, Math.PI, 0));
+  finalOrientation.multiply(modelCorrection);
+
+  return finalOrientation;
+};
+
+
 const MessagePanel = ({ messages }) => {
     const containerRef = useRef(null);
     
@@ -98,23 +121,14 @@ const MessagePanel = ({ messages }) => {
             }}
         >
           {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No messages]</Text>}
-          {messages.map((msg, i) => {
-              let content;
-              if (msg.recipient_id !== null && msg.recipient_id !== undefined) {
-                  content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[DM to {msg.recipient_id}]</span> {msg.message}</Text>;
-              } else {
-                  content = <Text p style={{ margin: 0 }}>{msg.message}</Text>;
-              }
-              
-              return (
-                  <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
-                      <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                          <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
-                      </Text>
-                      {content}
-                  </div>
-              );
-          })}
+          {messages.map((msg, i) => (
+              <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
+                  <Text p style={{ margin: 0, fontWeight: 'bold' }}>
+                      <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
+                  </Text>
+                  <Text p style={{ margin: 0 }}>{msg.message}</Text>
+              </div>
+          ))}
         </Card>
     );
 };
@@ -275,7 +289,7 @@ export default function SelfDrivingCarExample() {
         >
           Home
         </Link>
-        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Self-Driving Car</Text>
+        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Self-Driving Car (Interpretability)</Text>
         <div style={{ display: 'flex', gap: '8px' }}>
           <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
           <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>

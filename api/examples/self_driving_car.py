@@ -42,8 +42,19 @@ LLM_CALL_FREQUENCY = 10
 USE_LOCAL_OLLAMA = True 
 
 DISCRETE_ACTIONS = [
-    "accelerate", "decelerate"
+    "accelerate", "decelerate", "maintain_speed", "slight_left", "slight_right"
 ]
+
+FEATURE_LABELS = {
+    0: "Path Direction X",
+    1: "Path Direction Y",
+    2: "Current Speed",
+    3: "Distance to Next Turn",
+    4: "Total Distance Remaining",
+    5: "Is On Final Segment",
+    6: "Current Heading",
+    7: "Heading Error"
+}
 
 class ActorCritic(nn.Module):
     def __init__(self, obs_size: int, action_size: int):
@@ -66,6 +77,22 @@ class ActorCritic(nn.Module):
         dist = Categorical(logits=logits)
         value = self.critic(h)
         return dist, value
+
+    def get_top_features(self, top_k=3):
+        """Analyzes the weights of the first layer to find the most influential features."""
+        first_layer_weights = self.shared[0].weight.data
+        
+        # We take the sum of the absolute values of the weights for each input feature
+        # to gauge its overall influence on the first hidden layer.
+        feature_influence = torch.sum(torch.abs(first_layer_weights), dim=0)
+        
+        # Get the indices of the top_k most influential features
+        top_indices = torch.topk(feature_influence, k=top_k).indices.tolist()
+        
+        # Map indices to labels
+        top_features = [FEATURE_LABELS.get(i, f"Unknown Feature {i}") for i in top_indices]
+        
+        return top_features
 
     def get_action(self, obs: np.ndarray, action: torch.Tensor = None, valid_actions_mask: torch.Tensor = None):
         """
@@ -179,6 +206,17 @@ class SelfDrivingCarEnv:
         self.road_network_for_viz = self._get_road_network_for_viz()
         self._create_agents(NUM_AGENTS)
 
+    def add_message(self, agent_id: int, message: str):
+        """Adds a message to the environment's message list."""
+        if len(self.messages) > MAX_MESSAGES:
+            self.messages.pop(0)
+        self.messages.append({
+            "sender_id": agent_id,
+            "recipient_id": None,
+            "message": message,
+            "step": self.step_count
+        })
+
     def _create_agents(self, num_agents):
         self.agents = []
         for i in range(num_agents):
@@ -215,9 +253,18 @@ class SelfDrivingCarEnv:
         return lines
 
     def _get_reward(self, agent: Agent, action: str, data: Any) -> float:
+        reward = 0
         if agent.path_index >= len(agent.path) - 1:
             return 100.0
-        return agent.speed * 0.1 - 0.05
+        
+        # Reward for speed, penalize for being too slow or stopped
+        reward += agent.speed * 0.1 - 0.05
+        
+        # Penalize for turning when not necessary
+        if "left" in action or "right" in action:
+            reward -= 0.2
+            
+        return reward
 
     def _execute_actions(self, agent_actions: List[Tuple[str, Any]]):
         rewards = []
@@ -225,9 +272,13 @@ class SelfDrivingCarEnv:
 
         for agent, (action, data) in zip(self.agents, agent_actions):
             if action == "accelerate": agent.speed += 0.5
-            else: agent.speed -= 0.5
-            agent.speed = np.clip(agent.speed, 0, 15)
+            elif action == "decelerate": agent.speed -= 0.5
+            elif action == "slight_left": agent.heading -= 5
+            elif action == "slight_right": agent.heading += 5
             
+            agent.speed = np.clip(agent.speed, 0, 15)
+            agent.heading %= 360
+
             if agent.path_index >= len(agent.path) - 1:
                 agent.speed = 0
                 rewards.append(self._get_reward(agent, action, data))
@@ -292,27 +343,49 @@ class SelfDrivingCarEnv:
 
 def get_agent_state_vector(agent: Agent) -> np.ndarray:
     if agent.path_index >= len(agent.path) - 1:
-        return np.zeros(6)
+        return np.zeros(8)
 
     p1_proj = agent.graph_proj.nodes[agent.path[agent.path_index]]
     p2_proj = agent.graph_proj.nodes[agent.path[agent.path_index + 1]]
 
     vec_to_next = np.array([p2_proj['x'] - p1_proj['x'], p2_proj['y'] - p1_proj['y']])
+    heading_to_next = np.degrees(np.arctan2(vec_to_next[1], vec_to_next[0]))
+    
     dist_to_next = np.linalg.norm(vec_to_next) - agent.distance_on_segment
     
     remaining_len = sum(agent.graph_proj[u][v][0]['length'] for i in range(agent.path_index, len(agent.path) - 1) for u,v in [(agent.path[i], agent.path[i+1])])
     remaining_len -= agent.distance_on_segment
 
+    # Normalize heading difference
+    heading_diff = (heading_to_next - agent.heading + 180) % 360 - 180
+    
     return np.concatenate([
         vec_to_next / (np.linalg.norm(vec_to_next) + 1e-6),
         [agent.speed / 15.0],
         [dist_to_next / 100.0],
         [remaining_len / 1000.0],
-        [float(len(agent.path) - 1 - agent.path_index > 0)]
+        [float(len(agent.path) - 1 - agent.path_index > 0)],
+        [agent.heading / 360.0],
+        [heading_diff / 180.0]
     ])
 
 def get_valid_actions_mask(agent: Agent) -> np.ndarray:
     mask = np.ones(len(DISCRETE_ACTIONS), dtype=bool)
+    
+    # Logic to disable turning if heading is already correct
+    if agent.path_index < len(agent.path) - 1:
+        p1_proj = agent.graph_proj.nodes[agent.path[agent.path_index]]
+        p2_proj = agent.graph_proj.nodes[agent.path[agent.path_index + 1]]
+        vec_to_next = np.array([p2_proj['x'] - p1_proj['x'], p2_proj['y'] - p1_proj['y']])
+        heading_to_next = np.degrees(np.arctan2(vec_to_next[1], vec_to_next[0]))
+        heading_diff = abs((heading_to_next - agent.heading + 180) % 360 - 180)
+
+        if heading_diff < 5:  # If heading is mostly correct
+            mask[DISCRETE_ACTIONS.index("slight_left")] = False
+            mask[DISCRETE_ACTIONS.index("slight_right")] = False
+        else: # If turning is needed, maybe don't accelerate
+            mask[DISCRETE_ACTIONS.index("accelerate")] = False
+
     return mask
 
 # --- PPO Hyperparameters ---
@@ -366,6 +439,11 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
             for i, agent in enumerate(env.agents):
                 action_name = DISCRETE_ACTIONS[actions_np[i]]
                 agent_actions_for_env.append((action_name, None))
+
+            if model:
+                top_features = model.get_top_features()
+                explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {', '.join(top_features)}"
+                env.add_message(agent_id=env.agents[0].id, message=explanation)
 
             rewards, dones = env._execute_actions(agent_actions_for_env)
             
@@ -496,6 +574,7 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
 
     while running:
         try:
+            agent_actions_for_env = []
             if env.trained_policy:
                 agent_states = [get_agent_state_vector(agent) for agent in env.agents]
                 obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
@@ -509,16 +588,24 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                 
                 actions_np = actions_t.cpu().numpy()
                 
-                agent_actions_for_env = []
                 for i, agent in enumerate(env.agents):
                     action_name = DISCRETE_ACTIONS[actions_np[i]]
                     agent_actions_for_env.append((action_name, None))
+                
+                top_features = env.trained_policy.get_top_features()
+                explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {', '.join(top_features)}"
+                env.add_message(agent_id=env.agents[0].id, message=explanation)
+
             else:
-                agent_actions_for_env = [(random.choice(DISCRETE_ACTIONS), None) for _ in env.agents]
+                for agent in env.agents:
+                    action_name = random.choice(DISCRETE_ACTIONS)
+                    agent_actions_for_env.append((action_name, None))
+                env.add_message(agent_id=env.agents[0].id, message="Action: Random, Causes: No policy trained yet.")
 
 
             rewards, dones = env._execute_actions(agent_actions_for_env)
             
+            env.step_count += 1
             for i, done in enumerate(dones):
                 if done:
                     env.reset_agent(i)
