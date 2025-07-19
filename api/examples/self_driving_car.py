@@ -444,24 +444,24 @@ class SelfDrivingCarEnv:
     def _get_reward(self, agent: Agent, action: str, data: Any, progress_made: float) -> float:
         reward = 0
         
-        # REWARD: Progress towards goal
+        # REWARD: Progress towards goal (Increased)
         # The primary reward is for making progress along the path.
-        reward += progress_made * 0.1 # Scale the progress reward
+        reward += progress_made * 0.2
 
-        # PENALTY: Collisions
+        # PENALTY: Collisions (less harsh)
         for ped in self.pedestrians:
             if np.linalg.norm(agent.pos - ped.pos) < 0.0002: # Collision threshold
-                reward -= 200
+                reward -= 50
         
-        # PENALTY: Red light violation
+        # PENALTY: Red light violation (less harsh, and only if moving)
         for light in self.traffic_lights:
             if np.linalg.norm(agent.pos - light.pos) < 0.0003:
-                if light.state == 'red':
-                    reward -= 50 * (agent.speed + 1)
+                if light.state == 'red' and agent.speed > 1.0:
+                    reward -= 20
 
-        # REWARD: Reaching goal
+        # REWARD: Reaching goal (Increased)
         if agent.path_index >= len(agent.path) - 1:
-            return 100.0 # Large terminal reward
+            return 200.0 # Large terminal reward
         
         # PENALTY: Time step penalty to encourage finishing the episode.
         reward -= 0.1
