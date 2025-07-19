@@ -26,7 +26,6 @@ _current_websocket = None
 
 RETRO_SCIFI_COLORS = [
     [0.0, 1.0, 1.0],  # Cyan
-    [1.0, 0.0, 1.0],  # Magenta
     [1.0, 0.6, 0.0],  # Bright Orange
     [0.7, 1.0, 0.0],  # Lime Green
     [0.1, 0.5, 1.0],  # Electric Blue
