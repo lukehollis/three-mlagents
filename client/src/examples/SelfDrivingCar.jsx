@@ -15,7 +15,7 @@ import Roads from '../components/Roads.jsx';
 const WS_URL = `${config.WS_BASE_URL}/ws/self_driving_car`;
 
 const Agent = ({ agent, coordinateTransformer }) => {
-  const { pos, color, id, heading } = agent;
+  const { pos, color, id, heading, pitch } = agent;
   const groupRef = useRef();
   const [carPosition, setCarPosition] = useState(null);
 
@@ -30,9 +30,9 @@ const Agent = ({ agent, coordinateTransformer }) => {
   useEffect(() => {
     if (groupRef.current) {
       groupRef.current.rotation.y = -THREE.MathUtils.degToRad(heading);
-      groupRef.current.rotation.z = -THREE.MathUtils.degToRad(pitch);
+      groupRef.current.rotation.z = -THREE.MathUtils.degToRad(pitch || 0);
     }
-  }, [heading]);
+  }, [heading, pitch]);
 
   const agentColor = useMemo(() => new THREE.Color(...color), [color]);
 
@@ -236,7 +236,7 @@ export default function SelfDrivingCarExample() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
-      <Canvas camera={{ position: [-50, 50, 50], fov: 60 }}>
+      <Canvas camera={{ fov: 60 }}>
         <ambientLight intensity={0.6} />
         <directionalLight 
           castShadow 

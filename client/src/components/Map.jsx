@@ -24,11 +24,11 @@ const Globe = ({ onMapLoaded }) => {
   const { scene, camera, gl } = useThree();
 
   const setInitialCameraPosition = (camera) => {
-    const longitude = -74.0;
-    const latitude = 40.75;
-    const altitude = 1500;
+    const longitude = -73.99;
+    const latitude = 40.76;
+    const altitude = 2500;
     const heading = 0;
-    const pitch = -45;
+    const pitch = -55;
     
     const pov = new PointOfView(altitude, radians(heading), radians(pitch));
     const geodetic = new Geodetic(radians(longitude), radians(latitude));

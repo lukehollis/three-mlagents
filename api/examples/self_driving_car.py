@@ -165,7 +165,15 @@ class SelfDrivingCarEnv:
         
         self.location_point = (40.758896, -73.985130) # Times Square
         self.graph = ox.graph_from_point(self.location_point, dist=500, network_type='drive')
-        ox.add_node_elevations_opentopodata(self.graph)
+        try:
+            google_api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+            if google_api_key:
+                ox.add_node_elevations_google(self.graph, api_key=google_api_key)
+            else:
+                logger.warning("GOOGLE_MAPS_API_KEY not found, proceeding without elevation data.")
+        except Exception as e:
+            logger.error(f"Failed to get elevation data: {e}")
+
         self.graph_proj = ox.project_graph(self.graph)
         
         self.road_network_for_viz = self._get_road_network_for_viz()
