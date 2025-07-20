@@ -282,7 +282,7 @@ const FeatureImportancePanel = ({ chartData }) => {
             background: 'rgba(0,0,0,0.7)',
             color: '#fff',
             border: '1px solid #555',
-            padding: '12px',
+            padding: '6px',
             boxSizing: 'border-box'
         }}>
             <Text p style={{ margin: 0, fontWeight: 'bold', fontSize: '12px', paddingBottom: '8px' }}>
@@ -299,7 +299,7 @@ const FeatureImportanceChart = ({ data }) => {
     const barColor = '#37F5EB';
 
     return (
-        <div style={{ marginTop: '8px', fontFamily: 'monospace', fontSize: '12px' }}>
+        <div style={{ marginTop: '4px', fontFamily: 'monospace', fontSize: '12px' }}>
             {data.map(({ label, percentage }, index) => (
                 <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
                     <div style={{
