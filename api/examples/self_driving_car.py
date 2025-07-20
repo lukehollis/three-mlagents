@@ -751,7 +751,6 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
     _current_websocket = websocket
     
     try:
-        env = SelfDrivingCarEnv()
         dummy_agent = env.agents[0]
         dummy_obs = get_agent_state_vector(dummy_agent, env)
         obs_size = dummy_obs.shape[0]
@@ -941,38 +940,13 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                     action_name = DISCRETE_ACTIONS[actions_np[i]]
                     agent_actions_for_env.append((action_name, None))
                 
-                # Always get feature importance and construct the base message
+                # Always get feature importance for the bar chart
                 top_features_list = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
                 causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
-                explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {causes_str}"
-                
-                # Periodically, try to enhance it with an LLM explanation
-                if env.step_count % LLM_CALL_FREQUENCY == 0:
-                    try:
-                        prompt = (
-                            f"The self-driving car is at step {env.step_count}. "
-                            f"It's currently moving at {env.agents[0].speed:.1f} m/s with a heading of {env.agents[0].heading:.1f} degrees. "
-                            f"The chosen action is to '{DISCRETE_ACTIONS[actions_np[0]]}'.\n\n"
-                            "The policy model's decision was influenced by these top features, with their contribution to the decision shown as a percentage:\n"
-                        )
-                        for f in top_features_list:
-                            prompt += f"- {f['feature']} ({f['percentage']:.0f}%): Current Value = {f['value']:.2f}\n"
-                        
-                        prompt += "\nBased on this context, provide a concise, one-sentence explanation for why the car chose this action. For example: 'The car is accelerating because it's on a straight path with no immediate obstacles.' or 'The car is turning left to correct its heading towards the next waypoint.'"
+                action_name = DISCRETE_ACTIONS[actions_np[0]]
 
-                        explanation_json = get_json(
-                            prompt,
-                            name="format_explanation",
-                            description="Formats the explanation into a structured JSON object.",
-                            properties={"explanation": {"type": "string"}},
-                            use_local=USE_LOCAL_OLLAMA,
-                        )
-                        # Replace the basic explanation with the more detailed one from the LLM
-                        explanation = explanation_json.get("explanation", explanation) # Fallback to original if LLM fails
-                        
-                    except Exception as e:
-                        logger.warning(f"LLM explanation failed: {e}")
-                        # The base explanation is already set, so we just log the error and continue
+                # Default message for the frontend to parse
+                explanation = f"Action: {action_name}, Causes: {causes_str}"
                 
                 env.add_message(agent_id=env.agents[0].id, message=explanation)
 

@@ -338,22 +338,23 @@ async def websocket_intersection(websocket: WebSocket):
 
 # WebSocket endpoint for SelfDrivingCar
 @app.websocket("/ws/self_driving_car")
-async def websocket_self_driving_car(websocket: WebSocket):
+async def self_driving_car_socket(websocket: WebSocket):
     await websocket.accept()
     env = SelfDrivingCarEnv()
-    initial_state = env.get_state_for_viz()
-    await websocket.send_json({"type": "init", "state": initial_state})
-
     try:
         while True:
-            data = await websocket.receive_json()
-            cmd = data.get("cmd")
-
-            if cmd == 'train':
+            data = await websocket.receive_text()
+            message = json.loads(data)
+            
+            if message.get("cmd") == "train":
                 await train_self_driving_car(websocket, env)
-            elif cmd == 'run':
+            
+            if message.get("cmd") == "run":
                 await run_self_driving_car(websocket, env)
-                
+
+    except WebSocketDisconnect:
+        print("Client disconnected from self-driving car websocket.")
     except Exception as e:
-        print(f"SelfDrivingCar websocket disconnected: {e}")
+        print(f"Error in self-driving car websocket: {e}", exc_info=True)
+        await websocket.send_json({"type": "error", "message": str(e)})
 
