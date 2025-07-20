@@ -734,7 +734,9 @@ GAE_LAMBDA = 0.95
 CLIP_EPS = 0.2
 ENT_COEF = 0.02
 LR = 3e-4
-EPISODES = 1000
+
+# making this super low
+EPISODES = 256  
 
 async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
     global _current_websocket
@@ -808,12 +810,13 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
             obs_t = torch.tensor(np.array(next_obs_list), dtype=torch.float32)
 
 
-            if env.step_count % 64 == 0:
-                current_reward = float(torch.tensor(rewards, dtype=torch.float32).mean().cpu().item())
-                await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": current_reward, "loss": current_loss})
+            # if env.step_count % 64 == 0:
+            #     current_reward = float(torch.tensor(rewards, dtype=torch.float32).mean().cpu().item())
+            #     await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": current_reward, "loss": current_loss})
 
-                state = env.get_state_for_viz()
-                await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
+            #     state = env.get_state_for_viz()
+            #     await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
+            # print(f"Step {env.step_count} - Total Steps: {total_steps}")
 
             if total_steps >= BATCH_SIZE:
                 with torch.no_grad():
