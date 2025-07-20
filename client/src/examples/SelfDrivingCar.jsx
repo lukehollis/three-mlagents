@@ -267,7 +267,17 @@ const Pedestrian = ({ pedestrian, coordinateTransformer }) => {
 
 const FeatureImportancePanel = ({ chartData }) => {
     if (!chartData || !chartData.data || chartData.data.length === 0) {
-        return null;
+        return (<Card style={{
+            position: 'absolute',
+            bottom: '10px', 
+            left: '10px',
+            width: '450px',
+            background: 'rgba(0,0,0,0.7)',
+            color: '#fff',
+            border: '1px solid #555',
+            padding: '6px',
+            boxSizing: 'border-box'
+        }}></Card>);
     }
 
     const { data, step, agentId, action } = chartData;
@@ -466,9 +476,15 @@ export default function SelfDrivingCarExample() {
   };
 
   const startRun = () => {
-    if (running) return;
+    if (running || training) return;
     setRunning(true);
     send({ cmd: 'run' });
+  };
+
+  const stopRun = () => {
+    if (!running) return;
+    setRunning(false);
+    send({ cmd: 'stop' });
   };
 
   const startTraining = () => {
@@ -526,8 +542,8 @@ export default function SelfDrivingCarExample() {
         </Link>
         <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Self-Driving Car (Interpretability)</Text>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-          <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
+          <Button auto type="secondary" disabled={training || running} onClick={startTraining}>Train</Button>
+          <Button auto type="success" disabled={training || running || !trained} onClick={startRun}>Run</Button>
         </div>
       </div>
       

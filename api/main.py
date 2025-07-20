@@ -21,7 +21,11 @@ from examples.glider import train_glider, run_glider, GliderEnv
 from examples.minecraft import run_minecraft, train_minecraft, MineCraftEnv
 from examples.fish import run_fish, train_fish, FishEnv
 from examples.intersection import run_intersection, train_intersection, MultiVehicleEnv as IntersectionEnv
-from examples.self_driving_car import run_self_driving_car, train_self_driving_car, SelfDrivingCarEnv
+from examples.self_driving_car import (
+    train_self_driving_car,
+    run_self_driving_car,
+    SelfDrivingCarEnv,
+)
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 import logging
@@ -338,23 +342,31 @@ async def websocket_intersection(websocket: WebSocket):
 
 # WebSocket endpoint for SelfDrivingCar
 @app.websocket("/ws/self_driving_car")
-async def self_driving_car_socket(websocket: WebSocket):
+async def websocket_self_driving_car(websocket: WebSocket):
     await websocket.accept()
     env = SelfDrivingCarEnv()
-    try:
-        while True:
-            data = await websocket.receive_text()
-            message = json.loads(data)
-            
-            if message.get("cmd") == "train":
-                await train_self_driving_car(websocket, env)
-            
-            if message.get("cmd") == "run":
-                await run_self_driving_car(websocket, env)
+    run_task = None
 
-    except WebSocketDisconnect:
-        print("Client disconnected from self-driving car websocket.")
-    except Exception as e:
-        print(f"Error in self-driving car websocket: {e}", exc_info=True)
-        await websocket.send_json({"type": "error", "message": str(e)})
+    # Send initial state on connect
+    initial_state = env.get_state_for_viz()
+    await websocket.send_json({"type": "init", "state": initial_state})
 
+    while True:
+        data = await websocket.receive_json()
+        cmd = data.get("cmd")
+
+        if cmd == "train":
+            if run_task:
+                run_task.cancel()
+                run_task = None
+            await train_self_driving_car(websocket, env)
+
+        elif cmd == "run":
+            if run_task:
+                run_task.cancel()
+            run_task = asyncio.create_task(run_self_driving_car(websocket, env))
+
+        elif cmd == "stop":
+            if run_task:
+                run_task.cancel()
+                run_task = None

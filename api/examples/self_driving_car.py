@@ -316,6 +316,7 @@ class SelfDrivingCarEnv:
         self.pedestrians: List[Pedestrian] = []
         self.traffic_lights: List[TrafficLight] = []
         self.trained_policy: "ActorCritic" = None
+        self.running = False
         
         self.location_point = (40.758896, -73.985130) # Times Square
         self.graph = ox.graph_from_point(self.location_point, dist=500, network_type='drive')
@@ -907,76 +908,68 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
     global _current_websocket
     _current_websocket = websocket
     
-    running = True
+    env.running = True
 
-    async def receive_commands():
-        nonlocal running
-        while running:
+    try:
+        while env.running:
             try:
-                data = await websocket.receive_text()
-                if "stop" in data: running = False
-            except Exception:
-                running = False
-            
-    cmd_task = asyncio.create_task(receive_commands())
+                agent_actions_for_env = []
+                if env.trained_policy:
+                    agent_states = [get_agent_state_vector(agent, env) for agent in env.agents]
+                    obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
+                    
+                    valid_masks = np.array([get_valid_actions_mask(agent, env) for agent in env.agents])
+                    masks_t = torch.from_numpy(valid_masks).bool()
 
-    while running:
-        try:
-            agent_actions_for_env = []
-            if env.trained_policy:
-                agent_states = [get_agent_state_vector(agent, env) for agent in env.agents]
-                obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
+                    with torch.no_grad():
+                        dist, _ = env.trained_policy(obs_t, valid_actions_mask=masks_t)
+                        actions_t = dist.sample()
+                    
+                    actions_np = actions_t.cpu().numpy()
+                    
+                    for i, agent in enumerate(env.agents):
+                        action_name = DISCRETE_ACTIONS[actions_np[i]]
+                        agent_actions_for_env.append((action_name, None))
+                    
+                    # Always get feature importance for the bar chart
+                    top_features_list = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
+                    causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
+                    action_name = DISCRETE_ACTIONS[actions_np[0]]
+
+                    # Default message for the frontend to parse
+                    explanation = f"Action: {action_name}, Causes: {causes_str}"
+                    
+                    env.add_message(agent_id=env.agents[0].id, message=explanation)
+
+                else:
+                    for agent in env.agents:
+                        action_name = random.choice(DISCRETE_ACTIONS)
+                        agent_actions_for_env.append((action_name, None))
+                    env.add_message(agent_id=env.agents[0].id, message="Action: Random, Causes: No policy trained yet.")
+
+
+                rewards, dones = env._execute_actions(agent_actions_for_env)
                 
-                valid_masks = np.array([get_valid_actions_mask(agent, env) for agent in env.agents])
-                masks_t = torch.from_numpy(valid_masks).bool()
+                env.step_count += 1
+                for i, done in enumerate(dones):
+                    if done:
+                        env.reset_agent(i)
 
-                with torch.no_grad():
-                    dist, _ = env.trained_policy(obs_t, valid_actions_mask=masks_t)
-                    actions_t = dist.sample()
-                
-                actions_np = actions_t.cpu().numpy()
-                
-                for i, agent in enumerate(env.agents):
-                    action_name = DISCRETE_ACTIONS[actions_np[i]]
-                    agent_actions_for_env.append((action_name, None))
-                
-                # Always get feature importance for the bar chart
-                top_features_list = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
-                causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
-                action_name = DISCRETE_ACTIONS[actions_np[0]]
-
-                # Default message for the frontend to parse
-                explanation = f"Action: {action_name}, Causes: {causes_str}"
-                
-                env.add_message(agent_id=env.agents[0].id, message=explanation)
-
-            else:
-                for agent in env.agents:
-                    action_name = random.choice(DISCRETE_ACTIONS)
-                    agent_actions_for_env.append((action_name, None))
-                env.add_message(agent_id=env.agents[0].id, message="Action: Random, Causes: No policy trained yet.")
-
-
-            rewards, dones = env._execute_actions(agent_actions_for_env)
-            
-            env.step_count += 1
-            for i, done in enumerate(dones):
-                if done:
-                    env.reset_agent(i)
-
-            state = env.get_state_for_viz()
-            await websocket.send_json({"type": "run_step", "state": state})
-            reward = sum(rewards) # Sum rewards for all agents
-            await websocket.send_json({
-                "type": "progress", "episode": env.step_count,
-                "reward": reward, "loss": None
-            })
-            await asyncio.sleep(0.1)
-        except Exception as e:
-            logger.error(f"Error during self-driving car run: {e}", exc_info=True)
-            running = False
-
-    if not cmd_task.done():
-        cmd_task.cancel() 
+                state = env.get_state_for_viz()
+                await websocket.send_json({"type": "run_step", "state": state})
+                reward = sum(rewards) # Sum rewards for all agents
+                await websocket.send_json({
+                    "type": "progress", "episode": env.step_count,
+                    "reward": reward, "loss": None
+                })
+                await asyncio.sleep(0.1)
+            except Exception as e:
+                logger.error(f"Error during self-driving car run: {e}", exc_info=True)
+                env.running = False
+    except asyncio.CancelledError:
+        print("Self-driving car run task cancelled.")
+    finally:
+        env.running = False
+        print("Self-driving car run loop stopped.")
 
 
