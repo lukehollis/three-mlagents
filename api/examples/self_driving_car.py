@@ -675,9 +675,10 @@ def get_agent_state_vector(agent: Agent, env: "SelfDrivingCarEnv") -> np.ndarray
         np.array(ped_features)
     ]).astype(np.float32)
 
-def get_valid_actions_mask(agent: Agent) -> np.ndarray:
+def get_valid_actions_mask(agent: Agent, env: "SelfDrivingCarEnv") -> np.ndarray:
     mask = np.ones(len(DISCRETE_ACTIONS), dtype=bool)
     
+    # --- Heading Alignment Logic ---
     # Logic to disable turning if heading is already correct
     if agent.path_index < len(agent.path) - 1:
         p1_proj = agent.graph_proj.nodes[agent.path[agent.path_index]]
@@ -692,6 +693,36 @@ def get_valid_actions_mask(agent: Agent) -> np.ndarray:
         else: # If turning is needed, maybe don't accelerate
             mask[DISCRETE_ACTIONS.index("accelerate")] = False
 
+    # --- Obstacle Avoidance Logic ---
+    # Agent's current heading vector (using bearing, 0=North)
+    heading_rad = np.radians(agent.heading)
+    # Vector is [y, x] to match position format
+    agent_heading_vec = np.array([np.cos(heading_rad), np.sin(heading_rad)]) 
+
+    # Check for red lights ahead
+    for light in env.traffic_lights:
+        if light.state == 'red':
+            dist = np.linalg.norm(agent.pos - light.pos)
+            # Check if light is close and in front of the agent
+            if dist < 0.0003: # Approx 33 meters
+                vec_to_light = light.pos - agent.pos
+                vec_to_light_norm = vec_to_light / (np.linalg.norm(vec_to_light) + 1e-6)
+                # Check if the light is roughly in the forward cone
+                if np.dot(agent_heading_vec, vec_to_light_norm) > 0.7: 
+                    mask[DISCRETE_ACTIONS.index("accelerate")] = False
+                    break # One obstacle is enough
+
+    # Check for pedestrians ahead, only if acceleration is still possible
+    if mask[DISCRETE_ACTIONS.index("accelerate")]:
+        for ped in env.pedestrians:
+            dist = np.linalg.norm(agent.pos - ped.pos)
+            # Check if pedestrian is close and in front
+            if dist < 0.00025: # Approx 27 meters
+                vec_to_ped = ped.pos - agent.pos
+                vec_to_ped_norm = vec_to_ped / (np.linalg.norm(vec_to_ped) + 1e-6)
+                if np.dot(agent_heading_vec, vec_to_ped_norm) > 0.7:
+                    mask[DISCRETE_ACTIONS.index("accelerate")] = False
+                    break
     return mask
 
 # --- PPO Hyperparameters ---
@@ -731,7 +762,7 @@ async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
             agent_states = [get_agent_state_vector(agent, env) for agent in env.agents]
             obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
             
-            valid_masks = np.array([get_valid_actions_mask(agent) for agent in env.agents])
+            valid_masks = np.array([get_valid_actions_mask(agent, env) for agent in env.agents])
             masks_t = torch.from_numpy(valid_masks).bool()
 
             with torch.no_grad():
@@ -887,7 +918,7 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                 agent_states = [get_agent_state_vector(agent, env) for agent in env.agents]
                 obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
                 
-                valid_masks = np.array([get_valid_actions_mask(agent) for agent in env.agents])
+                valid_masks = np.array([get_valid_actions_mask(agent, env) for agent in env.agents])
                 masks_t = torch.from_numpy(valid_masks).bool()
 
                 with torch.no_grad():

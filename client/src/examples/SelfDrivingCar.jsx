@@ -225,50 +225,70 @@ const Pedestrian = ({ pedestrian, coordinateTransformer }) => {
 };
 
 
-const MessagePanel = ({ messages }) => {
-    const containerRef = useRef(null);
-    
-    useEffect(() => {
-        const el = containerRef.current;
-        if (el) {
-            el.scrollTop = el.scrollHeight;
-        }
-    }, [messages]);
+const FeatureImportancePanel = ({ chartData }) => {
+    if (!chartData || !chartData.data || chartData.data.length === 0) {
+        return null;
+    }
 
+    const { data, step, agentId, action } = chartData;
+    const codeStyle = { color: '#37F5EB', fontFamily: 'monospace' };
 
-    const codeStyle = { color: '#f81ce5', fontFamily: 'monospace' };
     return (
-        <Card 
-            ref={containerRef}
-            style={{
-                position: 'absolute', bottom: '10px', left: '10px', width: '450px',
-                maxHeight: '30vh', overflowY: 'auto', background: 'rgba(0,0,0,0.6)',
-                color: '#fff', border: '1px solid #444',
-            }}
-        >
-          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No messages yet.]</Text>}
-          {messages.map((msg, i) => {
-              const isSimpleAction = msg.message.startsWith("Action:");
-              let actionText = "";
-              let explanationText = msg.message;
-
-              if (isSimpleAction) {
-                  const parts = msg.message.split(", Causes: ");
-                  actionText = parts[0];
-                  explanationText = `Causes: ${parts[1]}`;
-              }
-
-              return (
-                  <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
-                      <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                          <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
-                          {actionText && <span style={{ color: '#888', marginLeft: '8px' }}>{actionText}</span>}
-                      </Text>
-                      <Text p style={{ margin: 0, marginTop: '4px' }}>{explanationText}</Text>
-                  </div>
-              );
-          })}
+        <Card style={{
+            position: 'absolute',
+            bottom: '10px', 
+            left: '10px',
+            width: '450px',
+            background: 'rgba(0,0,0,0.7)',
+            color: '#fff',
+            border: '1px solid #555',
+            padding: '12px',
+            boxSizing: 'border-box'
+        }}>
+            <Text p style={{ margin: 0, fontWeight: 'bold', fontSize: '12px', paddingBottom: '8px' }}>
+                <span style={codeStyle}>[Step {step}] Agent {agentId}</span>
+                {action && <span style={{ color: '#fff', marginLeft: '8px', background: '#333', padding: '2px 6px', borderRadius: '4px' }}>{action}</span>}
+            </Text>
+            <FeatureImportanceChart data={data} />
         </Card>
+    );
+};
+
+const FeatureImportanceChart = ({ data }) => {
+    const maxLabelWidth = '140px';
+    const barColor = '#37F5EB';
+
+    return (
+        <div style={{ marginTop: '8px', fontFamily: 'monospace', fontSize: '12px' }}>
+            {data.map(({ label, percentage }, index) => (
+                <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: '4px' }}>
+                    <div style={{
+                        width: maxLabelWidth,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        color: '#ccc',
+                        textAlign: 'right',
+                        paddingRight: '10px'
+                    }}>
+                        {label}
+                    </div>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                        <div style={{
+                            width: `${percentage}%`,
+                            background: barColor,
+                            height: '14px',
+                            borderRadius: '2px',
+                            transition: 'width 0.3s ease-in-out',
+                            minWidth: '1px'
+                        }} />
+                        <div style={{ color: '#fff', fontWeight: 'bold', paddingLeft: '5px' }}>
+                            {percentage.toFixed(0)}%
+                        </div>
+                    </div>
+                </div>
+            ))}
+        </div>
     );
 };
 
@@ -289,6 +309,7 @@ export default function SelfDrivingCarExample() {
   const cameraTargetsRef = useRef({});
   const [cameraFeedData, setCameraFeedData] = useState({});
   const agentCamerasRef = useRef({});
+  const [latestFeatureImportance, setLatestFeatureImportance] = useState(null);
 
   useEffect(() => {
       const ws = new WebSocket(WS_URL);
@@ -307,6 +328,36 @@ export default function SelfDrivingCarExample() {
 
               if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
                   setState(parsed.state);
+                  if (parsed.state && parsed.state.messages && parsed.state.messages.length > 0) {
+                      const latestMsg = parsed.state.messages[parsed.state.messages.length - 1];
+                      if (latestMsg.message.startsWith("Action:")) {
+                          const parts = latestMsg.message.split(", Causes: ");
+                          const actionText = parts[0].replace("Action: ", "");
+                          
+                          if (parts.length > 1 && parts[1]) {
+                              const causesString = parts[1];
+                              try {
+                                  const featureImportanceData = causesString.split(', ').map(s => {
+                                      const lastParen = s.lastIndexOf('(');
+                                      if (lastParen === -1) return null;
+                                      const label = s.substring(0, lastParen).trim();
+                                      const percentageStr = s.substring(lastParen + 1, s.length - 2);
+                                      const percentage = parseInt(percentageStr, 10);
+                                      if (isNaN(percentage)) return null;
+                                      return { label, percentage };
+                                  }).filter(Boolean);
+
+                                  setLatestFeatureImportance({
+                                      data: featureImportanceData,
+                                      step: latestMsg.step,
+                                      agentId: latestMsg.sender_id,
+                                      action: actionText,
+                                  });
+
+                              } catch(e) { /* ignore parse errors */ }
+                          }
+                      }
+                  }
               } else if (parsed.type === 'train_step_update') {
                   setState(prevState => {
                       if (!prevState) return null;
@@ -441,10 +492,10 @@ export default function SelfDrivingCarExample() {
         </div>
       </div>
       
-      {state && <MessagePanel messages={state.messages} />}
       <CameraFeeds cameraFeedData={cameraFeedData} />
       <InfoPanel logs={logs} chartState={chartState} />
       <ModelInfoPanel modelInfo={modelInfo} />
+      <FeatureImportancePanel chartData={latestFeatureImportance} />
 
     </div>
   );
