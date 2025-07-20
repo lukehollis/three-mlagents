@@ -48,6 +48,7 @@ MAX_MESSAGES = 20
 MAX_LLM_LOGS = 30
 LLM_CALL_FREQUENCY = 10
 USE_LOCAL_OLLAMA = True 
+MAX_EPISODE_STEPS = 1000
 
 DISCRETE_ACTIONS = [
     "accelerate", "decelerate", "maintain_speed", "slight_left", "slight_right"
@@ -250,6 +251,7 @@ class Agent:
         self.speed = 0.0
         self.color = random.choice(RETRO_SCIFI_COLORS)
         self.memory_stream = []
+        self.episode_steps = 0
 
     def _set_new_path(self, start_node: int, goal_node: int, path: list):
         self.start_node = start_node
@@ -272,6 +274,7 @@ class Agent:
         self.angular_velocity = 0.0
         self.speed = 0.0
         self.memory_stream = []
+        self.episode_steps = 0
 
     def _calculate_remaining_len(self):
         """Calculates the total remaining distance along the agent's path."""
@@ -478,6 +481,7 @@ class SelfDrivingCarEnv:
         dones = []
 
         for agent, (action, data) in zip(self.agents, agent_actions):
+            agent.episode_steps += 1
             # Store state before action
             last_speed = agent.speed
             last_heading = agent.heading
@@ -500,6 +504,12 @@ class SelfDrivingCarEnv:
                 agent.speed = 0
                 progress = old_remaining_len - agent._calculate_remaining_len()
                 rewards.append(self._get_reward(agent, action, data, progress))
+                dones.append(True)
+                continue
+
+            if agent.episode_steps > MAX_EPISODE_STEPS:
+                agent.add_to_memory_stream(f"Episode timed out after {MAX_EPISODE_STEPS} steps.", self.step_count)
+                rewards.append(-20.0)  # Timeout penalty
                 dones.append(True)
                 continue
 
@@ -736,7 +746,7 @@ ENT_COEF = 0.02
 LR = 3e-4
 
 # making this super low
-EPISODES = 256  
+EPISODES = 64
 
 async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
     global _current_websocket
@@ -934,45 +944,10 @@ async def run_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
                     action_name = DISCRETE_ACTIONS[actions_np[i]]
                     agent_actions_for_env.append((action_name, None))
                 
-                if env.step_count % LLM_CALL_FREQUENCY == 0:
-                    try:
-                        top_features = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
-                        
-                        prompt = (
-                            f"The self-driving car is at step {env.step_count}. "
-                            f"It's currently moving at {env.agents[0].speed:.1f} m/s with a heading of {env.agents[0].heading:.1f} degrees. "
-                            f"The chosen action is to '{DISCRETE_ACTIONS[actions_np[0]]}'.\n\n"
-                            "The policy model's decision was influenced by these top features, with their contribution to the decision shown as a percentage:\n"
-                        )
-                        for f in top_features:
-                            prompt += f"- {f['feature']} ({f['percentage']:.0f}%): Current Value = {f['value']:.2f}\n"
-                        
-                        prompt += "\nBased on this context, provide a concise, one-sentence explanation for why the car chose this action. For example: 'The car is accelerating because it's on a straight path with no immediate obstacles.' or 'The car is turning left to correct its heading towards the next waypoint.'"
-
-                        explanation_json = get_json(
-                            prompt,
-                            name="format_explanation",
-                            description="Formats the explanation into a structured JSON object.",
-                            properties={"explanation": {"type": "string"}},
-                            use_local=USE_LOCAL_OLLAMA,
-                        )
-                        explanation = explanation_json.get("explanation", "Could not generate explanation.")
-                        env.add_message(agent_id=env.agents[0].id, message=explanation)
-                    except Exception as e:
-                        logger.warning(f"LLM explanation failed: {e}")
-                        top_features_list = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
-                        causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
-                        explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {causes_str}"
-                        env.add_message(agent_id=env.agents[0].id, message=explanation)
-                elif env.step_count % LLM_CALL_FREQUENCY != 0 and len(env.messages) > 0 and "Action:" in env.messages[-1].get("message", ""):
-                    # If it's not an LLM call step, do nothing to avoid replacing the detailed message with a simple one
-                    pass
-                else:
-                    # Fallback for the very first steps or if there are no messages
-                    top_features_list = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
-                    causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
-                    explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {causes_str}"
-                    env.add_message(agent_id=env.agents[0].id, message=explanation)
+                top_features_list = env.trained_policy.get_local_feature_importance(obs_t[[0]], actions_t[[0]])
+                causes_str = ', '.join([f"{f['feature']} ({f['percentage']:.0f}%)" for f in top_features_list])
+                explanation = f"Action: {DISCRETE_ACTIONS[actions_np[0]]}, Causes: {causes_str}"
+                env.add_message(agent_id=env.agents[0].id, message=explanation)
 
             else:
                 for agent in env.agents:
