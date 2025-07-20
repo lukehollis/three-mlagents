@@ -745,7 +745,7 @@ GAE_LAMBDA = 0.95
 CLIP_EPS = 0.2
 ENT_COEF = 0.02
 LR = 3e-4
-EPISODES = 8 
+EPISODES = 256
 
 async def train_self_driving_car(websocket: WebSocket, env: SelfDrivingCarEnv):
     global _current_websocket
