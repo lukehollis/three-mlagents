@@ -155,13 +155,13 @@ class Agent:
         self.llm_intent = None # Stores the action suggested by the LLM
         self.is_thinking = False # Flag to prevent concurrent LLM calls
         self.last_llm_step = -10 # Last step when LLM was called (start with -10 for immediate first call)
-        self.memory_vector = np.zeros(384) # all-MiniLM-L6-v2 produces embeddings of size 384
+        self.memory_vector = np.zeros(384, dtype=np.float32) # all-MiniLM-L6-v2 produces embeddings of size 384
         self.memory_stream = [] # Store last 10 events for context
 
     def update_memory(self, text: str):
         # Update agent's memory with a new text embedding using a moving average
         new_embedding = get_embedding(text)
-        self.memory_vector = (self.memory_vector * 0.9) + (new_embedding * 0.1)
+        self.memory_vector = (self.memory_vector * 0.9) + (new_embedding.astype(np.float32) * 0.1)
     
     def add_to_memory_stream(self, event: str, step: int = None):
         """Add an event to the agent's memory stream, keeping only the last 10 events"""

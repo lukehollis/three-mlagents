@@ -3,8 +3,9 @@ import json
 import aiohttp
 import asyncio
 import os
+import numpy as np
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 from typing import List, Dict, Any, Generator, Optional, Callable, Union, AsyncGenerator
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
@@ -30,9 +31,20 @@ def get_embedding_model():
 
 @lru_cache(maxsize=128)
 def get_embedding(text, use_local=False):
-    model = "ollama/mxbai-embed-large" if use_local else "text-embedding-3-small"
-    response = litellm.embedding(model=model, input=[text])
-    return response.data[0].embedding
+    if use_local:
+        client = OpenAI(
+            base_url=os.getenv('OLLAMA_BASE_URL', "http://localhost:11434/v1"),
+            api_key='ollama',
+        )
+        model = "mxbai-embed-large"
+        response = client.embeddings.create(model=model, input=[text])
+        return response.data[0].embedding
+    else:
+        # Default to a local sentence-transformer model. It's fast, reliable, 
+        # and avoids issues with remote embedding providers that have been failing.
+        model = get_embedding_model()
+        embedding = model.encode(text)
+        return embedding
 
 
 async def stream_text(
@@ -626,16 +638,21 @@ async def stream_text_anakin(
 
 
 def get_json(prompt, name, description, properties, use_local=False):
-    # Enables response_model keyword
-    # from instructor import Mode
-    client = instructor.patch(
-        litellm.completion,
-        mode=instructor.Mode.TOOLS,
-    )
+    if use_local:
+        model = "llama3"
+        client = OpenAI(
+            base_url=os.getenv('OLLAMA_BASE_URL', "http://localhost:11434/v1"),
+            api_key='ollama',
+        )
+    else:
+        model = "gpt-4o"
+        # Assumes OPENAI_API_KEY is in env for default provider
+        client = OpenAI()
 
-    model = "ollama/llama3" if use_local else "gpt-4o"
+    # Patch the client instance. Instructor will then manage tool-calling transparently.
+    client = instructor.patch(client, mode=instructor.Mode.TOOLS)
 
-    response = client(
+    response = client.chat.completions.create(
         model=model,
         messages=[
             {
@@ -659,5 +676,8 @@ def get_json(prompt, name, description, properties, use_local=False):
         ],
         tool_choice={"type": "function", "function": {"name": name}},
     )
-    return json.loads(response.tool_calls[0].function.arguments)
+    # The response object from instructor with TOOL_MODE is the parsed tool call,
+    # but the logic expects the raw arguments string to be loaded.
+    # The underlying response is stored in `_raw`
+    return json.loads(response._raw.tool_calls[0].function.arguments)
 
