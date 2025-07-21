@@ -7,6 +7,9 @@ import * as THREE from 'three';
 import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import InfoPanel from '../components/InfoPanel.jsx';
+import Car from '../components/Car.jsx';
+import Pedestrian from '../components/Pedestrian.jsx';
+import TrafficLight from '../components/TrafficLight.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/simcity`;
 
@@ -22,31 +25,38 @@ const MapPlane = ({ gridSize, rotationDegrees, mapCenter, mapZoom }) => {
     ];
     
     const mapUrl = useMemo(() => {
-        if (!mapCenter || !mapZoom) return '/basic_example.jpg';
+        if (!mapCenter || !mapZoom) return null;
         const center = `${mapCenter[0]},${mapCenter[1]}`;
         return `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=${mapZoom}&size=1024x1024&maptype=roadmap&${styles.join('&')}&key=${apiKey}`;
     }, [mapCenter, mapZoom, apiKey]);
     
     // Fallback to a generic image if the API key is not provided.
-    const texture = useLoader(THREE.TextureLoader, apiKey ? mapUrl : '/basic_example.jpg');
+    const texture = useLoader(THREE.TextureLoader, apiKey ? mapUrl : null);
 
-    const planeSize = useMemo(() => [gridSize[0], gridSize[1]], [gridSize]);
-    const rotationRadians = useMemo(() => (rotationDegrees || 0) * (Math.PI / 180), [rotationDegrees]);
+    const planeSize = useMemo(() => {
+        const maxDim = Math.max(gridSize[0], gridSize[1]);
+        return [maxDim, maxDim];
+    }, [gridSize]);
 
     return (
-        <mesh rotation={[-Math.PI / 2, 0, rotationRadians]} position={[0, -0.01, 0]}>
+        <mesh rotation={[-Math.PI / 2, 0, Math.PI / 2]} position={[0, -0.01, 0]}>
             <planeGeometry args={planeSize} />
             <meshStandardMaterial map={texture} />
         </mesh>
     );
 };
 
-const RoadNetwork = ({ lines }) => {
-    if (!lines) return null;
+
+const RoadNetwork = ({ lines, gridSize }) => {
+    if (!lines || !gridSize) return null;
+
+    const offsetX = gridSize[0] / 2;
+    const offsetZ = gridSize[2] / 2;
+
     return (
-        <group>
+        <group position={[-offsetX, -0.01, -offsetZ]}>
             {lines.map((path, i) => {
-                const points = path.map(p => new THREE.Vector3(...p));
+                const points = path.map(p => new THREE.Vector3(p[0] , p[1], p[2]));
                 return <Line key={i} points={points} color="teal" lineWidth={1} />;
             })}
         </group>
@@ -103,7 +113,7 @@ const Buildings = ({ grid, buildingTypes, gridSize }) => {
     return <group>{buildingMeshes}</group>;
 };
 
-const CityStatsPanel = ({ stats }) => {
+const CityStatsPanel = ({ stats, agents }) => {
     if (!stats) return null;
     const { budget, population, rci_demand } = stats;
 
@@ -125,12 +135,26 @@ const CityStatsPanel = ({ stats }) => {
                 <Text p>Residential: {rci_demand?.residential.toFixed(1)}</Text>
                 <Text p>Commercial: {rci_demand?.commercial.toFixed(1)}</Text>
                 <Text p>Industrial: {rci_demand?.industrial.toFixed(1)}</Text>
+                
+                {agents && (
+                    <>
+                        <Text h5 style={{ color: '#8cc8ff', marginTop: '16px' }}>Agents</Text>
+                        {agents.slice(0, 3).map(agent => (
+                            <div key={agent.id} style={{ fontSize: '12px', marginBottom: '4px' }}>
+                                <Text p style={{ margin: 0 }}>
+                                    Agent {agent.id}: ${agent.money?.toLocaleString()} | Items: {Object.values(agent.inventory || {}).reduce((a, b) => a + b, 0)}
+                                </Text>
+                            </div>
+                        ))}
+                        {agents.length > 3 && <Text p style={{ fontSize: '11px' }}>...and {agents.length - 3} more agents</Text>}
+                    </>
+                )}
             </Card.Content>
         </Card>
     );
 }
 
-const MessagePanel = ({ messages }) => {
+const MessagePanel = ({ messages, offers }) => {
     const containerRef = useRef(null);
     
     useEffect(() => {
@@ -150,15 +174,33 @@ const MessagePanel = ({ messages }) => {
                 color: '#fff', border: '1px solid #444',
             }}
         >
-          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No agent messages yet]</Text>}
-          {messages.map((msg, i) => (
-              <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
-                  <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                      <span style={codeStyle}>[Step {msg.step}] {msg.role} (Agent {msg.sender_id}) says:</span>
-                  </Text>
-                  <Text p style={{ margin: 0, fontStyle: 'italic', paddingLeft: '8px' }}>"{msg.message}"</Text>
-              </div>
-          ))}
+            <div style={{ padding: '8px', borderBottom: '1px solid #444' }}>
+                <Text h4 style={{ margin: 0, color: '#8cc8ff' }}>Agent Communications</Text>
+            </div>
+            
+            {messages.length === 0 && <div style={{ padding: '8px' }}><Text p style={{ margin: 0, fontSize: '12px' }}>[No agent messages yet]</Text></div>}
+            {messages.map((msg, i) => (
+                <div key={i} style={{ marginBottom: '8px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
+                    <Text p style={{ margin: 0, fontWeight: 'bold' }}>
+                        <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id} says:</span>
+                    </Text>
+                    <Text p style={{ margin: 0, fontStyle: 'italic', paddingLeft: '8px' }}>"{msg.message}"</Text>
+                </div>
+            ))}
+            
+            {offers && offers.length > 0 && (
+                <div style={{ borderTop: '1px solid #444', marginTop: '8px', paddingTop: '8px' }}>
+                    <Text h5 style={{ margin: '0 0 8px 0', color: '#8cc8ff' }}>Active Trade Offers</Text>
+                    {offers.map((offer, i) => (
+                        <div key={i} style={{ marginBottom: '8px', padding: '6px', background: 'rgba(255,255,0,0.1)', borderRadius: '4px', fontSize: '11px' }}>
+                            <Text p style={{ margin: 0 }}>
+                                <span style={codeStyle}>Agent {offer.agent_id}</span> offers {offer.amount_to_give} {offer.item_to_give} for {offer.amount_to_receive} {offer.item_to_receive}
+                                {offer.money_offered > 0 && ` + $${offer.money_offered}`}
+                            </Text>
+                        </div>
+                    ))}
+                </div>
+            )}
         </Card>
     );
 };
@@ -202,6 +244,21 @@ export default function SimCityExample() {
 
                 if (parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init' || parsed.type === 'train_step') {
                     setState(parsed.state);
+                }
+                if (parsed.type === 'agent_message') {
+                    // Handle agent messages in real-time
+                    setState(prev => {
+                        if (!prev) return prev;
+                        const newMessage = {
+                            sender_id: parsed.agent_id,
+                            message: parsed.message,
+                            step: parsed.step
+                        };
+                        const updatedMessages = [...(prev.messages || []), newMessage];
+                        // Keep only last 20 messages
+                        const messages = updatedMessages.length > 20 ? updatedMessages.slice(-20) : updatedMessages;
+                        return { ...prev, messages };
+                    });
                 }
                 if (parsed.type === 'progress') {
                     setChartState((prev) => ({
@@ -271,20 +328,26 @@ export default function SimCityExample() {
             <Canvas camera={{ position: [-50, 50, 50], fov: 60 }}>
                 <ambientLight intensity={0.7} />
                 <directionalLight position={[100, 100, 100]} intensity={1.0} />
+
+                {/* Use a flat grid on the ground plane */}
+                <Grid infiniteGrid={true} cellSize={1} sectionSize={10} position={[0, -0.02, 0]} sectionColor={"#4488ff"} fadeDistance={100} fadeStrength={1} />
                 
+
                 {gridSize && <MapPlane 
                     gridSize={gridSize} 
                     rotationDegrees={state.map_rotation_degrees} 
                     mapCenter={state.map_center}
                     mapZoom={state.map_zoom}
                 />}
-                {state?.road_network && <RoadNetwork lines={state.road_network} />}
+                {state?.road_network && gridSize && <RoadNetwork lines={state.road_network} gridSize={gridSize} />}
                 
-                {/* Use a flat grid on the ground plane */}
-                <Grid infiniteGrid={true} cellSize={1} sectionSize={10} position={[0, -0.02, 0]} sectionColor={"#4488ff"} fadeDistance={100} fadeStrength={1} />
                 
-                {/* {state && <Buildings grid={state.grid} buildingTypes={state.building_types} gridSize={gridSize} />} */}
+                {state && <Buildings grid={state.grid} buildingTypes={state.building_types} gridSize={gridSize} />}
                 
+                {state?.cars && state.cars.map(car => <Car key={car.id} car={car} />)}
+                {state?.pedestrians && state.pedestrians.map(ped => <Pedestrian key={ped.id} pedestrian={ped} />)}
+                {state?.traffic_lights && state.traffic_lights.map(light => <TrafficLight key={light.id} light={light} />)}
+
                 <OrbitControls maxDistance={500} minDistance={10} />
             </Canvas>
 
@@ -318,10 +381,10 @@ export default function SimCityExample() {
                 width: isMobile ? 'calc(100% - 20px)' : '45%',
                 maxWidth: '420px',
             }}>
-                {state && <CityStatsPanel stats={state.city_stats} />}
+                {state && <CityStatsPanel stats={state.city_stats} agents={state.agents} />}
             </div>
             
-            {state && <MessagePanel messages={state.messages} />}
+            {state && <MessagePanel messages={state.messages} offers={state.offers} />}
             <InfoPanel logs={logs} chartState={chartState} />
 
         </div>
