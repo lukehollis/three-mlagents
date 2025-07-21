@@ -12,7 +12,7 @@
 
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples.
 
-![glider_example](https://github.com/user-attachments/assets/1c82281a-6982-4d05-95e4-816e6b8f61b4)
+![minecraft_example](https://github.com/user-attachments/assets/1338e926-8c8d-412e-bc2c-0627e47df165)
 
 
 The goal of this repository is to make the ideas from Unity ML-Agents easily approachable from the browser (React + Three.js) and from lightweight Python back-ends (FastAPI) to be used for future study.
@@ -131,6 +131,15 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 
 
 [Live demo](https://lukehollis.github.io/three-mlagents/intersection)
+
+
+### 14. Self-driving Car (Interpretability)
+
+![self_driving_car_interpretability_example](https://github.com/user-attachments/assets/7bf64b31-71fa-4c3b-a872-9aa952df4285)
+
+
+
+[Live demo](https://lukehollis.github.io/three-mlagents/self-driving-car)
 
 
 
