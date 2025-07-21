@@ -697,5 +697,11 @@ async def get_json(
     
     # instructor with TOOL_MODE returns a Pydantic model.
     # .model_dump() converts it to a dictionary, which is what the calling code expects.
-    return response.model_dump()
+    try:
+        arguments_str = response.choices[0].message.tool_calls[0].function.arguments
+        return json.loads(arguments_str)
+    except (KeyError, IndexError, json.JSONDecodeError) as e:
+        logger.error(f"Failed to parse tool call from LLM response: {e}", exc_info=True)
+        logger.debug(f"LLM response object: {response}")
+        raise ValueError("Could not extract a valid JSON tool call from the LLM response.")
 

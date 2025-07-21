@@ -1001,7 +1001,7 @@ class MineCraftEnv:
             print(f"DEBUG: Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             log_to_frontend(f"⏳ Step {self.step_count}: Waiting for {len(llm_tasks)} LLM tasks to complete")
             
-            done, pending = await asyncio.wait(llm_tasks, timeout=5.0) # Reasonable timeout - calls typically complete in 1.5-2s
+            done, pending = await asyncio.wait(llm_tasks, timeout=30.0) # Reasonable timeout - calls typically complete in 1.5-2s
             
             print(f"DEBUG: Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
             log_to_frontend(f"✅ Step {self.step_count}: {len(done)} LLM tasks completed, {len(pending)} still pending")
