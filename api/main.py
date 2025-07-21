@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from pydantic import BaseModel
 import json
 import os
@@ -29,6 +29,10 @@ from examples.self_driving_car import (
 from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 import logging
+from examples.simcity import run_simcity, train_simcity, SimCityEnv
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ML-Agents API")
 
@@ -283,19 +287,47 @@ async def websocket_glider(websocket: WebSocket):
 
 # WebSocket endpoint for MineCraft
 @app.websocket("/ws/minecraft")
-async def websocket_minecraft(websocket: WebSocket):
+async def websocket_endpoint_minecraft(websocket: WebSocket):
     await websocket.accept()
-    env = MineCraftEnv()
-    await websocket.send_json({"type": "init", "state": env.get_state_for_viz()})
+    env = None
+    run_task = None
+    try:
+        # On first connection, create environment and send initial state
+        env = MineCraftEnv()
+        state = env.get_state_for_viz()
+        await websocket.send_json({"type": "init", "state": state})
 
-    while True:
-        data = await websocket.receive_json()
-        cmd = data.get("cmd")
+        while True:
+            data = await websocket.receive_json()
+            cmd = data.get("cmd")
 
-        if cmd == 'train':
-            await train_minecraft(websocket, env)
-        elif cmd == 'run':
-            await run_minecraft(websocket, env)
+            if cmd == "train":
+                await train_minecraft(websocket, env)
+            elif cmd == "run":
+                # Prevent multiple run tasks
+                if run_task and not run_task.done():
+                    continue
+                run_task = asyncio.create_task(run_minecraft(websocket, env))
+            elif cmd == "stop":
+                if run_task:
+                    run_task.cancel()
+                    run_task = None
+            elif cmd == "reset":
+                if run_task:
+                    run_task.cancel()
+                    run_task = None
+                env = MineCraftEnv()
+                state = env.get_state_for_viz()
+                await websocket.send_json({"type": "reset", "state": state})
+
+    except WebSocketDisconnect:
+        print("Client disconnected from minecraft ws")
+        if run_task:
+            run_task.cancel()
+    except Exception as e:
+        logger.error(f"Error in minecraft websocket: {e}", exc_info=True)
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.send_json({"type": "error", "message": str(e)})
 
 
 # WebSocket endpoint for Fish
@@ -370,3 +402,51 @@ async def websocket_self_driving_car(websocket: WebSocket):
             if run_task:
                 run_task.cancel()
                 run_task = None
+
+
+@app.websocket("/ws/simcity")
+async def websocket_endpoint_simcity(websocket: WebSocket):
+    await websocket.accept()
+    env = None
+    run_task = None
+    try:
+        # On first connection, create environment and send initial state
+        env = SimCityEnv()
+        state = env.get_state_for_viz()
+        await websocket.send_json({"type": "init", "state": state})
+
+        while True:
+            data = await websocket.receive_json()
+            cmd = data.get("cmd")
+
+            if cmd == "train":
+                await train_simcity(websocket, env)
+            elif cmd == "run":
+                 if run_task and not run_task.done():
+                    continue
+                 run_task = asyncio.create_task(run_simcity(websocket, env))
+            elif cmd == "stop":
+                if run_task:
+                    run_task.cancel()
+                    run_task = None
+            elif cmd == "reset":
+                if run_task:
+                    run_task.cancel()
+                    run_task = None
+                env = SimCityEnv()
+                state = env.get_state_for_viz()
+                await websocket.send_json({"type": "reset", "state": state})
+
+    except WebSocketDisconnect:
+        print("Client disconnected from simcity ws")
+        if run_task:
+            run_task.cancel()
+    except Exception as e:
+        logger.error(f"Error in simcity websocket: {e}", exc_info=True)
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.send_json({"type": "error", "message": str(e)})
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
