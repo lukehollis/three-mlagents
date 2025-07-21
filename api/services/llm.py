@@ -647,16 +647,44 @@ async def get_json(
     schema_description: Optional[str] = "Extract content based on the provided schema."
 ):
     """
-    Get a JSON response from a model using instructor for tool-calling.
+    Get a JSON response from a model.
+    For Ollama, it uses simple JSON mode, as not all models support tools.
+    For other providers (OpenRouter), it uses instructor for tool-calling.
     This function is now asynchronous.
     """
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+
     if should_use_ollama:
+        # For Ollama, we'll guide it to produce JSON in the prompt and use JSON mode.
+        prompt_with_schema = f"""
+        {prompt}
+
+        You must respond in a valid JSON format that adheres to the following schema:
+        {json.dumps(response_schema, indent=2)}
+        """
+        messages.append({"role": "user", "content": prompt_with_schema})
+        
         client = AsyncOpenAI(
             base_url=os.getenv('OLLAMA_BASE_URL', "http://localhost:11434/v1"),
             api_key='ollama',
         )
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            response_format={"type": "json_object"},
+        )
+        try:
+            return json.loads(response.choices[0].message.content)
+        except (json.JSONDecodeError, KeyError, IndexError) as e:
+            logger.error(f"Failed to parse JSON from Ollama response: {e}", exc_info=True)
+            logger.debug(f"Ollama response content: {response.choices[0].message.content}")
+            raise ValueError("Could not get a valid JSON from Ollama.")
     else:
-        # Default to OpenRouter when not using Ollama
+        # For OpenRouter and other providers, we use the more robust tool-calling.
+        messages.append({"role": "user", "content": prompt})
+
         api_key = os.getenv('OPENROUTER_API_KEY')
         if not api_key:
             logger.error("OPENROUTER_API_KEY is not configured in settings")
@@ -667,41 +695,33 @@ async def get_json(
             api_key=api_key,
         )
 
-    # Patch the client for tool-calling with instructor
-    client = instructor.patch(client, mode=instructor.Mode.TOOLS)
+        client = instructor.patch(client, mode=instructor.Mode.TOOLS)
 
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    messages.append({"role": "user", "content": prompt})
-
-    response = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        tools=[
-            {
-                "type": "function",
-                "function": {
-                    "name": schema_name,
-                    "description": schema_description,
-                    "parameters": {
-                        "type": "object",
-                        "properties": response_schema.get("properties", {}),
-                        "required": response_schema.get("required", list(response_schema.get("properties", {}).keys())),
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=[
+                {
+                    "type": "function",
+                    "function": {
+                        "name": schema_name,
+                        "description": schema_description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": response_schema.get("properties", {}),
+                            "required": response_schema.get("required", list(response_schema.get("properties", {}).keys())),
+                        },
                     },
-                },
-            }
-        ],
-        tool_choice={"type": "function", "function": {"name": schema_name}},
-    )
-    
-    # instructor with TOOL_MODE returns a Pydantic model.
-    # .model_dump() converts it to a dictionary, which is what the calling code expects.
-    try:
-        arguments_str = response.choices[0].message.tool_calls[0].function.arguments
-        return json.loads(arguments_str)
-    except (KeyError, IndexError, json.JSONDecodeError) as e:
-        logger.error(f"Failed to parse tool call from LLM response: {e}", exc_info=True)
-        logger.debug(f"LLM response object: {response}")
-        raise ValueError("Could not extract a valid JSON tool call from the LLM response.")
+                }
+            ],
+            tool_choice={"type": "function", "function": {"name": schema_name}},
+        )
+        
+        try:
+            arguments_str = response.choices[0].message.tool_calls[0].function.arguments
+            return json.loads(arguments_str)
+        except (KeyError, IndexError, json.JSONDecodeError) as e:
+            logger.error(f"Failed to parse tool call from LLM response: {e}", exc_info=True)
+            logger.debug(f"LLM response object: {response}")
+            raise ValueError("Could not extract a valid JSON tool call from the LLM response.")
 
