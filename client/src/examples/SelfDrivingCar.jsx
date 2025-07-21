@@ -13,6 +13,8 @@ import CameraFeeds from '../components/CameraFeeds.jsx';
 import Map from '../components/Map.jsx';
 import Roads from '../components/Roads.jsx';
 import Lidar, { LIDAR_LAYER } from '../components/Lidar.jsx';
+import TrafficLight from '../components/TrafficLight.jsx';
+import Pedestrian from '../components/Pedestrian.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/self_driving_car`;
 
@@ -148,122 +150,6 @@ const calculateOrientation = (lat, lon, heading, pitch, coordinateTransformer) =
 
   return finalOrientation;
 };
-
-const TrafficLight = ({ light, coordinateTransformer }) => {
-    const { pos, state } = light;
-    const [ecefPosition, setEcefPosition] = useState(null);
-    const [orientation, setOrientation] = useState(new THREE.Quaternion());
-
-    useEffect(() => {
-        if (coordinateTransformer) {
-            const [lat, lng] = pos;
-            const vector = coordinateTransformer.latLngToECEF(lat, lng, 1);
-            setEcefPosition(vector);
-            
-            const up = vector.clone().normalize();
-            const newOrientation = new THREE.Quaternion().setFromUnitVectors(
-                new THREE.Vector3(0, 1, 0), // Default cylinder's 'up'
-                up                          // Target 'up' on the globe
-            );
-            setOrientation(newOrientation);
-        }
-    }, [pos, coordinateTransformer]);
-
-    const color = state === 'green' ? '#00ff00' : '#ff0000';
-
-    if (!ecefPosition) return null;
-
-    return (
-        <group position={ecefPosition} quaternion={orientation}>
-            <mesh position={[0, 15, 0]}>
-                <cylinderGeometry args={[1, 1, 30, 12]} />
-                <meshStandardMaterial color="#333333" />
-            </mesh>
-            <mesh position={[0, 31, 0]}>
-                <sphereGeometry args={[3, 16, 16]} />
-                <meshStandardMaterial color={color} emissive={color} emissiveIntensity={3} />
-            </mesh>
-        </group>
-    );
-};
-
-const Pedestrian = ({ pedestrian, coordinateTransformer }) => {
-    const { pos, state, id } = pedestrian;
-    const [pedPosition, setPedPosition] = useState(null);
-    const [orientation, setOrientation] = useState(new THREE.Quaternion());
-
-    useEffect(() => {
-        if (coordinateTransformer) {
-            const [lat, lng] = pos;
-            const vector = coordinateTransformer.latLngToECEF(lat, lng, 1); // Elevate slightly
-            setPedPosition(vector);
-
-            const up = vector.clone().normalize();
-            const newOrientation = new THREE.Quaternion().setFromUnitVectors(
-                new THREE.Vector3(0, 1, 0), // Default model's 'up'
-                up                          // Target 'up' on the globe
-            );
-            setOrientation(newOrientation);
-        }
-    }, [pos, coordinateTransformer]);
-
-    const baseColor = useMemo(() => new THREE.Color(state === 'jaywalking' ? '#ff4444' : '#ffffff'), [state]);
-    const bodyColor = baseColor.clone();
-    const headColor = baseColor.clone().multiplyScalar(1.1);
-    const limbColor = baseColor.clone().multiplyScalar(0.9);
-
-    if (!pedPosition) return null;
-    
-    const scale = 8;
-
-    return (
-        <group position={pedPosition} quaternion={orientation}>
-          <group position={[0, 6, 0]}>
-            {/* Head */}
-            <mesh position={[0, 0.75 * scale, 0]}>
-                <boxGeometry args={[0.5 * scale, 0.5 * scale, 0.5 * scale]} />
-                <meshPhongMaterial color={headColor} />
-            </mesh>
-            
-            {/* Body */}
-            <mesh position={[0, 0.1 * scale, 0]}>
-                <boxGeometry args={[0.5 * scale, 0.75 * scale, 0.25 * scale]} />
-                <meshPhongMaterial color={bodyColor} />
-            </mesh>
-            
-            {/* Left Arm */}
-            <mesh position={[-0.45 * scale, 0.2 * scale, 0]}>
-                <boxGeometry args={[0.25 * scale, 0.6 * scale, 0.25 * scale]} />
-                <meshPhongMaterial color={limbColor} />
-            </mesh>
-            
-            {/* Right Arm */}
-            <mesh position={[0.45 * scale, 0.2 * scale, 0]}>
-                <boxGeometry args={[0.25 * scale, 0.6 * scale, 0.25 * scale]} />
-                <meshPhongMaterial color={limbColor} />
-            </mesh>
-            
-            {/* Left Leg */}
-            <mesh position={[-0.15 * scale, -0.45 * scale, 0]}>
-                <boxGeometry args={[0.25 * scale, 0.6 * scale, 0.25 * scale]} />
-                <meshPhongMaterial color={limbColor} />
-            </mesh>
-            
-            {/* Right Leg */}
-            <mesh position={[0.15 * scale, -0.45 * scale, 0]}>
-                <boxGeometry args={[0.25 * scale, 0.6 * scale, 0.25 * scale]} />
-                <meshPhongMaterial color={limbColor} />
-            </mesh>
-            
-            {/* Agent ID label above head */}
-            <DreiText position={[0, 1.4 * scale, 0]} fontSize={0.3 * scale} color="white" anchorX="center" anchorY="middle">
-              {`P${id}`}
-            </DreiText>
-          </group>
-        </group>
-    );
-};
-
 
 const FeatureImportancePanel = ({ chartData }) => {
     if (!chartData || !chartData.data || chartData.data.length === 0) {
