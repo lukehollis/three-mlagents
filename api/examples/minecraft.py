@@ -51,7 +51,7 @@ RESOURCE_TYPES = {
 MAX_MESSAGES = 20
 MAX_LLM_LOGS = 30
 LLM_CALL_FREQUENCY = 10
-USE_LOCAL_OLLAMA = True 
+USE_LOCAL_OLLAMA = False
 
 CRAFTING_RECIPES = {
     "stone_pickaxe": {"craft_time": 2, "value": 25, "recipe": {"stone": 3, "wood": 2}},
@@ -347,23 +347,40 @@ Respond as Agent {self.id} in first person, conversationally:"""
         print(f"DEBUG: Agent {self.id}: About to generate conversation text")
         
         # Generate conversational response
-        conversation_response = await asyncio.wait_for(
-            get_json(
-                prompt=conversation_prompt,
-                model="gemma3n:latest", 
-                response_schema={
-                    "type": "object",
-                    "properties": {
-                        "message": {"type": "string"}
+        if USE_LOCAL_OLLAMA:
+            conversation_response = await asyncio.wait_for(
+                get_json(
+                    prompt=conversation_prompt,
+                    model="gemma3n:latest", 
+                    response_schema={
+                        "type": "object",
+                        "properties": {
+                            "message": {"type": "string"}
+                        },
+                        "required": ["message"]
                     },
-                    "required": ["message"]
-                },
-                schema_name="agent_conversation",
-                should_use_ollama=True
-            ),
-            timeout=3.0  # Simpler prompts typically complete in ~1.5s
-        )
-        
+                    schema_name="agent_conversation",
+                    should_use_ollama=True
+                ),
+                timeout=3.0 
+            )
+        else:
+            conversation_response = await asyncio.wait_for(
+                get_json(
+                    prompt=conversation_prompt,
+                    model="anthropic/claude-sonnet-4",
+                    response_schema={
+                        "type": "object",
+                        "properties": {
+                            "message": {"type": "string"}
+                        },
+                        "required": ["message"]
+                    },
+                    schema_name="agent_conversation",
+                ),
+                timeout=10.0
+            )
+            
         conversation_text = conversation_response.get("message", f"Agent {self.id}: Thinking about my next move...")
         print(f"DEBUG: Agent {self.id}: Generated conversation: {conversation_text}")
         

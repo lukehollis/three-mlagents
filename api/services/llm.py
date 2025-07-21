@@ -637,47 +637,65 @@ async def stream_text_anakin(
         raise
 
 
-def get_json(prompt, name, description, properties, use_local=False):
-    if use_local:
-        model = "llama3"
-        client = OpenAI(
+async def get_json(
+    prompt: str,
+    model: str,
+    response_schema: Dict[str, Any],
+    schema_name: str,
+    system_prompt: Optional[str] = None,
+    should_use_ollama: bool = False,
+    schema_description: Optional[str] = "Extract content based on the provided schema."
+):
+    """
+    Get a JSON response from a model using instructor for tool-calling.
+    This function is now asynchronous.
+    """
+    if should_use_ollama:
+        client = AsyncOpenAI(
             base_url=os.getenv('OLLAMA_BASE_URL', "http://localhost:11434/v1"),
             api_key='ollama',
         )
     else:
-        model = "gpt-4o"
-        # Assumes OPENAI_API_KEY is in env for default provider
-        client = OpenAI()
+        # Default to OpenRouter when not using Ollama
+        api_key = os.getenv('OPENROUTER_API_KEY')
+        if not api_key:
+            logger.error("OPENROUTER_API_KEY is not configured in settings")
+            raise ValueError("OPENROUTER_API_KEY is not configured")
+        
+        client = AsyncOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
 
-    # Patch the client instance. Instructor will then manage tool-calling transparently.
+    # Patch the client for tool-calling with instructor
     client = instructor.patch(client, mode=instructor.Mode.TOOLS)
 
-    response = client.chat.completions.create(
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
+    response = await client.chat.completions.create(
         model=model,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt,
-            }
-        ],
+        messages=messages,
         tools=[
             {
                 "type": "function",
                 "function": {
-                    "name": name,
-                    "description": description,
+                    "name": schema_name,
+                    "description": schema_description,
                     "parameters": {
                         "type": "object",
-                        "properties": properties,
-                        "required": list(properties.keys()),
+                        "properties": response_schema.get("properties", {}),
+                        "required": response_schema.get("required", list(response_schema.get("properties", {}).keys())),
                     },
                 },
             }
         ],
-        tool_choice={"type": "function", "function": {"name": name}},
+        tool_choice={"type": "function", "function": {"name": schema_name}},
     )
-    # The response object from instructor with TOOL_MODE is the parsed tool call,
-    # but the logic expects the raw arguments string to be loaded.
-    # The underlying response is stored in `_raw`
-    return json.loads(response._raw.tool_calls[0].function.arguments)
+    
+    # instructor with TOOL_MODE returns a Pydantic model.
+    # .model_dump() converts it to a dictionary, which is what the calling code expects.
+    return response.model_dump()
 
