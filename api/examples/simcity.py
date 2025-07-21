@@ -6,6 +6,8 @@ from typing import List, Dict, Any, Tuple
 import numpy as np
 from fastapi import WebSocket
 import logging
+import osmnx as ox
+from shapely.geometry import Point, LineString
 
 # Set environment variable to avoid tokenizers parallelism warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -32,36 +34,50 @@ def log_to_frontend(message: str):
             }))
 
 # --- Constants ---
-GRID_SIZE_X = 50
-GRID_SIZE_Z = 50
-NUM_AGENTS = 4 # Start with one "Mayor" agent
-AGENT_ROLES = ["Mayor", "Lead Developer", "Citizen Advocate", "Industrial Magnate"]
+GRID_SIZE_X = 64
+GRID_SIZE_Y = 20
+GRID_SIZE_Z = 64
+NUM_AGENTS = 5
+NUM_CARS = 10
 INITIAL_BUDGET = 100000
 INITIAL_POPULATION = 0
 
 BUILDING_TYPES = {
-    "road": {"cost": 50, "income": 0, "population": 0, "color": [0.2, 0.2, 0.2], "model": "road"},
-    "residential": {"cost": 500, "income": 10, "population": 50, "color": [0.2, 0.8, 0.2], "model": "house"},
-    "commercial": {"cost": 1000, "income": 50, "population": 0, "color": [0.2, 0.2, 0.8], "model": "shop"},
-    "industrial": {"cost": 1500, "income": 100, "population": 0, "color": [0.8, 0.8, 0.2], "model": "factory"},
-    "park": {"cost": 200, "income": 0, "population": 0, "color": [0.1, 0.5, 0.1], "model": "park"}
+    # Non-buildable ground types
+    "grass": {"cost": 0, "income": 0, "population": 0, "color": [0.2, 0.6, 0.2]},
+    "road": {"cost": 0, "income": 0, "population": 0, "color": [0.2, 0.2, 0.2]},
+    # Buildable types
+    "residential": {"cost": 100, "income": 10, "population": 5, "color": [0.2, 0.8, 0.2]},
+    "commercial": {"cost": 200, "income": 50, "population": 0, "color": [0.2, 0.2, 0.8]},
+    "industrial": {"cost": 300, "income": 100, "population": 0, "color": [0.8, 0.8, 0.2]},
+    "park": {"cost": 50, "income": 0, "population": 0, "color": [0.1, 0.5, 0.1]},
 }
 MAX_MESSAGES = 20
 MAX_LLM_LOGS = 30
-LLM_CALL_FREQUENCY = 5
-USE_LOCAL_OLLAMA = True
+LLM_CALL_FREQUENCY = 10
+USE_LOCAL_OLLAMA = True 
 
-# Simplified discrete actions: build each type of building. The location will be chosen by the LLM.
-DISCRETE_ACTIONS = [f"build_{btype}" for btype in BUILDING_TYPES.keys()] + ["talk", "wait"]
+# Define discrete actions for the PPO policy
+build_actions = [f"build_{btype}" for btype in ["residential", "commercial", "industrial", "park"]]
+move_actions = ["move_x+", "move_x-", "move_y+", "move_y-", "move_z+", "move_z-"]
+destroy_actions = ["destroy_x+", "destroy_x-", "destroy_y+", "destroy_y-", "destroy_z+", "destroy_z-"]
+DISCRETE_ACTIONS = move_actions + build_actions + destroy_actions + ["talk", "wait"]
 
+ACTION_MAP_MOVE = {
+    "move_x+": np.array([1, 0, 0]), "move_x-": np.array([-1, 0, 0]),
+    "move_y+": np.array([0, 1, 0]), "move_y-": np.array([0, -1, 0]),
+    "move_z+": np.array([0, 0, 1]), "move_z-": np.array([0, 0, -1]),
+}
+ACTION_MAP_DESTROY = {
+    "destroy_x+": np.array([1, 0, 0]), "destroy_x-": np.array([-1, 0, 0]),
+    "destroy_y+": np.array([0, 1, 0]), "destroy_y-": np.array([0, -1, 0]),
+    "destroy_z+": np.array([0, 0, 1]), "destroy_z-": np.array([0, 0, -1]),
+}
 
 class ActorCritic(nn.Module):
     def __init__(self, obs_size: int, action_size: int):
         super().__init__()
-        self.shared = nn.Sequential(
-            nn.Linear(obs_size, 128), nn.Tanh(),
-            nn.Linear(128, 128), nn.Tanh()
-        )
+        self.shared = nn.Sequential(nn.Linear(obs_size, 128), nn.Tanh())
         self.actor_logits = nn.Linear(128, action_size)
         self.critic = nn.Linear(128, 1)
 
@@ -77,621 +93,386 @@ class ActorCritic(nn.Module):
             obs_t = torch.from_numpy(obs).float()
         else:
             obs_t = obs
-
-        if obs_t.dim() == 1:
-            obs_t = obs_t.unsqueeze(0)
-
+        if obs_t.dim() == 1: obs_t = obs_t.unsqueeze(0)
         dist, value = self.forward(obs_t)
-        
-        if action is None:
-            action = dist.sample()
-            
+        if action is None: action = dist.sample()
         log_prob = dist.log_prob(action)
-
-        if obs_t.shape[0] == 1:
-            return action.item(), log_prob.item(), value.item()
-        
+        if obs_t.shape[0] == 1: return action.item(), log_prob.item(), value.item()
         return action, log_prob, value
 
-
-# --- Agent Class ---
-class Agent:
-    def __init__(self, agent_id: int):
+# --- Entity Classes ---
+class Pedestrian: # This is our main agent
+    def __init__(self, agent_id: int, pos: np.ndarray):
         self.id = agent_id
-        self.role = AGENT_ROLES[agent_id % len(AGENT_ROLES)]
-        self.goal = self.get_initial_goal()
+        self.pos = pos
+        self.inventory = {btype: 20 for btype in ["residential", "commercial", "industrial", "park"]}
+        self.goal = "Contribute to building a vibrant and efficient city."
+        self.color = [random.random(), random.random(), random.random()]
         self.llm_intent = None
         self.is_thinking = False
-        self.last_llm_step = -10
-        self.memory_vector = np.zeros(384, dtype=np.float32)
+        self.last_llm_step = -LLM_CALL_FREQUENCY
         self.memory_stream = []
 
-    def get_initial_goal(self):
-        if self.role == "Mayor":
-            return "Balance the budget, grow the population, and keep all stakeholders happy."
-        elif self.role == "Lead Developer":
-            return "Build a balanced and aesthetically pleasing mix of residential, commercial, and park zones."
-        elif self.role == "Citizen Advocate":
-            return "Advocate for more parks and residential zones, and campaign against industrial pollution."
-        elif self.role == "Industrial Magnate":
-            return "Expand the industrial sector to maximize city income and efficiency."
-        return "Help the city grow."
-
-    def update_memory(self, text: str):
-        """Update agent's memory with a new text embedding using a moving average"""
-        new_embedding = get_embedding(text)
-        self.memory_vector = (self.memory_vector * 0.9) + (new_embedding.astype(np.float32) * 0.1)
-
-    def add_to_memory_stream(self, event: str, step: int = None):
-        if step is not None:
-            event_entry = f"Step {step}: {event}"
-        else:
-            event_entry = event
-        self.memory_stream.append(event_entry)
-        if len(self.memory_stream) > 10:
-            self.memory_stream = self.memory_stream[-10:]
+    def add_to_memory_stream(self, event: str, step: int):
+        self.memory_stream.append(f"Step {step}: {event}")
+        if len(self.memory_stream) > 10: self.memory_stream.pop(0)
 
     async def decide_action_llm(self, grid: np.ndarray, city_stats: Dict, messages: List[Dict], step_count: int):
         self.is_thinking = True
-        log_to_frontend(f"🤖 Agent {self.id} ({self.role}): Thinking...")
-
-        # Create a simplified representation of the grid for the LLM
-        grid_summary = []
-        for x in range(0, GRID_SIZE_X, 5):
-            row_summary = []
-            for z in range(0, GRID_SIZE_Z, 5):
-                sub_grid = grid[x:x+5, z:z+5]
-                unique, counts = np.unique(sub_grid, return_counts=True)
-                if len(unique) == 1 and unique[0] == 0:
-                    row_summary.append("E") # Empty
-                else:
-                    row_summary.append("B") # Buildings
-            grid_summary.append("".join(row_summary))
-
-        system_prompt = f"You are an agent in a city simulation. Your role is: {self.role}. Your ID is {self.id}."
+        log_to_frontend(f"🤖 Agent {self.id}: Thinking...")
         
-        template = f"""
-        Example for build:
-        {{
-            "action": "build",
-            "data": {{ "building_type": "residential", "position": [10, 12] }}
-        }}
-        Example for talk:
-        {{
-            "action": "talk",
-            "data": {{ "message": "We need more parks for our citizens!" }}
-        }}
-        """
+        view_radius = 2
+        x_start, x_end = max(0, self.pos[0]-view_radius), min(GRID_SIZE_X, self.pos[0]+view_radius+1)
+        y_start, y_end = max(0, self.pos[1]-view_radius), min(GRID_SIZE_Y, self.pos[1]+view_radius+1)
+        z_start, z_end = max(0, self.pos[2]-view_radius), min(GRID_SIZE_Z, self.pos[2]+view_radius+1)
+        view = grid[x_start:x_end, y_start:y_end, z_start:z_end].tolist()
 
-        prompt = f"""You are an agent in a city simulation.
-Your role: {self.role} (ID: {self.id})
-Your primary goal: {self.goal}
-Current city stats: {json.dumps(city_stats)}
-Recent messages from other agents: {json.dumps(messages[-5:])}
-Building options: {json.dumps(BUILDING_TYPES)}
+        prompt = f"""You are a construction agent (ID: {self.id}) in a 3D city.
+Your goal: {self.goal}. Your position: {self.pos.tolist()}. Inventory: {self.inventory}.
+City stats: {city_stats}. Recent messages: {messages[-3:]}
+Your 5x5x5 view (0=air): {view}
+Your available actions are "build", "destroy", "move", "talk", "wait".
+- build: {{ "block_type": "...", "position": [x, y, z] }} (must be adjacent to you)
+- destroy: {{ "position": [x, y, z] }} (must be adjacent)
+- move: {{ "position": [x, y, z] }} (must be adjacent)
+- talk: {{ "message": "..." }}
+Based on your state, what is your next high-level action? Respond with valid JSON only.
+Example: {{ "action": "build", "data": {{ "block_type": "residential", "position": [{self.pos[0]+1}, 1, {self.pos[2]}] }} }}"""
 
-The city map is {GRID_SIZE_X}x{GRID_SIZE_Z}. Here is a low-resolution summary (E=Empty, B=Built):
-{chr(10).join(grid_summary)}
-
-Your available actions are "build" or "talk".
-- build: requires {{ "building_type": string, "position": [x, z] }}. Use this to advance your goals.
-- talk: requires {{ "message": string }}. Use this to coordinate, debate, or state your intentions to other agents.
-
-Based on your role, goal, and the current city state, what is your next single action?
-
-CRITICAL: You MUST respond with valid JSON only. No explanations.
-{template}
-Pick ONE action and respond in the exact JSON format shown above.
-"""
-
-        action_schema = {
-            "type": "object",
-            "properties": {
-                "action": {"type": "string", "enum": ["build", "talk"]},
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "building_type": {"type": "string", "enum": list(BUILDING_TYPES.keys())},
-                        "position": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
-                        "message": {"type": "string"}
-                    }
-                }
-            },
-            "required": ["action", "data"]
-        }
-        
-        model_to_use = "gemma3n:latest" if USE_LOCAL_OLLAMA else "anthropic/claude-sonnet-4"
-        response = await asyncio.wait_for(
-            get_json(
-                system_prompt=system_prompt,
-                prompt=prompt,
-                model=model_to_use,
-                response_schema=action_schema,
-                schema_name="sim_city_action",
-                should_use_ollama=USE_LOCAL_OLLAMA
-            ),
-            timeout=20.0
-        )
-
+        response = await get_json(prompt=prompt, model="gemma3n:latest" if USE_LOCAL_OLLAMA else "anthropic/claude-sonnet-4")
         self.llm_intent = (response.get("action"), response.get("data"))
-        action_desc = response.get("action")
-        if action_desc == 'build':
-            log_to_frontend(f"🧠 Agent {self.id} ({self.role}): LLM decided to {action_desc} a {self.llm_intent[1].get('building_type')}")
-        elif action_desc == 'talk':
-             log_to_frontend(f"🧠 Agent {self.id} ({self.role}): LLM decided to {action_desc}: {self.llm_intent[1].get('message')}")
-        
-        # If the action was "talk", we can use that as the conversational message
-        conversation_text = ""
-        if response.get("action") == "talk":
-            conversation_text = response.get("data", {}).get("message")
-        
-        if _current_websocket and conversation_text:
-            await _current_websocket.send_json({
-                "type": "agent_message",
-                "agent_id": self.id,
-                "role": self.role,
-                "message": conversation_text,
-                "step": step_count
-            })
-
         self.is_thinking = False
-        log_entry = {
-            "agent_id": self.id, 
-            "step": step_count, 
-            "prompt": "...", # Truncate for brevity
-            "response": response,
-            "conversation": conversation_text
-        }
-        return log_entry
+        return {"agent_id": self.id, "step": step_count, "response": response}
 
-    def get_fast_action(self, trained_policy: "ActorCritic", grid: np.ndarray, city_stats: Dict) -> Tuple[str, Any]:
-        # --- LLM Intent First ---
-        if self.llm_intent:
-            action, data = self.llm_intent
-            self.llm_intent = None # Consume intent
-            log_to_frontend(f"🧠 Agent {self.id} ({self.role}): Acting on LLM intent.")
-            return (action, data)
+class Car:
+    def __init__(self, car_id: int, graph, start_node):
+        self.id = car_id
+        self.graph = graph
+        self.pos = np.array(graph.nodes[start_node]['pos'])
+        self.path = [start_node]
+        self.edge_progress = 0.0
+        self.speed = random.uniform(0.1, 0.3)
+        self.color = [random.random(), 0.1, 0.1]
+        self._find_new_path()
 
-        # --- Policy Decision ---
-        if trained_policy:
-            log_to_frontend(f"🧮 Agent {self.id} ({self.role}): Using trained policy for decision.")
-            state_vector = get_agent_state_vector(self, grid, city_stats)
-            action_index, _, _ = trained_policy.get_action(state_vector)
-            action_name = DISCRETE_ACTIONS[action_index]
-            
-            if action_name == "talk":
-                # Policy should not talk with generic messages. Wait instead.
-                return ("wait", {})
-            if action_name == "wait":
-                return ("wait", {})
+    def _find_new_path(self):
+        current_node = self.path[-1]
+        neighbors = list(self.graph.neighbors(current_node))
+        if not neighbors: 
+            self.path = [current_node] # Stuck
+            return
+        next_node = random.choice(neighbors)
+        self.path.append(next_node)
 
-            # The policy chooses *what* to build. We find a random *where*.
-            building_type = action_name.replace("build_", "")
-            
-            empty_cells = np.argwhere(grid == 0)
-            if len(empty_cells) > 0:
-                pos = random.choice(empty_cells)
-                log_to_frontend(f"🎲 Agent {self.id} ({self.role}): Policy chose to build {building_type}. Placing at random empty cell {pos.tolist()}.")
-                return ("build", {"building_type": building_type, "position": [int(pos[0]), int(pos[1])]})
-            else:
-                log_to_frontend(f"⚠️ Agent {self.id} ({self.role}): Policy wanted to build, but no empty space left! Waiting instead.")
-                return ("wait", {})
-
-        # --- Fallback to random action if no policy and no LLM intent ---
-        log_to_frontend(f"🎲 Agent {self.id} ({self.role}): No policy or LLM intent, choosing a random action.")
-        action = random.choice(["build", "wait"])
-        if action == "wait":
-            return ("wait", {})
+    def move(self, traffic_lights):
+        if len(self.path) < 2:
+            self._find_new_path()
+            return
         
-        building_type = random.choice(list(BUILDING_TYPES.keys()))
-        pos = [random.randint(0, GRID_SIZE_X-1), random.randint(0, GRID_SIZE_Z-1)]
-        return ("build", {"building_type": building_type, "position": pos})
+        u, v = self.path[0], self.path[1]
+        
+        # Check traffic light at the end of the current edge (node v)
+        light = traffic_lights.get(v)
+        if light and light.state == 'red' and self.edge_progress > 0.9:
+            return # Stop for red light
+        
+        self.edge_progress += self.speed
+        if self.edge_progress >= 1.0:
+            self.edge_progress = 0.0
+            self.path.pop(0)
+            if not self.path: self._find_new_path()
+            u, v = self.path[0], self.path[1]
 
+        start_pos = np.array(self.graph.nodes[u]['pos'])
+        end_pos = np.array(self.graph.nodes[v]['pos'])
+        self.pos = start_pos + (end_pos - start_pos) * self.edge_progress
+
+class TrafficLight:
+    def __init__(self, light_id, pos):
+        self.id = light_id
+        self.pos = pos
+        self.state = 'red'
+        self.timer = random.randint(5, 20)
+
+    def update(self):
+        self.timer -= 1
+        if self.timer <= 0:
+            self.state = 'green' if self.state == 'red' else 'red'
+            self.timer = random.randint(10, 30) if self.state == 'green' else random.randint(40, 60)
 
 # --- Environment Class ---
 class SimCityEnv:
     def __init__(self):
-        # Grid stores building type index (0 for empty, 1+ for buildings)
-        self.grid = np.zeros((GRID_SIZE_X, GRID_SIZE_Z), dtype=int)
-        self.buildings = [] # List of placed building objects
-        self.llm_logs: List[Dict] = []
-        self.messages: List[Dict] = []
-        self.step_count = 0
-        self.agents = [Agent(i) for i in range(NUM_AGENTS)]
+        self.grid = np.zeros((GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z), dtype=int)
+        self.agents = []
+        self.cars = []
+        self.traffic_lights = {}
+        self.llm_logs, self.messages = [], []
+        self.step_count, self.budget, self.population = 0, INITIAL_BUDGET, INITIAL_POPULATION
         self.trained_policy: "ActorCritic" = None
 
-        self.budget = INITIAL_BUDGET
-        self.population = INITIAL_POPULATION
-        self.rci_demand = {"residential": 0.5, "commercial": 0.3, "industrial": 0.2}
+        log_to_frontend("Fetching street data from OpenStreetMap...")
+        self._setup_map()
+        self._spawn_entities()
+        log_to_frontend("Street data processed and entities spawned.")
+
+    def _setup_map(self):
+        location_point = (40.7128, -74.0060) # New York City
+        self.graph = ox.graph_from_point(location_point, dist=500, network_type='drive')
+        
+        nodes_df, edges_df = ox.graph_to_gdfs(self.graph)
+        min_x, min_y = nodes_df.geometry.x.min(), nodes_df.geometry.y.min()
+        max_x, max_y = nodes_df.geometry.x.max(), nodes_df.geometry.y.max()
+
+        def scale_coords(lon, lat):
+            x = int(np.interp(lon, [min_x, max_x], [0, GRID_SIZE_X - 1]))
+            z = int(np.interp(lat, [min_y, max_y], [0, GRID_SIZE_Z - 1]))
+            return x, z
+
+        road_idx = list(BUILDING_TYPES.keys()).index("road") + 1
+        for u, v, data in self.graph.edges(data=True):
+            p1_lon, p1_lat = self.graph.nodes[u]['x'], self.graph.nodes[u]['y']
+            p2_lon, p2_lat = self.graph.nodes[v]['x'], self.graph.nodes[v]['y']
+            x1, z1 = scale_coords(p1_lon, p1_lat)
+            x2, z2 = scale_coords(p2_lon, p2_lat)
+            self.graph.nodes[u]['pos'] = (x1, 0, z1)
+            self.graph.nodes[v]['pos'] = (x2, 0, z2)
+            
+            # Draw line on grid
+            num_points = max(abs(x2 - x1), abs(z2 - z1)) + 1
+            for i in range(num_points):
+                t = i / (num_points - 1)
+                x, z = int(x1 * (1 - t) + x2 * t), int(z1 * (1 - t) + z2 * t)
+                if 0 <= x < GRID_SIZE_X and 0 <= z < GRID_SIZE_Z:
+                    self.grid[x, 0, z] = road_idx
+        
+        self.road_network_for_viz = [[self.graph.nodes[u]['pos'], self.graph.nodes[v]['pos']] for u, v, _ in self.graph.edges(data=True)]
+
+    def _spawn_entities(self):
+        road_idx = list(BUILDING_TYPES.keys()).index("road") + 1
+        road_coords = np.argwhere(self.grid[:, 0, :] == road_idx)
+        
+        for i in range(NUM_AGENTS):
+            idx = random.choice(range(len(road_coords)))
+            x, z = road_coords[idx]
+            self.agents.append(Pedestrian(i, np.array([x, 1, z])))
+
+        graph_nodes = list(self.graph.nodes)
+        for i in range(NUM_CARS):
+            self.cars.append(Car(i, self.graph, random.choice(graph_nodes)))
+
+        for i, (node, data) in enumerate(self.graph.nodes(data=True)):
+            if self.graph.degree(node) > 2: # Is an intersection
+                self.traffic_lights[node] = TrafficLight(i, data['pos'])
 
     def _update_simulation(self):
-        # Calculate total income and population from all buildings
-        total_income = sum(b['income'] for b in self.buildings)
-        total_population = sum(b['population'] for b in self.buildings)
+        for light in self.traffic_lights.values(): light.update()
+        for car in self.cars: car.move(self.traffic_lights)
         
-        self.budget += total_income
-        self.population = total_population
+        income = np.sum([BUILDING_TYPES[list(BUILDING_TYPES.keys())[idx-1]]['income'] for idx in self.grid.flatten() if idx > 2])
+        population = np.sum([BUILDING_TYPES[list(BUILDING_TYPES.keys())[idx-1]]['population'] for idx in self.grid.flatten() if idx > 2])
+        self.budget += income
+        self.population = population
 
-        # Simple RCI demand model: Demand is influenced by population and existing buildings
-        num_res = len([b for b in self.buildings if b['type'] == 'residential']) + 1
-        num_com = len([b for b in self.buildings if b['type'] == 'commercial']) + 1
-        num_ind = len([b for b in self.buildings if b['type'] == 'industrial']) + 1
-
-        self.rci_demand["residential"] = np.clip(0.1 + (self.population / 500) - (num_res / (num_com + num_ind)), 0, 1)
-        self.rci_demand["commercial"] = np.clip(0.1 + (num_res / (self.population + 100)) - (num_com / num_res), 0, 1)
-        self.rci_demand["industrial"] = np.clip(0.1 + (num_com / (self.population + 100)) - (num_ind / num_res), 0, 1)
-
-    def _get_reward(self, agent: Agent, action: str, data: Any) -> float:
-        reward = 0.0
-        # Reward for population growth and positive income change
-        reward += self.population / 1000.0
-        reward += self.budget / 100000.0
-
-        if action == "wait":
-            reward -= 0.1 # Small cost for doing nothing
-
-        if action == "build" and data:
-            pos = data.get("position")
-            # Big penalty for trying to build on an existing structure
-            if self.grid[pos[0], pos[1]] != 0:
-                reward -= 5.0
-            else:
-                # Reward for building something useful
-                reward += 1.0
-                # Reward for satisfying demand
-                b_type = data.get("building_type")
-                if b_type in self.rci_demand:
-                    reward += self.rci_demand[b_type] * 2.0
-
+    def _get_reward(self, agent: Pedestrian, action: str, data: Any) -> float:
+        # Simple reward: budget change + population change
+        prev_budget, prev_pop = self.budget, self.population
+        self._update_simulation()
+        reward = (self.budget - prev_budget) + (self.population - prev_pop) * 10
+        if "build" in action and data: reward += 10 # Bonus for building
+        if "destroy" in action: reward -= 5
+        if "wait" in action: reward -= 1
         return reward
 
-    def _execute_actions(self, agent_actions: List[Tuple[str, Any]]):
-        randomized_order = list(zip(self.agents, agent_actions))
-        random.shuffle(randomized_order)
+    def _execute_agent_action(self, agent: Pedestrian, action_name: str):
+        # ... (Execution logic for move, build, destroy) ...
+        if action_name in ACTION_MAP_MOVE:
+            target_pos = agent.pos + ACTION_MAP_MOVE[action_name]
+            # Check if target is air
+            if 0 <= target_pos[0] < GRID_SIZE_X and 0 <= target_pos[1] < GRID_SIZE_Y and 0 <= target_pos[2] < GRID_SIZE_Z:
+                if self.grid[target_pos[0], target_pos[1], target_pos[2]] == 0:
+                    agent.pos = target_pos
 
-        for agent, (action, data) in randomized_order:
-            if action == "wait":
-                agent.add_to_memory_stream("Decided to wait.", self.step_count)
-                log_to_frontend(f"⏳ Agent {agent.id} ({agent.role}) is waiting.")
-                continue
-            
-            if action == "talk" and data and "message" in data:
-                message_data = {
-                    "sender_id": agent.id,
-                    "role": agent.role,
-                    "message": data.get("message"),
-                    "step": self.step_count,
-                }
-                self.messages.append(message_data)
-                if len(self.messages) > MAX_MESSAGES:
-                    self.messages = self.messages[-MAX_MESSAGES:]
-                
-                # Log to frontend and have other agents update memory
-                log_to_frontend(f"💬 Agent {agent.id} ({agent.role}): {data.get('message')}")
-                agent.add_to_memory_stream(f"I said: {data.get('message')}", self.step_count)
-                for a in self.agents:
-                    if a.id != agent.id:
-                        a.update_memory(f"Agent {agent.id} ({agent.role}) said: {data.get('message')}")
-                continue
+        elif "build_" in action_name:
+            b_type = action_name.replace("build_", "")
+            build_pos = agent.pos + np.array([0, -1, 0]) # Build at feet
+            if agent.inventory.get(b_type, 0) > 0 and 0 <= build_pos[0] < GRID_SIZE_X and 0 <= build_pos[1] < GRID_SIZE_Y and 0 <= build_pos[2] < GRID_SIZE_Z:
+                # Check if building on non-road
+                if self.grid[build_pos[0], 0, build_pos[2]] != list(BUILDING_TYPES.keys()).index("road") + 1:
+                    agent.inventory[b_type] -= 1
+                    self.grid[build_pos[0], build_pos[1], build_pos[2]] = list(BUILDING_TYPES.keys()).index(b_type) + 1
 
-            if action == "build" and data:
-                b_type = data.get("building_type")
-                pos = data.get("position")
-                
-                # Clamp position to grid bounds
-                pos[0] = np.clip(pos[0], 0, GRID_SIZE_X - 1)
-                pos[1] = np.clip(pos[1], 0, GRID_SIZE_Z - 1)
-
-                if b_type in BUILDING_TYPES:
-                    cost = BUILDING_TYPES[b_type]["cost"]
-                    if self.budget >= cost and self.grid[pos[0], pos[1]] == 0:
-                        self.budget -= cost
-                        
-                        b_type_idx = list(BUILDING_TYPES.keys()).index(b_type) + 1
-                        self.grid[pos[0], pos[1]] = b_type_idx
-                        
-                        building_info = BUILDING_TYPES[b_type]
-                        self.buildings.append({
-                            "type": b_type,
-                            "pos": pos,
-                            "income": building_info["income"],
-                            "population": building_info["population"]
-                        })
-                        agent.add_to_memory_stream(f"Built {b_type} at {pos} for ${cost}", self.step_count)
-                        agent.update_memory(f"I built a {b_type} at {pos}.")
-                        log_to_frontend(f"🏗️ Agent {agent.id} ({agent.role}) built {b_type}. Budget: ${self.budget}")
-                    elif self.grid[pos[0], pos[1]] != 0:
-                        agent.add_to_memory_stream(f"Failed to build - location {pos} is occupied.", self.step_count)
-                        agent.update_memory(f"I failed to build at {pos} because it was occupied.")
-                        log_to_frontend(f"❌ Agent {agent.id} ({agent.role}) failed to build - location occupied.")
-                    else:
-                        agent.add_to_memory_stream(f"Failed to build {b_type} - not enough budget.", self.step_count)
-                        agent.update_memory(f"I failed to build a {b_type} due to lack of funds.")
-                        log_to_frontend(f"💰 Agent {agent.id} ({agent.role}) failed to build - not enough budget.")
+        elif action_name in ACTION_MAP_DESTROY:
+            destroy_pos = agent.pos + ACTION_MAP_DESTROY[action_name]
+            if 0 <= destroy_pos[0] < GRID_SIZE_X and 0 <= destroy_pos[1] < GRID_SIZE_Y and 0 <= destroy_pos[2] < GRID_SIZE_Z:
+                block_idx = self.grid[destroy_pos[0], destroy_pos[1], destroy_pos[2]]
+                if block_idx > 2: # Can't destroy road or grass
+                    b_type = list(BUILDING_TYPES.keys())[block_idx - 1]
+                    agent.inventory[b_type] += 1
+                    self.grid[destroy_pos[0], destroy_pos[1], destroy_pos[2]] = 0
 
     async def step(self):
         self.step_count += 1
-        self._update_simulation() # Update stats before decisions
+        self._update_simulation()
         
+        # LLM decisions (can run in parallel)
         llm_tasks = []
-        task_to_agent = {}
-        max_concurrent_llm = 2
-        current_thinking_count = sum(1 for agent in self.agents if agent.is_thinking)
-
         for agent in self.agents:
-            if current_thinking_count >= max_concurrent_llm:
-                break
-            
             if not agent.is_thinking and (self.step_count - agent.last_llm_step) >= LLM_CALL_FREQUENCY:
                 agent.last_llm_step = self.step_count
-                city_stats = {"budget": self.budget, "population": self.population, "rci_demand": self.rci_demand}
-                
-                async def safe_llm_call(agent_ref):
-                    try:
-                        log_entry = await agent_ref.decide_action_llm(self.grid, city_stats, self.messages, self.step_count)
-                        if log_entry and isinstance(log_entry, dict):
-                            self.llm_logs.append(log_entry)
-                            if len(self.llm_logs) > MAX_LLM_LOGS:
-                                self.llm_logs = self.llm_logs[-MAX_LLM_LOGS:]
-                    except Exception as e:
-                        log_to_frontend(f"Error in LLM call for Agent {agent_ref.id}: {e}")
-                        if agent_ref:
-                            agent_ref.is_thinking = False
+                stats = {"budget": self.budget, "population": self.population, "step": self.step_count}
+                llm_tasks.append(asyncio.create_task(agent.decide_action_llm(self.grid, stats, self.messages, self.step_count)))
 
-                task = asyncio.create_task(safe_llm_call(agent))
-                llm_tasks.append(task)
-                current_thinking_count += 1
-
-        # --- Fast Action Execution (Synchronous) ---
-        agent_actions = []
+        # PPO policy actions (synchronous)
+        agent_actions_for_env = []
         for agent in self.agents:
-             city_stats = {"budget": self.budget, "population": self.population, "rci_demand": self.rci_demand}
-             agent_actions.append(agent.get_fast_action(self.trained_policy, self.grid, city_stats))
-
-        self._execute_actions(agent_actions)
+            if agent.llm_intent: # Prioritize LLM
+                action, data = agent.llm_intent
+                # ... (translate high-level LLM action to low-level if needed) ...
+                agent.llm_intent = None
+            
+            # Fallback to policy
+            state_vec = get_agent_state_vector(agent, self.grid, self)
+            action_idx, _, _ = self.trained_policy.get_action(state_vec)
+            action_name = DISCRETE_ACTIONS[action_idx]
+            self._execute_agent_action(agent, action_name)
         
+        # Finish awaiting LLM tasks
+        if llm_tasks: await asyncio.gather(*llm_tasks)
 
     def get_state_for_viz(self) -> Dict[str, Any]:
         return {
             "grid": self.grid.tolist(),
-            "agents": [{"id": a.id, "role": a.role, "goal": a.goal, "memory_stream": a.memory_stream} for a in self.agents],
-            "city_stats": {"budget": self.budget, "population": self.population, "rci_demand": self.rci_demand},
-            "llm_logs": self.llm_logs,
-            "grid_size": [GRID_SIZE_X, GRID_SIZE_Z],
+            "agents": [{"id": a.id, "pos": a.pos.tolist(), "color": a.color, "type": "pedestrian"} for a in self.agents],
+            "cars": [{"id": c.id, "pos": c.pos.tolist(), "color": c.color, "type": "car"} for c in self.cars],
+            "traffic_lights": [{"id": l.id, "pos": l.pos, "state": l.state} for l in self.traffic_lights.values()],
+            "city_stats": {"budget": self.budget, "population": self.population},
+            "grid_size": [GRID_SIZE_X, GRID_SIZE_Y, GRID_SIZE_Z],
             "building_types": BUILDING_TYPES,
-            "messages": self.messages,
+            "road_network": self.road_network_for_viz,
         }
 
-# --- PPO Implementation ---
-def get_agent_state_vector(agent: Agent, grid: np.ndarray, city_stats: Dict) -> np.ndarray:
+def get_agent_state_vector(agent: Pedestrian, grid: np.ndarray, env: SimCityEnv) -> np.ndarray:
     """Create a fixed-size state vector for the policy."""
-    # 1. Grid summary (down-sampled)
-    grid_size_x, grid_size_z = grid.shape
-    x_bins, z_bins = 10, 10
-    grid_summary = np.zeros((x_bins, z_bins))
-    for i in range(x_bins):
-        for j in range(z_bins):
-            sub_grid = grid[
-                i * (grid_size_x // x_bins) : (i + 1) * (grid_size_x // x_bins),
-                j * (grid_size_z // z_bins) : (j + 1) * (grid_size_z // z_bins)
-            ]
-            grid_summary[i, j] = np.mean(sub_grid)
+    # Local 3x3x3 view
+    pos = agent.pos.astype(int)
+    view = np.zeros((3, 3, 3))
+    for dx in range(-1, 2):
+        for dy in range(-1, 2):
+            for dz in range(-1, 2):
+                x, y, z = pos[0]+dx, pos[1]+dy, pos[2]+dz
+                if 0 <= x < GRID_SIZE_X and 0 <= y < GRID_SIZE_Y and 0 <= z < GRID_SIZE_Z:
+                    view[dx+1, dy+1, dz+1] = grid[x, y, z]
     
-    grid_flat = grid_summary.flatten() / len(BUILDING_TYPES) # Normalize
-
-    # 2. City Stats (normalized)
-    stats_vec = np.array([
-        np.log1p(city_stats['budget']) / 15.0, 
-        np.log1p(city_stats['population']) / 10.0, 
-        city_stats['rci_demand']['residential'],
-        city_stats['rci_demand']['commercial'],
-        city_stats['rci_demand']['industrial']
-    ])
-
-    # 3. Agent Memory
-    memory_vec = agent.memory_vector
-
-    # Pad/truncate memory vector to ensure fixed size, just in case
-    fixed_mem_size = 384
-    if len(memory_vec) > fixed_mem_size:
-        memory_vec = memory_vec[:fixed_mem_size]
-    else:
-        memory_vec = np.pad(memory_vec, (0, fixed_mem_size - len(memory_vec)))
-
-    return np.concatenate([grid_flat, stats_vec, memory_vec]).astype(np.float32)
-
+    inventory_vec = np.array(list(agent.inventory.values()))
+    stats_vec = np.array([env.budget, env.population])
+    pos_vec = agent.pos
+    
+    return np.concatenate([view.flatten(), inventory_vec, stats_vec, pos_vec]).astype(np.float32)
 
 # --- PPO Hyperparameters ---
-BATCH_SIZE = 512
-MINI_BATCH = 64
-EPOCHS = 4
-GAMMA = 0.99
-GAE_LAMBDA = 0.95
-CLIP_EPS = 0.2
-ENT_COEF = 0.01
-LR = 3e-4
+BATCH_SIZE = 512; MINI_BATCH = 64; EPOCHS = 4; GAMMA = 0.99
+GAE_LAMBDA = 0.95; CLIP_EPS = 0.2; ENT_COEF = 0.01; LR = 3e-4
 
-# --- Websocket runner (Simplified for LLM-only) ---
-async def run_simcity(websocket: WebSocket, env: SimCityEnv):
-    global _current_websocket
-    _current_websocket = websocket
+async def train_simcity(websocket: WebSocket, env: SimCityEnv):
+    global _current_websocket; _current_websocket = websocket
+    await websocket.send_json({"type": "debug", "message": "Starting SimCity training..."})
     
+    dummy_obs = get_agent_state_vector(env.agents[0], env.grid, env)
+    model = ActorCritic(dummy_obs.shape[0], len(DISCRETE_ACTIONS))
+    optimizer = optim.Adam(model.parameters(), lr=LR)
+    env.trained_policy = model
+
+    step_buffer: list[dict] = []
+    ep_counter = 0; total_steps = 0; current_loss = None
+
+    while ep_counter < 10000:
+        env._update_simulation()
+        obs_list = [get_agent_state_vector(agent, env.grid, env) for agent in env.agents]
+        obs_t = torch.tensor(np.array(obs_list), dtype=torch.float32)
+
+        with torch.no_grad():
+            actions_t, logp_t, value_t = model.get_action(obs_t)
+        
+        rewards, dones = [], []
+        for i, agent in enumerate(env.agents):
+            action_name = DISCRETE_ACTIONS[actions_t[i].item()]
+            reward = env._get_reward(agent, action_name, None)
+            env._execute_agent_action(agent, action_name)
+            rewards.append(reward)
+            dones.append(env.budget < 0)
+
+        step_buffer.append({"obs": obs_t, "actions": actions_t, "logp": logp_t, "reward": torch.tensor(rewards), "done": torch.tensor(dones), "value": value_t.flatten()})
+        
+        ep_counter += len(env.agents); total_steps += len(env.agents)
+
+        if any(dones):
+            await websocket.send_json({"type": "debug", "message": "Episode finished (Bankrupt). Resetting..."})
+            env = SimCityEnv(); env.trained_policy = model
+
+        if ep_counter % 100 == 0:
+            avg_reward = float(torch.tensor(rewards).mean().item())
+            await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": avg_reward, "loss": current_loss})
+            await websocket.send_json({"type": "train_step", "state": env.get_state_for_viz(), "episode": ep_counter})
+            await asyncio.sleep(0.01)
+
+        if total_steps >= BATCH_SIZE:
+            # ... (Standard PPO Update Logic) ...
+            with torch.no_grad():
+                next_obs = [get_agent_state_vector(a, env.grid, env) for a in env.agents]
+                _, _, next_value = model.get_action(np.array(next_obs))
+            advantages = torch.zeros(len(step_buffer), len(env.agents))
+            gae = torch.zeros(len(env.agents))
+            for t in reversed(range(len(step_buffer))):
+                delta = step_buffer[t]["reward"] + GAMMA * next_value * (1 - step_buffer[t]["done"]) - step_buffer[t]["value"]
+                gae = delta + GAMMA * GAE_LAMBDA * (1 - step_buffer[t]["done"]) * gae
+                advantages[t] = gae
+                next_value = step_buffer[t]["value"]
+            returns = advantages + torch.stack([b["value"] for b in step_buffer])
+            
+            b_obs = torch.cat([b["obs"] for b in step_buffer])
+            b_actions = torch.cat([b["actions"] for b in step_buffer])
+            b_logp = torch.cat([b["logp"] for b in step_buffer])
+            b_adv = advantages.flatten()
+            b_returns = returns.flatten()
+            b_adv = (b_adv - b_adv.mean()) / (b_adv.std() + 1e-8)
+
+            for _ in range(EPOCHS):
+                idxs = torch.randperm(b_obs.shape[0])
+                for start in range(0, b_obs.shape[0], MINI_BATCH):
+                    mb_idxs = idxs[start : start + MINI_BATCH]
+                    dist, value = model(b_obs[mb_idxs])
+                    logp_new = dist.log_prob(b_actions[mb_idxs])
+                    entropy_bonus = dist.entropy().mean()
+                    ratio = (logp_new - b_logp[mb_idxs]).exp()
+                    pg_loss = torch.max(-b_adv[mb_idxs] * ratio, -b_adv[mb_idxs] * torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS)).mean()
+                    v_loss = 0.5 * ((value.flatten() - b_returns[mb_idxs]).pow(2)).mean()
+                    loss = pg_loss - ENT_COEF * entropy_bonus + v_loss
+                    optimizer.zero_grad(); loss.backward(); optimizer.step()
+            
+            current_loss = loss.item(); step_buffer = []; total_steps = 0
+            await websocket.send_json({"type": "debug", "message": "Completed PPO update"})
+
+    await websocket.send_json({"type": "trained", "model_info": {"epochs": ep_counter, "loss": current_loss}})
+
+async def run_simcity(websocket: WebSocket, env: SimCityEnv):
+    global _current_websocket; _current_websocket = websocket
     running = True
     async def receive_commands():
         nonlocal running
         while running:
             try:
                 data = await websocket.receive_json()
-                if data.get("cmd") == "stop":
-                    running = False
-                    break
-            except Exception:
-                running = False
-                break
-            
+                if data.get("cmd") == "stop": running = False; break
+            except Exception: running = False; break
     cmd_task = asyncio.create_task(receive_commands())
 
     while running:
         await env.step()
         state = env.get_state_for_viz()
         await websocket.send_json({"type": "run_step", "state": state})
-
-        # Send progress update for chart
-        progress_update = {
-            "type": "progress",
-            "episode": env.step_count,
-            "reward": env.population, # Use population as the main "score"
-            "loss": None 
-        }
-        await websocket.send_json(progress_update)
-        await asyncio.sleep(0.2) # Speed up simulation for run mode
-
-    if not cmd_task.done():
-        cmd_task.cancel()
-
-# This function is not used by the LLM-only runner, but is kept for compatibility
-async def train_simcity(websocket: WebSocket, env: SimCityEnv):
-    global _current_websocket
-    _current_websocket = websocket
+        progress = {"type": "progress", "episode": env.step_count, "reward": env.population, "loss": None}
+        await websocket.send_json(progress)
+        await asyncio.sleep(0.2)
     
-    try:
-        await websocket.send_json({"type": "debug", "message": "Starting SimCity training..."})
-        
-        # Determine obs size from a dummy agent
-        dummy_agent = env.agents[0]
-        city_stats = {"budget": env.budget, "population": env.population, "rci_demand": env.rci_demand}
-        dummy_obs = get_agent_state_vector(dummy_agent, env.grid, city_stats)
-        obs_size = dummy_obs.shape[0]
-        action_size = len(DISCRETE_ACTIONS)
-
-        model = ActorCritic(obs_size, action_size)
-        optimizer = optim.Adam(model.parameters(), lr=LR)
-        env.trained_policy = model
-
-        step_buffer: list[dict] = []
-        ep_counter = 0
-        total_steps = 0
-        current_loss = None
-
-        while ep_counter < 5000:
-            env._update_simulation()
-            
-            # --- Collect experience from all agents ---
-            city_stats = {"budget": env.budget, "population": env.population, "rci_demand": env.rci_demand}
-            agent_states = [get_agent_state_vector(agent, env.grid, city_stats) for agent in env.agents]
-            obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
-
-            with torch.no_grad():
-                actions_t, logp_t, value_t = model.get_action(obs_t)
-            
-            actions_np = actions_t.cpu().numpy()
-            
-            rewards = []
-            dones = []
-            agent_actions_for_env = []
-
-            for i, agent in enumerate(env.agents):
-                action_name = DISCRETE_ACTIONS[actions_np[i]]
-                action_data = {}
-                env_action = (action_name, action_data)
-
-                if action_name == "wait" or action_name == "talk":
-                    env_action = ("wait", {}) # Policy doesn't generate talk content
-                else: # Build action
-                    building_type = action_name.replace("build_", "")
-                    empty_cells = np.argwhere(env.grid == 0)
-                    if len(empty_cells) > 0:
-                        pos = random.choice(empty_cells)
-                        action_data = {"building_type": building_type, "position": [int(pos[0]), int(pos[1])]}
-                        env_action = ("build", action_data)
-                    else:
-                        env_action = ("wait", {})
-                
-                agent_actions_for_env.append(env_action)
-                reward = env._get_reward(agent, env_action[0], action_data)
-                rewards.append(reward)
-                dones.append(env.budget < 0)
-
-            env._execute_actions(agent_actions_for_env)
-            
-            step_buffer.append({
-                "obs": obs_t, "actions": actions_t, "logp": logp_t, 
-                "reward": torch.tensor(rewards, dtype=torch.float32), 
-                "done": torch.tensor(dones, dtype=torch.float32), 
-                "value": value_t.flatten()
-            })
-            
-            env.step_count += 1
-            total_steps += len(env.agents)
-            ep_counter += len(env.agents)
-
-            if any(dones):
-                await websocket.send_json({"type": "debug", "message": f"Episode finished (Bankrupt). Resetting."})
-                env = SimCityEnv()
-                env.trained_policy = model
-
-            # --- Send progress updates ---
-            if env.step_count % 16 == 0:
-                avg_reward = float(torch.tensor(rewards, dtype=torch.float32).mean().item())
-                await websocket.send_json({"type": "progress", "episode": ep_counter, "reward": avg_reward, "loss": current_loss})
-                state = env.get_state_for_viz()
-                await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
-                await asyncio.sleep(0.01)
-
-            # --- PPO Update phase ---
-            if total_steps >= BATCH_SIZE:
-                with torch.no_grad():
-                    city_stats = {"budget": env.budget, "population": env.population, "rci_demand": env.rci_demand}
-                    next_obs_list = [get_agent_state_vector(agent, env.grid, city_stats) for agent in env.agents]
-                    next_obs_t = torch.tensor(np.array(next_obs_list), dtype=torch.float32)
-                    _, _, next_value = model.get_action(next_obs_t)
-                    next_value = next_value.squeeze()
-                
-                advantages = torch.zeros(len(step_buffer), len(env.agents))
-                gae = torch.zeros(len(env.agents))
-                for t in reversed(range(len(step_buffer))):
-                    delta = step_buffer[t]["reward"] + GAMMA * next_value * (1 - step_buffer[t]["done"]) - step_buffer[t]["value"]
-                    gae = delta + GAMMA * GAE_LAMBDA * (1 - step_buffer[t]["done"]) * gae
-                    advantages[t] = gae
-                    next_value = step_buffer[t]["value"]
-                
-                returns = advantages + torch.stack([b["value"] for b in step_buffer])
-                
-                b_obs = torch.cat([b["obs"] for b in step_buffer])
-                b_actions = torch.cat([b["actions"] for b in step_buffer])
-                b_logp = torch.cat([b["logp"] for b in step_buffer])
-                b_adv = advantages.flatten()
-                b_returns = returns.flatten()
-
-                b_adv = (b_adv - b_adv.mean()) / (b_adv.std() + 1e-8)
-
-                for _ in range(EPOCHS):
-                    idxs = torch.randperm(b_obs.shape[0])
-                    for start in range(0, b_obs.shape[0], MINI_BATCH):
-                        mb_idxs = idxs[start : start + MINI_BATCH]
-                        dist, value = model(b_obs[mb_idxs])
-                        logp_new = dist.log_prob(b_actions[mb_idxs])
-                        entropy_bonus = dist.entropy().mean()
-                        
-                        ratio = (logp_new - b_logp[mb_idxs]).exp()
-                        
-                        pg_loss1 = -b_adv[mb_idxs] * ratio
-                        pg_loss2 = -b_adv[mb_idxs] * torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS)
-                        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-                        
-                        v_loss = 0.5 * ((value.flatten() - b_returns[mb_idxs]).pow(2)).mean()
-                        loss = pg_loss - ENT_COEF * entropy_bonus + v_loss
-
-                        optimizer.zero_grad()
-                        loss.backward()
-                        optimizer.step()
-
-                current_loss = loss.item()
-                step_buffer = []
-                total_steps = 0
-                await websocket.send_json({"type": "debug", "message": "Completed PPO update"})
-
-        await websocket.send_json({"type": "trained", "model_info": {"epochs": ep_counter, "loss": loss.item()}})
-    except Exception as e:
-        logger.error(f"Error during SimCity training: {e}", exc_info=True)
-        await websocket.send_json({"type": "error", "message": f"Training failed: {e}"}) 
+    if not cmd_task.done(): cmd_task.cancel() 

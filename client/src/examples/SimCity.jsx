@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { MapControls, Grid, Text as DreiText } from '@react-three/drei';
+import { Canvas, useLoader } from '@react-three/fiber';
+import { OrbitControls, Grid, Text as DreiText, Line } from '@react-three/drei';
 import { Button, Text, Card, Code, Link as GeistLink } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
@@ -9,6 +9,49 @@ import { useResponsive } from '../hooks/useResponsive.js';
 import InfoPanel from '../components/InfoPanel.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/simcity`;
+
+const MapPlane = ({ gridSize, rotationDegrees, mapCenter, mapZoom }) => {
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+    
+    const styles = [
+        'style=element:geometry|color:0x212121',
+        'style=feature:road|element:geometry|color:0xdddddd',
+        'style=feature:road.highway|element:geometry|color:0xdddddd',
+        'style=feature:water|element:geometry|color:0x000000',
+        'style=feature:all|element:labels|visibility:off'
+    ];
+    
+    const mapUrl = useMemo(() => {
+        if (!mapCenter || !mapZoom) return '/basic_example.jpg';
+        const center = `${mapCenter[0]},${mapCenter[1]}`;
+        return `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=${mapZoom}&size=1024x1024&maptype=roadmap&${styles.join('&')}&key=${apiKey}`;
+    }, [mapCenter, mapZoom, apiKey]);
+    
+    // Fallback to a generic image if the API key is not provided.
+    const texture = useLoader(THREE.TextureLoader, apiKey ? mapUrl : '/basic_example.jpg');
+
+    const planeSize = useMemo(() => [gridSize[0], gridSize[1]], [gridSize]);
+    const rotationRadians = useMemo(() => (rotationDegrees || 0) * (Math.PI / 180), [rotationDegrees]);
+
+    return (
+        <mesh rotation={[-Math.PI / 2, 0, rotationRadians]} position={[0, -0.01, 0]}>
+            <planeGeometry args={planeSize} />
+            <meshStandardMaterial map={texture} />
+        </mesh>
+    );
+};
+
+const RoadNetwork = ({ lines }) => {
+    if (!lines) return null;
+    return (
+        <group>
+            {lines.map((path, i) => {
+                const points = path.map(p => new THREE.Vector3(...p));
+                return <Line key={i} points={points} color="teal" lineWidth={1} />;
+            })}
+        </group>
+    );
+};
 
 const Building = ({ building, buildingTypes, gridSize }) => {
     const { pos, type } = building;
@@ -23,7 +66,7 @@ const Building = ({ building, buildingTypes, gridSize }) => {
         "shop": <boxGeometry args={[0.8, 1.5, 0.8]} />,
         "factory": <boxGeometry args={[1, 2, 1]} />,
         "park": <cylinderGeometry args={[0.4, 0.4, 0.1, 16]} />,
-        "road": <boxGeometry args={[1, 0.1, 1]} />
+        "road": <boxGeometry args={[1, 0.1, 1]} wireframe />
     };
 
     return (
@@ -49,10 +92,7 @@ const Buildings = ({ grid, buildingTypes, gridSize }) => {
                     const type = buildingList[cell - 1];
                     const buildingInfo = buildingTypes[type];
                     meshes.push(
-                        <mesh key={`${x}-${z}`} position={[x - offsetX, buildingInfo.model === 'road' ? 0.05 : 0.5, z - offsetZ]}>
-                             <boxGeometry args={[1, buildingInfo.model === 'road' ? 0.1 : 1, 1]} />
-                             <meshStandardMaterial color={new THREE.Color(...buildingInfo.color)} />
-                        </mesh>
+                        <Building key={`${x}-${z}`} building={buildingInfo} gridSize={gridSize} />
                     );
                 }
             });
@@ -68,16 +108,24 @@ const CityStatsPanel = ({ stats }) => {
     const { budget, population, rci_demand } = stats;
 
     return (
-        <Card style={{ width: '100%', maxHeight: '300px', overflowY: 'auto' }}>
-            <Text h4>City Stats</Text>
-            <p><strong>Budget:</strong> ${budget.toLocaleString()}</p>
-            <p><strong>Population:</strong> {population.toLocaleString()}</p>
-            <p><strong>RCI Demand:</strong></p>
-            <ul>
-                <li>Residential: {rci_demand?.residential.toFixed(1)}</li>
-                <li>Commercial: {rci_demand?.commercial.toFixed(1)}</li>
-                <li>Industrial: {rci_demand?.industrial.toFixed(1)}</li>
-            </ul>
+        <Card style={{ 
+            width: '100%', 
+            maxHeight: '240px', 
+            height: '100%',
+            overflowY: 'scroll',
+            background: 'rgba(0,0,0,0.6)',
+            color: '#fff',
+            border: '1px solid #444',
+        }}>
+            <Card.Content>
+                <Text h4 style={{ color: '#fff', marginTop: '0' }}>City Stats</Text>
+                <Text p><strong>Budget:</strong> ${budget.toLocaleString()}</Text>
+                <Text p><strong>Population:</strong> {population.toLocaleString()}</Text>
+                <Text p><strong>RCI Demand:</strong></Text>
+                <Text p>Residential: {rci_demand?.residential.toFixed(1)}</Text>
+                <Text p>Commercial: {rci_demand?.commercial.toFixed(1)}</Text>
+                <Text p>Industrial: {rci_demand?.industrial.toFixed(1)}</Text>
+            </Card.Content>
         </Card>
     );
 }
@@ -102,41 +150,18 @@ const MessagePanel = ({ messages }) => {
                 color: '#fff', border: '1px solid #444',
             }}
         >
-          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No messages from the council yet]</Text>}
+          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No agent messages yet]</Text>}
           {messages.map((msg, i) => (
               <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
                   <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                      <span style={codeStyle}>[Step {msg.step}] {msg.role} (Agent {msg.sender_id})</span>
+                      <span style={codeStyle}>[Step {msg.step}] {msg.role} (Agent {msg.sender_id}) says:</span>
                   </Text>
-                  <Text p style={{ margin: 0 }}>{msg.message}</Text>
+                  <Text p style={{ margin: 0, fontStyle: 'italic', paddingLeft: '8px' }}>"{msg.message}"</Text>
               </div>
           ))}
         </Card>
     );
 };
-
-
-// Placeholder for Google Maps integration
-const GoogleMapOverlay = () => {
-    return (
-        <div style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            width: '100%',
-            height: '100%',
-            zIndex: -1, // Behind the three.js canvas
-            background: '#334', // Dark blue-grey background
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            color: 'white',
-            fontSize: '2rem'
-        }}>
-            <Text h3 style={{color: 'white', opacity: 0.2}}>[ Google Maps View Placeholder ]</Text>
-        </div>
-    )
-}
 
 
 export default function SimCityExample() {
@@ -243,22 +268,40 @@ export default function SimCityExample() {
 
     return (
         <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
-            <GoogleMapOverlay />
-            <Canvas camera={{ position: [0, 50, 50], fov: 60 }} style={{ background: 'transparent' }}>
+            <Canvas camera={{ position: [-50, 50, 50], fov: 60 }}>
                 <ambientLight intensity={0.7} />
                 <directionalLight position={[100, 100, 100]} intensity={1.0} />
                 
+                {gridSize && <MapPlane 
+                    gridSize={gridSize} 
+                    rotationDegrees={state.map_rotation_degrees} 
+                    mapCenter={state.map_center}
+                    mapZoom={state.map_zoom}
+                />}
+                {state?.road_network && <RoadNetwork lines={state.road_network} />}
+                
                 {/* Use a flat grid on the ground plane */}
-                <Grid infiniteGrid={false} cellSize={1} sectionSize={10} position={[0, 0.01, 0]} sectionColor={"#4488ff"} fadeDistance={100} fadeStrength={1} />
+                <Grid infiniteGrid={true} cellSize={1} sectionSize={10} position={[0, -0.02, 0]} sectionColor={"#4488ff"} fadeDistance={100} fadeStrength={1} />
                 
-                {state && <Buildings grid={state.grid} buildingTypes={state.building_types} gridSize={gridSize} />}
+                {/* {state && <Buildings grid={state.grid} buildingTypes={state.building_types} gridSize={gridSize} />} */}
                 
-                <MapControls enableRotate={false} maxDistance={100} minDistance={10} />
+                <OrbitControls maxDistance={500} minDistance={10} />
             </Canvas>
 
             <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
-                <Link to="/"><GeistLink block>Home</GeistLink></Link>
-                <Text h1 style={{ margin: '12px 0', color: '#fff' }}>SimCity (Multi-Agent)</Text>
+                <Link
+                    to="/"
+                    style={{
+                        fontFamily: 'monospace',
+                        color: '#fff',
+                        textDecoration: 'underline',
+                        display: 'inline-block',
+                        fontSize: isMobile ? '12px' : '14px',
+                    }}
+                >
+                    Home
+                </Link>
+                <Text h1 style={{ margin: '12px 0', color: '#fff' }}>SimCity (RL+LLM)</Text>
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
                     <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
@@ -272,7 +315,8 @@ export default function SimCityExample() {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '10px',
-                width: '300px',
+                width: isMobile ? 'calc(100% - 20px)' : '45%',
+                maxWidth: '420px',
             }}>
                 {state && <CityStatsPanel stats={state.city_stats} />}
             </div>
