@@ -1,392 +1,438 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Canvas, useLoader } from '@react-three/fiber';
-import { OrbitControls, Grid, Text as DreiText, Line } from '@react-three/drei';
-import { Button, Text, Card, Code, Link as GeistLink } from '@geist-ui/core';
-import { Link } from 'react-router-dom';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { OrbitControls, Text as DreiText } from '@react-three/drei';
 import * as THREE from 'three';
+import { Button, Text, Card, Code } from '@geist-ui/core';
+import { Link } from 'react-router-dom';
 import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
-import Car from '../components/Car.jsx';
-import Pedestrian from '../components/Pedestrian.jsx';
+import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import Map2D from '../components/Map2D.jsx';
+import Roads from '../components/Roads.jsx';
 import TrafficLight from '../components/TrafficLight.jsx';
+import Pedestrian from '../components/Pedestrian.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/simcity`;
 
-const MapPlane = ({ gridSize, rotationDegrees, mapCenter, mapZoom }) => {
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
-    
-    const styles = [
-        'style=element:geometry|color:0x212121',
-        'style=feature:road|element:geometry|color:0xdddddd',
-        'style=feature:road.highway|element:geometry|color:0xdddddd',
-        'style=feature:water|element:geometry|color:0x000000',
-        'style=feature:all|element:labels|visibility:off'
-    ];
-    
-    const mapUrl = useMemo(() => {
-        if (!mapCenter || !mapZoom) return null;
-        const center = `${mapCenter[0]},${mapCenter[1]}`;
-        return `https://maps.googleapis.com/maps/api/staticmap?center=${center}&zoom=${mapZoom}&size=1024x1024&maptype=roadmap&${styles.join('&')}&key=${apiKey}`;
-    }, [mapCenter, mapZoom, apiKey]);
-    
-    // Fallback to a generic image if the API key is not provided.
-    const texture = useLoader(THREE.TextureLoader, apiKey ? mapUrl : null);
+const Business = ({ business, coordinateTransformer }) => {
+  const { pos, type, id, customers_served, revenue } = business;
+  const [businessPosition, setBusinessPosition] = useState(null);
 
-    const planeSize = useMemo(() => {
-        const maxDim = Math.max(gridSize[0], gridSize[1]);
-        return [maxDim, maxDim];
-    }, [gridSize]);
+  useEffect(() => {
+    if (coordinateTransformer) {
+      const [lat, lng] = pos;
+      const vector = coordinateTransformer.latLngToECEF(lat, lng);
+      setBusinessPosition(vector);
+    }
+  }, [pos, coordinateTransformer]);
 
-    return (
-        <mesh rotation={[-Math.PI / 2, 0, Math.PI / 2]} position={[0, -0.01, 0]}>
-            <planeGeometry args={planeSize} />
-            <meshStandardMaterial map={texture} />
-        </mesh>
-    );
-};
-
-
-const RoadNetwork = ({ lines, gridSize }) => {
-    if (!lines || !gridSize) return null;
-
-    const offsetX = gridSize[0] / 2;
-    const offsetZ = gridSize[2] / 2;
-
-    return (
-        <group position={[-offsetX, -0.01, -offsetZ]}>
-            {lines.map((path, i) => {
-                const points = path.map(p => new THREE.Vector3(p[0] , p[1], p[2]));
-                return <Line key={i} points={points} color="teal" lineWidth={1} />;
-            })}
-        </group>
-    );
-};
-
-const Building = ({ building, buildingTypes, gridSize }) => {
-    const { pos, type } = building;
-    const buildingInfo = Object.values(buildingTypes).find(b => b.model === type);
-    const color = buildingInfo ? buildingInfo.color : [1, 1, 1];
-
-    const offsetX = gridSize ? gridSize[0] / 2 : 0;
-    const offsetZ = gridSize ? gridSize[1] / 2 : 0;
-
-    const buildingGeometries = {
-        "house": <boxGeometry args={[0.8, 1, 0.8]} />,
-        "shop": <boxGeometry args={[0.8, 1.5, 0.8]} />,
-        "factory": <boxGeometry args={[1, 2, 1]} />,
-        "park": <cylinderGeometry args={[0.4, 0.4, 0.1, 16]} />,
-        "road": <boxGeometry args={[1, 0.1, 1]} wireframe />
+  const businessColor = useMemo(() => {
+    const colorMap = {
+      'restaurant': '#ff6b6b',
+      'shop': '#4ecdc4',
+      'office': '#45b7d1',
+      'factory': '#96ceb4',
+      'market': '#ffeaa7',
+      'bank': '#dda0dd'
     };
+    return new THREE.Color(colorMap[type] || '#ffffff');
+  }, [type]);
 
-    return (
-        <mesh position={[pos[0] - offsetX, 0.5, pos[1] - offsetZ]}>
-            {buildingGeometries[type] || <boxGeometry args={[0.8, 1, 0.8]} />}
-            <meshStandardMaterial color={new THREE.Color(...color)} />
-        </mesh>
-    );
+  if (!businessPosition) return null;
+
+  return (
+    <group position={businessPosition}>
+      {/* Building */}
+      <mesh position={[0, 15, 0]}>
+        <boxGeometry args={[25, 30, 25]} />
+        <meshPhongMaterial
+          color={businessColor}
+          emissive={businessColor}
+          emissiveIntensity={0.3}
+        />
+      </mesh>
+
+      {/* Sign */}
+      <DreiText 
+        position={[0, 35, 0]} 
+        fontSize={4} 
+        color="white" 
+        anchorX="center" 
+        anchorY="middle"
+        maxWidth={50}
+      >
+        {type.toUpperCase()}
+      </DreiText>
+
+      {/* Stats */}
+      <DreiText 
+        position={[0, 42, 0]} 
+        fontSize={2} 
+        color="#ffff88" 
+        anchorX="center" 
+        anchorY="middle"
+      >
+        Customers: {customers_served}
+      </DreiText>
+    </group>
+  );
 };
 
-const Buildings = ({ grid, buildingTypes, gridSize }) => {
-    const buildingMeshes = useMemo(() => {
-        const meshes = [];
-        if (!grid || !buildingTypes || !gridSize) return meshes;
-        const buildingList = Object.keys(buildingTypes);
+const EconomicPanel = ({ pedestrians, businesses }) => {
+  const avgSatisfaction = useMemo(() => {
+    if (!pedestrians || pedestrians.length === 0) return 0;
+    return pedestrians.reduce((sum, p) => sum + p.satisfaction, 0) / pedestrians.length;
+  }, [pedestrians]);
 
-        const offsetX = gridSize[0] / 2;
-        const offsetZ = gridSize[1] / 2;
+  const totalRevenue = useMemo(() => {
+    if (!businesses || businesses.length === 0) return 0;
+    return businesses.reduce((sum, b) => sum + b.revenue, 0);
+  }, [businesses]);
 
-        grid.forEach((row, x) => {
-            row.forEach((cell, z) => {
-                if (cell > 0) {
-                    const type = buildingList[cell - 1];
-                    const buildingInfo = buildingTypes[type];
-                    meshes.push(
-                        <Building key={`${x}-${z}`} building={buildingInfo} gridSize={gridSize} />
-                    );
-                }
-            });
-        });
-        return meshes;
-    }, [grid, buildingTypes, gridSize]);
+  const stateDistribution = useMemo(() => {
+    if (!pedestrians || pedestrians.length === 0) return {};
+    const distribution = {};
+    pedestrians.forEach(p => {
+      distribution[p.state] = (distribution[p.state] || 0) + 1;
+    });
+    return distribution;
+  }, [pedestrians]);
 
-    return <group>{buildingMeshes}</group>;
-};
-
-const CityStatsPanel = ({ stats, agents }) => {
-    if (!stats) return null;
-    const { budget, population, rci_demand } = stats;
-
-    return (
-        <Card style={{ 
-            width: '100%', 
-            maxHeight: '240px', 
-            height: '100%',
-            overflowY: 'scroll',
-            background: 'rgba(0,0,0,0.6)',
-            color: '#fff',
-            border: '1px solid #444',
+  return (
+    <Card style={{
+      position: 'absolute',
+      bottom: '10px',
+      right: '10px',
+      width: '300px',
+      background: 'rgba(0,0,0,0.8)',
+      color: '#fff',
+      border: '1px solid #555',
+      padding: '16px',
+      boxSizing: 'border-box'
+    }}>
+      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>City Economy</Text>
+      
+      <div style={{ marginBottom: '12px' }}>
+        <Text p style={{ margin: '0 0 4px 0', fontSize: '14px' }}>
+          <strong>Avg Satisfaction:</strong> {avgSatisfaction.toFixed(1)}%
+        </Text>
+        <div style={{
+          width: '100%',
+          height: '8px',
+          background: '#333',
+          borderRadius: '4px',
+          overflow: 'hidden'
         }}>
-            <Card.Content>
-                <Text h4 style={{ color: '#fff', marginTop: '0' }}>City Stats</Text>
-                <Text p><strong>Budget:</strong> ${budget.toLocaleString()}</Text>
-                <Text p><strong>Population:</strong> {population.toLocaleString()}</Text>
-                <Text p><strong>RCI Demand:</strong></Text>
-                <Text p>Residential: {rci_demand?.residential.toFixed(1)}</Text>
-                <Text p>Commercial: {rci_demand?.commercial.toFixed(1)}</Text>
-                <Text p>Industrial: {rci_demand?.industrial.toFixed(1)}</Text>
-                
-                {agents && (
-                    <>
-                        <Text h5 style={{ color: '#8cc8ff', marginTop: '16px' }}>Agents</Text>
-                        {agents.slice(0, 3).map(agent => (
-                            <div key={agent.id} style={{ fontSize: '12px', marginBottom: '4px' }}>
-                                <Text p style={{ margin: 0 }}>
-                                    Agent {agent.id}: ${agent.money?.toLocaleString()} | Items: {Object.values(agent.inventory || {}).reduce((a, b) => a + b, 0)}
-                                </Text>
-                            </div>
-                        ))}
-                        {agents.length > 3 && <Text p style={{ fontSize: '11px' }}>...and {agents.length - 3} more agents</Text>}
-                    </>
-                )}
-            </Card.Content>
-        </Card>
-    );
-}
+          <div style={{
+            width: `${avgSatisfaction}%`,
+            height: '100%',
+            background: `linear-gradient(to right, #ff4757 0%, #ffa502 50%, #2ed573 100%)`,
+            transition: 'width 0.3s ease'
+          }} />
+        </div>
+      </div>
 
-const MessagePanel = ({ messages, offers }) => {
-    const containerRef = useRef(null);
-    
-    useEffect(() => {
-        const el = containerRef.current;
-        if (el) {
-            el.scrollTop = el.scrollHeight;
-        }
-    }, [messages]);
+      <Text p style={{ margin: '0 0 8px 0', fontSize: '14px' }}>
+        <strong>Total Business Revenue:</strong> ${totalRevenue.toFixed(0)}
+      </Text>
 
-    const codeStyle = { color: '#f81ce5', fontFamily: 'monospace' };
-    return (
-        <Card 
-            ref={containerRef}
-            style={{
-                position: 'absolute', bottom: '10px', left: '10px', width: '450px',
-                maxHeight: '40vh', overflowY: 'auto', background: 'rgba(0,0,0,0.6)',
-                color: '#fff', border: '1px solid #444',
-            }}
-        >
-            <div style={{ padding: '8px', borderBottom: '1px solid #444' }}>
-                <Text h4 style={{ margin: 0, color: '#8cc8ff' }}>Agent Communications</Text>
-            </div>
-            
-            {messages.length === 0 && <div style={{ padding: '8px' }}><Text p style={{ margin: 0, fontSize: '12px' }}>[No agent messages yet]</Text></div>}
-            {messages.map((msg, i) => (
-                <div key={i} style={{ marginBottom: '8px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
-                    <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                        <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id} says:</span>
-                    </Text>
-                    <Text p style={{ margin: 0, fontStyle: 'italic', paddingLeft: '8px' }}>"{msg.message}"</Text>
-                </div>
-            ))}
-            
-            {offers && offers.length > 0 && (
-                <div style={{ borderTop: '1px solid #444', marginTop: '8px', paddingTop: '8px' }}>
-                    <Text h5 style={{ margin: '0 0 8px 0', color: '#8cc8ff' }}>Active Trade Offers</Text>
-                    {offers.map((offer, i) => (
-                        <div key={i} style={{ marginBottom: '8px', padding: '6px', background: 'rgba(255,255,0,0.1)', borderRadius: '4px', fontSize: '11px' }}>
-                            <Text p style={{ margin: 0 }}>
-                                <span style={codeStyle}>Agent {offer.agent_id}</span> offers {offer.amount_to_give} {offer.item_to_give} for {offer.amount_to_receive} {offer.item_to_receive}
-                                {offer.money_offered > 0 && ` + $${offer.money_offered}`}
-                            </Text>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </Card>
-    );
+      <Text p style={{ margin: '0 0 8px 0', fontSize: '14px' }}>
+        <strong>Population:</strong> {pedestrians?.length || 0}
+      </Text>
+
+      <div style={{ marginTop: '12px' }}>
+        <Text p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#ccc' }}>
+          Population by Activity:
+        </Text>
+        {Object.entries(stateDistribution).map(([state, count]) => (
+          <div key={state} style={{ fontSize: '11px', color: '#aaa', marginBottom: '2px' }}>
+            {state}: {count}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
 };
 
+const BusinessPanel = ({ businesses }) => {
+  const topBusinesses = useMemo(() => {
+    if (!businesses) return [];
+    return [...businesses]
+      .sort((a, b) => b.customers_served - a.customers_served)
+      .slice(0, 5);
+  }, [businesses]);
+
+  return (
+    <Card style={{
+      position: 'absolute',
+      bottom: '10px',
+      left: '10px',
+      width: '320px',
+      background: 'rgba(0,0,0,0.8)',
+      color: '#fff',
+      border: '1px solid #555',
+      padding: '16px',
+      boxSizing: 'border-box'
+    }}>
+      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>Top Businesses</Text>
+      
+      {topBusinesses.map((business, index) => (
+        <div key={business.id} style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '8px',
+          padding: '8px',
+          background: index === 0 ? 'rgba(55, 245, 235, 0.1)' : 'rgba(255,255,255,0.05)',
+          borderRadius: '4px'
+        }}>
+          <div>
+            <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'capitalize' }}>
+              {business.type}
+            </div>
+            <div style={{ fontSize: '10px', color: '#ccc' }}>
+              Revenue: ${business.revenue.toFixed(0)}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#37F5EB' }}>
+              {business.customers_served}
+            </div>
+            <div style={{ fontSize: '10px', color: '#ccc' }}>
+              customers
+            </div>
+          </div>
+        </div>
+      ))}
+      
+      {topBusinesses.length === 0 && (
+        <Text p style={{ fontSize: '12px', color: '#666', textAlign: 'center' }}>
+          No business data yet...
+        </Text>
+      )}
+    </Card>
+  );
+};
 
 export default function SimCityExample() {
-    const [state, setState] = useState(null);
-    const [running, setRunning] = useState(false);
-    const [training, setTraining] = useState(false);
-    const [trained, setTrained] = useState(false);
-    const [modelInfo, setModelInfo] = useState(null);
-    const [error, setError] = useState(null);
-    const [logs, setLogs] = useState([]);
-    const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
-    const wsRef = useRef(null);
-    const { isMobile } = useResponsive();
-    
-    const gridSize = useMemo(() => state?.grid_size, [state]);
-  
-    const addLog = (txt) => {
-        setLogs((l) => {
-            const upd = [...l, txt];
-            return upd.length > 200 ? upd.slice(upd.length - 200) : upd;
-        });
-    };
+  const [state, setState] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [training, setTraining] = useState(false);
+  const [trained, setTrained] = useState(false);
+  const [modelInfo, setModelInfo] = useState(null);
+  const [error, setError] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
+  const wsRef = useRef(null);
+  const { isMobile } = useResponsive();
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [coordinateTransformer, setCoordinateTransformer] = useState(null);
 
-    useEffect(() => {
-        const ws = new WebSocket(WS_URL);
-        wsRef.current = ws;
-        ws.onopen = () => addLog('SimCity WS opened');
-        ws.onmessage = (ev) => {
-            addLog(`Received data: ${ev.data.substring(0, 100)}...`);
-            try {
-                const parsed = JSON.parse(ev.data);
-                
-                if (parsed.type === 'error') {
-                    setError(parsed.message);
-                    addLog(`ERROR: ${parsed.message}`);
-                    return;
-                }
+  useEffect(() => {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+      ws.onopen = () => addLog('SimCity WS opened');
+      ws.onmessage = (ev) => {
+          addLog(`Received data: ${ev.data.substring(0, 100)}...`);
+          try {
+              const parsed = JSON.parse(ev.data);
 
-                if (parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init' || parsed.type === 'train_step') {
-                    setState(parsed.state);
-                }
-                if (parsed.type === 'agent_message') {
-                    // Handle agent messages in real-time
-                    setState(prev => {
-                        if (!prev) return prev;
-                        const newMessage = {
-                            sender_id: parsed.agent_id,
-                            message: parsed.message,
-                            step: parsed.step
-                        };
-                        const updatedMessages = [...(prev.messages || []), newMessage];
-                        // Keep only last 20 messages
-                        const messages = updatedMessages.length > 20 ? updatedMessages.slice(-20) : updatedMessages;
-                        return { ...prev, messages };
-                    });
-                }
-                if (parsed.type === 'progress') {
-                    setChartState((prev) => ({
-                        labels: [...prev.labels, parsed.episode],
-                        rewards: [...prev.rewards, parsed.reward],
-                        losses: [...prev.losses, parsed.loss ?? null],
-                    }));
-                }
-                if (parsed.type === 'trained') {
-                    setTraining(false);
-                    setTrained(true);
-                    setModelInfo(parsed.model_info);
-                    addLog('Training complete! The Mayor is now using the trained policy.');
-                }
-            } catch (e) {
-                addLog(`Error processing message: ${e}`);
-                console.error("Failed to process message: ", e);
-            }
-        };
-        ws.onclose = () => addLog('SimCity WS closed');
-        return () => ws.close();
-    }, []);
+              if (parsed.type === 'error') {
+                  setError(parsed.message);
+                  addLog(`ERROR: ${parsed.message}`);
+                  return;
+              }
 
-    const send = (obj) => {
-        addLog(`Sending: ${JSON.stringify(obj)}`);
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(obj));
-        }
-    };
+              if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
+                  setState(parsed.state);
+              } else if (parsed.type === 'train_step_update') {
+                  setState(prevState => {
+                      if (!prevState) return null;
+                      return {
+                          ...prevState,
+                          ...parsed.state,
+                      };
+                  });
+              }
+              if (parsed.type === 'progress') {
+                  setChartState((prev) => ({
+                      labels: [...prev.labels, parsed.episode],
+                      rewards: [...prev.rewards, parsed.reward],
+                      losses: [...prev.losses, parsed.loss ?? null],
+                  }));
+              }
+              if (parsed.type === 'training_progress') {
+                  addLog(`Training Progress: ${parsed.message}`);
+              }
+              if (parsed.type === 'trained') {
+                  setTraining(false);
+                  setTrained(true);
+                  setModelInfo(parsed.model_info);
+                  addLog('Economic simulation training complete!');
+              }
+          } catch (e) {
+              addLog(`Error processing message: ${e}`);
+              console.error("Failed to process message: ", e);
+          }
+      };
+      ws.onclose = () => addLog('SimCity WS closed');
 
-    const startTraining = () => {
-        if (training || running) return;
-        setTraining(true);
-        addLog('Starting training run...');
-        send({ cmd: 'train' });
-    };
+      return () => {
+          ws.close();
+      };
+  }, []);
 
-    const startRun = () => {
-        if (running) return;
-        setRunning(true);
-        send({ cmd: 'run' });
-    };
+  const addLog = (txt) => {
+    setLogs((l) => {
+      const upd = [...l, txt];
+      return upd.length > 200 ? upd.slice(upd.length - 200) : upd;
+    });
+  };
 
-    const stopRun = () => {
-        if (!running) return;
-        setRunning(false);
-        send({ cmd: 'stop' });
+  const send = (obj) => {
+    addLog(`Sending: ${JSON.stringify(obj)}`);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(obj));
+    } else {
+      addLog('WebSocket not open');
     }
+  };
 
-    const reset = () => {
-        window.location.reload();
+  const startRun = () => {
+    if (running || training) return;
+    setRunning(true);
+    send({ cmd: 'run' });
+  };
+
+  const stopRun = () => {
+    if (!running) return;
+    setRunning(false);
+    send({ cmd: 'stop' });
+  };
+
+  const startTraining = () => {
+    if (training || running) {
+      return;
     }
+    setTraining(true);
+    addLog('Starting economic simulation training...');
+    send({ cmd: 'train' });
+  };
 
-    if (error) {
-        return (
-            <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#220000', color: '#ffaaaa' }}>
-                <Text h1>A Server Error Occurred</Text>
-                <Text p>Could not load the simulation environment.</Text>
-                <Code block width="50vw" style={{textAlign: 'left'}}>{error}</Code>
-                <Button auto type="error" onClick={reset} style={{marginTop: '20px'}}>Reload Page</Button>
-            </div>
-        );
-    }
+  const reset = () => {
+    window.location.reload();
+  }
 
+  if (error) {
     return (
-        <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
-            <Canvas camera={{ position: [-50, 50, 50], fov: 60 }}>
-                <ambientLight intensity={0.7} />
-                <directionalLight position={[100, 100, 100]} intensity={1.0} />
-
-                {/* Use a flat grid on the ground plane */}
-                <Grid infiniteGrid={true} cellSize={1} sectionSize={10} position={[0, -0.02, 0]} sectionColor={"#4488ff"} fadeDistance={100} fadeStrength={1} />
-                
-
-                {gridSize && <MapPlane 
-                    gridSize={gridSize} 
-                    rotationDegrees={state.map_rotation_degrees} 
-                    mapCenter={state.map_center}
-                    mapZoom={state.map_zoom}
-                />}
-                {state?.road_network && gridSize && <RoadNetwork lines={state.road_network} gridSize={gridSize} />}
-                
-                
-                {state && <Buildings grid={state.grid} buildingTypes={state.building_types} gridSize={gridSize} />}
-                
-                {state?.cars && state.cars.map(car => <Car key={car.id} car={car} />)}
-                {state?.pedestrians && state.pedestrians.map(ped => <Pedestrian key={ped.id} pedestrian={ped} />)}
-                {state?.traffic_lights && state.traffic_lights.map(light => <TrafficLight key={light.id} light={light} />)}
-
-                <OrbitControls maxDistance={500} minDistance={10} />
-            </Canvas>
-
-            <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
-                <Link
-                    to="/"
-                    style={{
-                        fontFamily: 'monospace',
-                        color: '#fff',
-                        textDecoration: 'underline',
-                        display: 'inline-block',
-                        fontSize: isMobile ? '12px' : '14px',
-                    }}
-                >
-                    Home
-                </Link>
-                <Text h1 style={{ margin: '12px 0', color: '#fff' }}>SimCity (RL+LLM)</Text>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                    <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-                    <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
-                </div>
-            </div>
-            
-            <div style={{
-                position: 'absolute',
-                top: '10px',
-                right: '10px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '10px',
-                width: isMobile ? 'calc(100% - 20px)' : '45%',
-                maxWidth: '420px',
-            }}>
-                {state && <CityStatsPanel stats={state.city_stats} agents={state.agents} />}
-            </div>
-            
-            {state && <MessagePanel messages={state.messages} offers={state.offers} />}
-            <InfoPanel logs={logs} chartState={chartState} />
-
+        <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#220000', color: '#ffaaaa' }}>
+            <Text h1>A Server Error Occurred</Text>
+            <Text p>Could not load the simulation environment.</Text>
+            <Code block width="50vw" style={{textAlign: 'left'}}>{error}</Code>
+            <Button auto type="error" onClick={reset} style={{marginTop: '20px'}}>Reload Page</Button>
         </div>
     );
+  }
+
+  return (
+    <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
+      <Canvas camera={{ fov: 60, position: [0, 500, 500], near: 1, far: 10000 }}>
+        <SceneContent
+            state={state}
+            coordinateTransformer={coordinateTransformer}
+            setMapLoaded={setMapLoaded}
+            setCoordinateTransformer={setCoordinateTransformer}
+        />
+      </Canvas>
+
+      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
+        <Link
+          to="/"
+          style={{
+            fontFamily: 'monospace',
+            color: '#fff',
+            textDecoration: 'underline',
+            display: 'inline-block',
+            fontSize: isMobile ? '12px' : '14px',
+          }}
+        >
+          Home
+        </Link>
+        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          SimCity 
+        </Text>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <Button auto type="secondary" disabled={training || running} onClick={startTraining}>
+            Train
+          </Button>
+          <Button auto type="success" disabled={training} onClick={running ? stopRun : startRun}>
+            {running ? 'Stop' : 'Run'}
+          </Button>
+        </div>
+      </div>
+      
+      <InfoPanel logs={logs} chartState={chartState} />
+      <ModelInfoPanel modelInfo={modelInfo} />
+      <EconomicPanel pedestrians={state?.pedestrians} businesses={state?.businesses} />
+      <BusinessPanel businesses={state?.businesses} />
+    </div>
+  );
 } 
+
+const SceneContent = ({
+    state,
+    coordinateTransformer,
+    setMapLoaded,
+    setCoordinateTransformer,
+}) => {
+    return (
+        <>
+            <OrbitControls 
+                enablePan={true}
+                enableZoom={true}
+                enableRotate={true}
+                maxPolarAngle={Math.PI * 0.9}
+                minPolarAngle={0.1}
+                minDistance={50}
+                maxDistance={1000}
+            />
+            
+            <ambientLight intensity={0.6} />
+            <directionalLight
+                castShadow
+                position={[100, 100, 100]}
+                intensity={1.6}
+            />
+            <directionalLight
+                castShadow
+                position={[-100, 100, -100]}
+                intensity={0.5}
+            />
+
+            <Map2D onMapLoaded={(transformer) => {
+                setMapLoaded(true);
+                setCoordinateTransformer(transformer);
+            }} />
+
+            {state && coordinateTransformer && <Roads roadNetwork={state.road_network} coordinateTransformer={coordinateTransformer} />}
+            
+            {state && coordinateTransformer && state.businesses?.map(business => 
+                <Business key={business.id} business={business} coordinateTransformer={coordinateTransformer} />
+            )}
+            
+            {state && coordinateTransformer && state.pedestrians?.map(ped => 
+                <Pedestrian key={ped.id} pedestrian={ped} coordinateTransformer={coordinateTransformer} />
+            )}
+            
+            {state && coordinateTransformer && state.traffic_lights?.map(light => 
+                <TrafficLight key={light.id} light={light} coordinateTransformer={coordinateTransformer} />
+            )}
+
+            <EffectComposer>
+                <Bloom intensity={1.2} luminanceThreshold={0.1} luminanceSmoothing={0.9} toneMapped={false} />
+            </EffectComposer>
+        </>
+    );
+}; 

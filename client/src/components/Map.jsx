@@ -24,8 +24,8 @@ const Globe = ({ onMapLoaded }) => {
   const { scene, camera, gl } = useThree();
 
   const setInitialCameraPosition = (camera) => {
-    const longitude = -73.99;
-    const latitude = 40.76;
+    const longitude = -122.4194;
+    const latitude = 37.7749;
     const altitude = 2500;
     const heading = 0;
     const pitch = -55;
