@@ -16,6 +16,105 @@ import Pedestrian from '../components/Pedestrian.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/simcity`;
 
+const Building = ({ building, coordinateTransformer }) => {
+  const { pos, type, height, status, progress, build_time, id } = building;
+  const [buildingPosition, setBuildingPosition] = useState(null);
+
+  useEffect(() => {
+    if (coordinateTransformer) {
+      const [lat, lng] = pos;
+      const vector = coordinateTransformer.latLngToECEF(lat, lng);
+      setBuildingPosition(vector);
+    }
+  }, [pos, coordinateTransformer]);
+
+  const buildingColor = useMemo(() => {
+    const colorMap = {
+      'house': '#8b4513',         // Brown
+      'apartment': '#4682b4',     // Steel blue
+      'office': '#2f4f4f',        // Dark slate gray
+      'skyscraper': '#c0c0c0',    // Silver
+      'factory': '#8B4513'        // Saddle brown
+    };
+    const baseColor = new THREE.Color(colorMap[type] || '#606060');
+    
+    // Adjust color based on construction status
+    if (status === 'planning') {
+      return baseColor.clone().multiplyScalar(0.3); // Very dim for planning
+    } else if (status === 'under_construction') {
+      const progressRatio = progress / build_time;
+      return baseColor.clone().multiplyScalar(0.4 + progressRatio * 0.6); // Gradually brighten
+    }
+    return baseColor; // Full brightness for completed
+  }, [type, status, progress, build_time]);
+
+  if (!buildingPosition) return null;
+
+  const actualHeight = status === 'completed' ? height * 8 : 
+                      status === 'under_construction' ? (progress / build_time) * height * 8 : 
+                      height * 2; // Planning phase shows foundation
+
+  return (
+    <group position={buildingPosition}>
+      {/* Multi-story building - each story is 8 units high */}
+      <mesh position={[0, actualHeight / 2, 0]}>
+        <boxGeometry args={[30, actualHeight, 30]} />
+        <meshPhongMaterial
+          color={buildingColor}
+          emissive={buildingColor}
+          emissiveIntensity={status === 'completed' ? 0.2 : 0.1}
+          transparent={status === 'planning'}
+          opacity={status === 'planning' ? 0.3 : 1.0}
+        />
+      </mesh>
+
+      {/* Building type label */}
+      <DreiText 
+        position={[0, actualHeight + 10, 0]} 
+        fontSize={3} 
+        color="white" 
+        anchorX="center" 
+        anchorY="middle"
+        maxWidth={60}
+      >
+        {type.toUpperCase()}
+      </DreiText>
+
+      {/* Construction status */}
+      <DreiText 
+        position={[0, actualHeight + 5, 0]} 
+        fontSize={2} 
+        color={status === 'completed' ? '#00ff00' : status === 'under_construction' ? '#ffff00' : '#ff6600'} 
+        anchorX="center" 
+        anchorY="middle"
+      >
+        {status === 'completed' ? 'COMPLETE' : 
+         status === 'under_construction' ? `${Math.floor((progress / build_time) * 100)}%` : 
+         'PLANNING'}
+      </DreiText>
+
+      {/* Building ID */}
+      <DreiText 
+        position={[0, actualHeight + 15, 0]} 
+        fontSize={2} 
+        color="#cccccc" 
+        anchorX="center" 
+        anchorY="middle"
+      >
+        #{id}
+      </DreiText>
+      
+      {/* Construction progress indicator for active buildings */}
+      {status === 'under_construction' && (
+        <mesh position={[0, actualHeight + 20, 0]}>
+          <cylinderGeometry args={[2, 2, 1]} />
+          <meshPhongMaterial color="#ffaa00" emissive="#ffaa00" emissiveIntensity={0.4} />
+        </mesh>
+      )}
+    </group>
+  );
+};
+
 const Business = ({ business, coordinateTransformer }) => {
   const { pos, type, id, customers_served, revenue } = business;
   const [businessPosition, setBusinessPosition] = useState(null);
@@ -80,30 +179,26 @@ const Business = ({ business, coordinateTransformer }) => {
   );
 };
 
-const EconomicPanel = ({ pedestrians, businesses }) => {
-  const avgSatisfaction = useMemo(() => {
-    if (!pedestrians || pedestrians.length === 0) return 0;
-    return pedestrians.reduce((sum, p) => sum + p.satisfaction, 0) / pedestrians.length;
-  }, [pedestrians]);
-
-  const totalRevenue = useMemo(() => {
-    if (!businesses || businesses.length === 0) return 0;
-    return businesses.reduce((sum, b) => sum + b.revenue, 0);
-  }, [businesses]);
-
-  const stateDistribution = useMemo(() => {
-    if (!pedestrians || pedestrians.length === 0) return {};
-    const distribution = {};
-    pedestrians.forEach(p => {
-      distribution[p.state] = (distribution[p.state] || 0) + 1;
+const ResourcePanel = ({ pedestrians, resources }) => {
+  const totalResources = useMemo(() => {
+    if (!pedestrians || !resources) return {};
+    const totals = {};
+    Object.keys(resources).forEach(resource => {
+      totals[resource] = pedestrians.reduce((sum, p) => sum + (p.resources[resource] || 0), 0);
     });
-    return distribution;
-  }, [pedestrians]);
+    return totals;
+  }, [pedestrians, resources]);
+
+  const getResourceColor = (resourceName) => {
+    if (!resources || !resources[resourceName]) return '#ffffff';
+    const colorArray = resources[resourceName].color;
+    return `rgb(${Math.floor(colorArray[0] * 255)}, ${Math.floor(colorArray[1] * 255)}, ${Math.floor(colorArray[2] * 255)})`;
+  };
 
   return (
     <Card style={{
       position: 'absolute',
-      bottom: '10px',
+      top: '10px',
       right: '10px',
       width: '300px',
       background: 'rgba(0,0,0,0.8)',
@@ -112,43 +207,33 @@ const EconomicPanel = ({ pedestrians, businesses }) => {
       padding: '16px',
       boxSizing: 'border-box'
     }}>
-      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>City Economy</Text>
+      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>City Resources</Text>
       
-      <div style={{ marginBottom: '12px' }}>
-        <Text p style={{ margin: '0 0 4px 0', fontSize: '14px' }}>
-          <strong>Avg Satisfaction:</strong> {avgSatisfaction.toFixed(1)}%
-        </Text>
-        <div style={{
-          width: '100%',
-          height: '8px',
-          background: '#333',
-          borderRadius: '4px',
-          overflow: 'hidden'
-        }}>
-          <div style={{
-            width: `${avgSatisfaction}%`,
-            height: '100%',
-            background: `linear-gradient(to right, #ff4757 0%, #ffa502 50%, #2ed573 100%)`,
-            transition: 'width 0.3s ease'
-          }} />
-        </div>
-      </div>
-
-      <Text p style={{ margin: '0 0 8px 0', fontSize: '14px' }}>
-        <strong>Total Business Revenue:</strong> ${totalRevenue.toFixed(0)}
-      </Text>
-
-      <Text p style={{ margin: '0 0 8px 0', fontSize: '14px' }}>
-        <strong>Population:</strong> {pedestrians?.length || 0}
-      </Text>
-
-      <div style={{ marginTop: '12px' }}>
-        <Text p style={{ margin: '0 0 4px 0', fontSize: '12px', color: '#ccc' }}>
-          Population by Activity:
-        </Text>
-        {Object.entries(stateDistribution).map(([state, count]) => (
-          <div key={state} style={{ fontSize: '11px', color: '#aaa', marginBottom: '2px' }}>
-            {state}: {count}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+        {Object.entries(totalResources).map(([resource, total]) => (
+          <div key={resource} style={{
+            display: 'flex',
+            alignItems: 'center',
+            padding: '8px',
+            background: 'rgba(255,255,255,0.05)',
+            borderRadius: '4px',
+            border: `1px solid ${getResourceColor(resource)}`
+          }}>
+            <div style={{
+              width: '12px',
+              height: '12px',
+              background: getResourceColor(resource),
+              borderRadius: '2px',
+              marginRight: '8px'
+            }} />
+            <div>
+              <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'capitalize' }}>
+                {resource}
+              </div>
+              <div style={{ fontSize: '14px', color: '#fff' }}>
+                {total}
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -156,14 +241,132 @@ const EconomicPanel = ({ pedestrians, businesses }) => {
   );
 };
 
-const BusinessPanel = ({ businesses }) => {
-  const topBusinesses = useMemo(() => {
-    if (!businesses) return [];
-    return [...businesses]
-      .sort((a, b) => b.customers_served - a.customers_served)
-      .slice(0, 5);
-  }, [businesses]);
+const BuildingPanel = ({ buildings, buildingRecipes }) => {
+  const buildingStats = useMemo(() => {
+    if (!buildings) return { total: 0, completed: 0, underConstruction: 0, planning: 0 };
+    return {
+      total: buildings.length,
+      completed: buildings.filter(b => b.status === 'completed').length,
+      underConstruction: buildings.filter(b => b.status === 'under_construction').length,
+      planning: buildings.filter(b => b.status === 'planning').length
+    };
+  }, [buildings]);
 
+  const activeProjects = useMemo(() => {
+    if (!buildings) return [];
+    return buildings
+      .filter(b => b.status !== 'completed')
+      .sort((a, b) => b.progress - a.progress)
+      .slice(0, 5);
+  }, [buildings]);
+
+  return (
+    <Card style={{
+      position: 'absolute',
+      bottom: '10px',
+      right: '10px',
+      width: '320px',
+      background: 'rgba(0,0,0,0.8)',
+      color: '#fff',
+      border: '1px solid #555',
+      padding: '16px',
+      boxSizing: 'border-box',
+      maxHeight: '400px',
+      overflowY: 'auto'
+    }}>
+      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>Building Projects</Text>
+      
+      <div style={{ marginBottom: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+          <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(0,255,0,0.1)', borderRadius: '4px' }}>
+            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#00ff00' }}>{buildingStats.completed}</div>
+            <div style={{ fontSize: '10px' }}>Completed</div>
+          </div>
+          <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,0,0.1)', borderRadius: '4px' }}>
+            <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#ffff00' }}>{buildingStats.underConstruction}</div>
+            <div style={{ fontSize: '10px' }}>Building</div>
+          </div>
+        </div>
+      </div>
+
+      <Text h5 style={{ margin: '0 0 8px 0', color: '#fff' }}>Active Projects:</Text>
+      {activeProjects.map(building => (
+        <div key={building.id} style={{
+          marginBottom: '12px',
+          padding: '12px',
+          background: building.status === 'under_construction' ? 'rgba(255,255,0,0.1)' : 'rgba(255,165,0,0.1)',
+          borderRadius: '4px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+            <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'capitalize' }}>
+              {building.type} #{building.id}
+            </div>
+            <div style={{ fontSize: '12px', color: building.status === 'under_construction' ? '#ffff00' : '#ffa500' }}>
+              {building.status === 'under_construction' ? 
+                `${Math.floor((building.progress / building.build_time) * 100)}%` : 
+                'Planning'}
+            </div>
+          </div>
+          
+          <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '4px' }}>
+            Contributors: {building.contributors.length} | Height: {building.height} stories
+          </div>
+          
+          {/* Progress bar for under construction */}
+          {building.status === 'under_construction' && (
+            <div style={{
+              width: '100%',
+              height: '4px',
+              background: '#333',
+              borderRadius: '2px',
+              overflow: 'hidden',
+              marginTop: '4px'
+            }}>
+              <div style={{
+                width: `${(building.progress / building.build_time) * 100}%`,
+                height: '100%',
+                background: 'linear-gradient(to right, #ffa500, #ffff00)',
+                transition: 'width 0.3s ease'
+              }} />
+            </div>
+          )}
+          
+          {/* Resource requirements for planning phase */}
+          {building.status === 'planning' && (
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ fontSize: '10px', color: '#aaa', marginBottom: '4px' }}>Needs:</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                {Object.entries(building.resources_needed).map(([resource, needed]) => {
+                  const contributed = building.resources_contributed[resource] || 0;
+                  const remaining = needed - contributed;
+                  return (
+                    <div key={resource} style={{
+                      fontSize: '10px',
+                      padding: '2px 6px',
+                      background: remaining > 0 ? 'rgba(255,100,100,0.3)' : 'rgba(100,255,100,0.3)',
+                      borderRadius: '2px',
+                      border: `1px solid ${remaining > 0 ? '#ff6464' : '#64ff64'}`
+                    }}>
+                      {resource}: {remaining > 0 ? remaining : '✓'}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+      
+      {activeProjects.length === 0 && (
+        <Text p style={{ fontSize: '12px', color: '#666', textAlign: 'center' }}>
+          No active building projects...
+        </Text>
+      )}
+    </Card>
+  );
+};
+
+const RecipePanel = ({ buildingRecipes }) => {
   return (
     <Card style={{
       position: 'absolute',
@@ -174,44 +377,92 @@ const BusinessPanel = ({ businesses }) => {
       color: '#fff',
       border: '1px solid #555',
       padding: '16px',
-      boxSizing: 'border-box'
+      boxSizing: 'border-box',
+      maxHeight: '300px',
+      overflowY: 'auto'
     }}>
-      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>Top Businesses</Text>
+      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>Building Recipes</Text>
       
-      {topBusinesses.map((business, index) => (
-        <div key={business.id} style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '8px',
+      {buildingRecipes && Object.entries(buildingRecipes).map(([buildingType, recipe]) => (
+        <div key={buildingType} style={{
+          marginBottom: '12px',
           padding: '8px',
-          background: index === 0 ? 'rgba(55, 245, 235, 0.1)' : 'rgba(255,255,255,0.05)',
+          background: 'rgba(255,255,255,0.05)',
           borderRadius: '4px'
         }}>
-          <div>
-            <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'capitalize' }}>
-              {business.type}
-            </div>
-            <div style={{ fontSize: '10px', color: '#ccc' }}>
-              Revenue: ${business.revenue.toFixed(0)}
-            </div>
+          <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'capitalize', marginBottom: '4px' }}>
+            {buildingType.replace(/_/g, ' ')}
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: '14px', fontWeight: 'bold', color: '#37F5EB' }}>
-              {business.customers_served}
-            </div>
-            <div style={{ fontSize: '10px', color: '#ccc' }}>
-              customers
-            </div>
+          <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '4px' }}>
+            Height: {recipe.height} stories | Value: ${recipe.base_value} | Time: {recipe.build_time} steps
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {Object.entries(recipe.recipe).map(([resource, amount]) => (
+              <div key={resource} style={{
+                fontSize: '10px',
+                padding: '2px 6px',
+                background: 'rgba(100,150,255,0.3)',
+                borderRadius: '2px',
+                border: '1px solid #6496ff'
+              }}>
+                {amount} {resource}
+              </div>
+            ))}
           </div>
         </div>
       ))}
-      
-      {topBusinesses.length === 0 && (
-        <Text p style={{ fontSize: '12px', color: '#666', textAlign: 'center' }}>
-          No business data yet...
-        </Text>
-      )}
+    </Card>
+  );
+};
+
+const MessagePanel = ({ messages }) => {
+  const containerRef = useRef(null);
+  
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages]);
+
+  const codeStyle = { color: '#f81ce5', fontFamily: 'monospace' };
+  
+  return (
+    <Card 
+      ref={containerRef}
+      style={{
+        position: 'absolute', 
+        top: '50%', 
+        left: '10px', 
+        width: '400px',
+        height: '200px',
+        maxHeight: '200px', 
+        overflowY: 'auto', 
+        background: 'rgba(0,0,0,0.6)',
+        color: '#fff', 
+        border: '1px solid #444',
+        transform: 'translateY(-50%)'
+      }}
+    >
+      <Text h5 style={{ margin: '0 0 8px 0', color: '#37F5EB' }}>Agent Communications</Text>
+      {messages && messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No messages]</Text>}
+      {messages && messages.map((msg, i) => {
+        let content;
+        if (msg.recipient_id !== null && msg.recipient_id !== undefined) {
+          content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[DM to {msg.recipient_id}]</span> {msg.message}</Text>;
+        } else {
+          content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[Broadcast]</span> {msg.message}</Text>;
+        }
+        
+        return (
+          <div key={i} style={{ marginBottom: '8px', padding: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '11px' }}>
+            <Text p style={{ margin: 0, fontWeight: 'bold' }}>
+              <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
+            </Text>
+            {content}
+          </div>
+        );
+      })}
     </Card>
   );
 };
@@ -375,8 +626,10 @@ export default function SimCityExample() {
       
       <InfoPanel logs={logs} chartState={chartState} />
       <ModelInfoPanel modelInfo={modelInfo} />
-      <EconomicPanel pedestrians={state?.pedestrians} businesses={state?.businesses} />
-      <BusinessPanel businesses={state?.businesses} />
+      <ResourcePanel pedestrians={state?.pedestrians} resources={state?.resources} />
+      <BuildingPanel buildings={state?.buildings} buildingRecipes={state?.building_recipes} />
+      <RecipePanel buildingRecipes={state?.building_recipes} />
+      <MessagePanel messages={state?.messages} />
     </div>
   );
 } 
@@ -417,6 +670,10 @@ const SceneContent = ({
             }} />
 
             {state && coordinateTransformer && <Roads roadNetwork={state.road_network} coordinateTransformer={coordinateTransformer} />}
+            
+            {state && coordinateTransformer && state.buildings?.map(building => 
+                <Building key={building.id} building={building} coordinateTransformer={coordinateTransformer} />
+            )}
             
             {state && coordinateTransformer && state.businesses?.map(business => 
                 <Business key={business.id} business={business} coordinateTransformer={coordinateTransformer} />
