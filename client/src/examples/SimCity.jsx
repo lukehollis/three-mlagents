@@ -589,7 +589,7 @@ export default function SimCityExample() {
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
-      <Canvas camera={{ fov: 60, position: [0, 500, 500], near: 1, far: 10000 }}>
+      <Canvas camera={{ fov: 60, position: [0, 2000, 2000], near: 1, far: 10000 }}>
         <SceneContent
             state={state}
             coordinateTransformer={coordinateTransformer}
@@ -618,10 +618,25 @@ export default function SimCityExample() {
           <Button auto type="secondary" disabled={training || running} onClick={startTraining}>
             Train
           </Button>
-          <Button auto type="success" disabled={training} onClick={running ? stopRun : startRun}>
-            {running ? 'Stop' : 'Run'}
+          <Button auto type="success" disabled={training || running || !trained} onClick={startRun}>
+            Run
           </Button>
         </div>
+        
+        {/* Map loading indicator */}
+        {!mapLoaded && (
+          <div style={{ 
+            marginTop: '12px', 
+            padding: '8px 12px', 
+            background: 'rgba(55, 245, 235, 0.1)', 
+            border: '1px solid #37F5EB', 
+            borderRadius: '4px',
+            fontSize: '12px',
+            color: '#37F5EB'
+          }}>
+            Loading map...
+          </div>
+        )}
       </div>
       
       <InfoPanel logs={logs} chartState={chartState} />
@@ -649,7 +664,7 @@ const SceneContent = ({
                 maxPolarAngle={Math.PI * 0.9}
                 minPolarAngle={0.1}
                 minDistance={50}
-                maxDistance={1000}
+                maxDistance={2400}
             />
             
             <ambientLight intensity={0.6} />
@@ -669,22 +684,27 @@ const SceneContent = ({
                 setCoordinateTransformer(transformer);
             }} />
 
-            {state && coordinateTransformer && <Roads roadNetwork={state.road_network} coordinateTransformer={coordinateTransformer} />}
-            
-            {state && coordinateTransformer && state.buildings?.map(building => 
-                <Building key={building.id} building={building} coordinateTransformer={coordinateTransformer} />
-            )}
-            
-            {state && coordinateTransformer && state.businesses?.map(business => 
-                <Business key={business.id} business={business} coordinateTransformer={coordinateTransformer} />
-            )}
-            
-            {state && coordinateTransformer && state.pedestrians?.map(ped => 
-                <Pedestrian key={ped.id} pedestrian={ped} coordinateTransformer={coordinateTransformer} />
-            )}
-            
-            {state && coordinateTransformer && state.traffic_lights?.map(light => 
-                <TrafficLight key={light.id} light={light} coordinateTransformer={coordinateTransformer} />
+            {/* Only render 3D elements after map has loaded and coordinate transformer is available */}
+            {mapLoaded && state && coordinateTransformer && (
+                <>
+                    <Roads roadNetwork={state.road_network} coordinateTransformer={coordinateTransformer} />
+                    
+                    {state.buildings?.map(building => 
+                        <Building key={building.id} building={building} coordinateTransformer={coordinateTransformer} />
+                    )}
+                    
+                    {state.businesses?.map(business => 
+                        <Business key={business.id} business={business} coordinateTransformer={coordinateTransformer} />
+                    )}
+                    
+                    {state.pedestrians?.map(ped => 
+                        <Pedestrian key={ped.id} pedestrian={ped} coordinateTransformer={coordinateTransformer} />
+                    )}
+                    
+                    {state.traffic_lights?.map(light => 
+                        <TrafficLight key={light.id} light={light} coordinateTransformer={coordinateTransformer} />
+                    )}
+                </>
             )}
 
             <EffectComposer>
