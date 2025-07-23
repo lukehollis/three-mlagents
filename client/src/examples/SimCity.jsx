@@ -593,6 +593,7 @@ export default function SimCityExample() {
         <SceneContent
             state={state}
             coordinateTransformer={coordinateTransformer}
+            mapLoaded={mapLoaded}
             setMapLoaded={setMapLoaded}
             setCoordinateTransformer={setCoordinateTransformer}
         />
@@ -652,6 +653,7 @@ export default function SimCityExample() {
 const SceneContent = ({
     state,
     coordinateTransformer,
+    mapLoaded,
     setMapLoaded,
     setCoordinateTransformer,
 }) => {

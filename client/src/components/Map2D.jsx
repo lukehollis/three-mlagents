@@ -3,21 +3,44 @@ import * as THREE from 'three';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
+// Debug environment variable loading on initial load only
+if (!window._mapDebugLogged) {
+  console.log('Environment check:', {
+    hasAPIKey: !!API_KEY,
+    apiKeyLength: API_KEY ? API_KEY.length : 0
+  });
+  window._mapDebugLogged = true;
+}
+
 const Map2D = ({ onMapLoaded }) => {
   const [mapTexture, setMapTexture] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const retryCountRef = useRef(0);
-  const maxRetries = 3;
+  const [hasAttempted, setHasAttempted] = useState(false);
+  const onMapLoadedRef = useRef(onMapLoaded);
+  
+  // Keep the ref updated
+  useEffect(() => {
+    onMapLoadedRef.current = onMapLoaded;
+  }, [onMapLoaded]);
 
   const loadMapTexture = useCallback(() => {
+    // Prevent multiple attempts
+    if (hasAttempted || loading || mapTexture) {
+      return;
+    }
+    
     if (!API_KEY) {
-      console.warn('Google Maps API key not found');
+      console.error('VITE_GOOGLE_MAPS_API_KEY environment variable not found');
+      setError(new Error('Google Maps API key not configured'));
+      setHasAttempted(true);
       return;
     }
 
+    console.log('Loading Google Maps texture...');
     setLoading(true);
     setError(null);
+    setHasAttempted(true);
 
     // San Francisco bounds
     const SF_CENTER = { lat: 37.7749, lng: -122.4194 };
@@ -52,6 +75,8 @@ const Map2D = ({ onMapLoaded }) => {
     
     const mapUrl = `https://maps.googleapis.com/maps/api/staticmap?center=${SF_CENTER.lat},${SF_CENTER.lng}&zoom=${zoom}&size=${size}&maptype=${mapType}&${darkStyles}&key=${API_KEY}`;
     
+    // Map URL ready for loading
+    
     const textureLoader = new THREE.TextureLoader();
     
     textureLoader.load(
@@ -63,7 +88,6 @@ const Map2D = ({ onMapLoaded }) => {
         texture.minFilter = THREE.LinearFilter;
         setMapTexture(texture);
         setLoading(false);
-        retryCountRef.current = 0;
 
         // Simple coordinate transformation for 2D mapping
         const latLngToECEF = (lat, lng, alt = 0) => {
@@ -92,37 +116,35 @@ const Map2D = ({ onMapLoaded }) => {
         };
         
         // Only call onMapLoaded after texture is successfully loaded
-        if (onMapLoaded) {
-          onMapLoaded({ latLngToECEF, ecefToLatLng });
+        if (onMapLoadedRef.current) {
+          onMapLoadedRef.current({ latLngToECEF, ecefToLatLng });
         }
       },
       // onProgress - Progress callback
       (progress) => {
         // Optional: handle loading progress
       },
-      // onError - Error callback
-      (error) => {
-        console.error('Error loading Google Maps texture:', error);
-        setLoading(false);
-        setError(error);
-        
-        // Retry logic
-        if (retryCountRef.current < maxRetries) {
-          retryCountRef.current++;
-          console.log(`Retrying map load... (${retryCountRef.current}/${maxRetries})`);
-          setTimeout(() => loadMapTexture(), 1000 * retryCountRef.current); // Exponential backoff
-        } else {
-          console.error('Max retries reached for Google Maps texture loading');
-        }
-      }
+             // onError - Error callback
+       (error) => {
+         console.error('Error loading Google Maps texture:', error);
+         console.error('This could be due to:');
+         console.error('1. Invalid or missing VITE_GOOGLE_MAPS_API_KEY');
+         console.error('2. API key not enabled for Static Maps API');
+         console.error('3. Network connectivity issues');
+         console.error('4. CORS restrictions');
+         console.error('Please check your VITE_GOOGLE_MAPS_API_KEY and ensure Static Maps API is enabled');
+         
+         setLoading(false);
+         setError(error);
+       }
     );
-  }, [onMapLoaded]);
+      }, []); // Empty dependency array to prevent recreation
 
   useEffect(() => {
-    if (API_KEY) {
+    if (API_KEY && !hasAttempted) {
       loadMapTexture();
     }
-  }, [loadMapTexture]);
+  }, [API_KEY, hasAttempted, loadMapTexture]);
 
   return (
     <group>
