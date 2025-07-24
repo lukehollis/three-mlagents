@@ -451,6 +451,26 @@ async def train_astrodynamics(websocket: WebSocket):
     _export_model_onnx(model, model_path)
     await websocket.send_json({"type": "trained", "file_url": f"/policies/{model_filename}", "model_filename": model_filename, "timestamp": ts, "session_uuid": session_uuid})
 
+async def run_simulation(websocket: WebSocket):
+    """Runs a physics-only simulation and streams state."""
+    env = AstrodynamicsEnv()
+    env.reset()
+    from starlette.websockets import WebSocketState, WebSocketDisconnect
+
+    try:
+        while websocket.application_state == WebSocketState.CONNECTED:
+            # Action 0 is no thrust, simulating orbital mechanics
+            _, _, done = env.step(0)
+            state = env.get_state_for_viz()
+            await websocket.send_json({"type": "state", "state": state})
+            await asyncio.sleep(0.05)  # ~20Hz update rate
+            
+            if done:
+                env.reset()
+    except WebSocketDisconnect:
+        print("Astrodynamics simulation client disconnected.")
+
+
 # -----------------------------------------------------------------------------------
 # Inference helper
 # -----------------------------------------------------------------------------------

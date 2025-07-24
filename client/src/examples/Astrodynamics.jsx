@@ -306,7 +306,7 @@ export default function AstrodynamicsExample() {
       } catch {
         return;
       }
-      if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state') {
+      if ((parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state') && parsed.state) {
         setState(parsed.state);
       }
       if (parsed.type === 'progress') {

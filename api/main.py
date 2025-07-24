@@ -18,7 +18,7 @@ from examples.brick_break import train_brick_break, run_brick_break, BrickBreakE
 from examples.food_collector import train_food_collector, run_food_collector, FoodCollectorEnv
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
-from examples.astrodynamics import train_astrodynamics, run_astrodynamics, AstrodynamicsEnv
+from examples.astrodynamics import train_astrodynamics, run_astrodynamics, AstrodynamicsEnv, run_simulation
 from examples.minecraft import run_minecraft, train_minecraft, MineCraftEnv
 from examples.fish import run_fish, train_fish, FishEnv
 from examples.intersection import run_intersection, train_intersection, MultiVehicleEnv as IntersectionEnv
@@ -290,18 +290,41 @@ async def websocket_glider(websocket: WebSocket):
 @app.websocket("/ws/astrodynamics")
 async def websocket_astrodynamics(websocket: WebSocket):
     await websocket.accept()
-    preview_env = AstrodynamicsEnv()
-    preview_state = preview_env.get_state_for_viz()
-    await websocket.send_json({"type": "state", "state": preview_state, "episode": 0})
+    client_task = None
     try:
-        while True:
-            data = await websocket.receive_json()
-            if data['cmd'] == 'train':
-                await train_astrodynamics(websocket)
-            elif data['cmd'] == 'run':
-                await run_astrodynamics(websocket)
-    except Exception as e:
-        print(f"Astrodynamics websocket disconnected: {e}")
+        # The first message from the client determines the mode.
+        # If no message is received, we can default to simulation.
+        # For this implementation, we'll wait for a command.
+        # A better approach for default simulation would be to start it
+        # and listen for commands concurrently.
+        
+        # Start simulation by default.
+        sim_task = asyncio.create_task(run_simulation(websocket))
+
+        async for message in websocket.iter_json():
+            if 'cmd' in message:
+                # If we get a command, cancel the simulation and run the command.
+                sim_task.cancel()
+                try:
+                    await sim_task
+                except asyncio.CancelledError:
+                    pass  # Expected
+
+                cmd = message.get("cmd")
+                if cmd == 'train':
+                    await train_astrodynamics(websocket)
+                elif cmd == 'run':
+                    await run_astrodynamics(websocket, message.get('model_filename'))
+                
+                # After a command is done, we can break or restart simulation.
+                # For now, we'll just break the loop.
+                break
+
+    except WebSocketDisconnect:
+        print("Client disconnected from astrodynamics")
+    finally:
+        if client_task and not client_task.done():
+            client_task.cancel()
 
 
 # WebSocket endpoint for MineCraft
