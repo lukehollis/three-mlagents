@@ -64,7 +64,7 @@ class AstrodynamicsEnv:
         # Visualization trail
         self.spacecraft_trail = []
         self.target_trail = []
-        self.max_trail_length = 500
+        self.max_trail_length = 10000
         
         self.steps = 0
         self.reset()
