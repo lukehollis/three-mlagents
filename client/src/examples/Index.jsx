@@ -136,11 +136,11 @@ export default function ExamplesIndex() {
               }}
             >
               <Card.Content style={{ padding: 0 }}>
-                <Link to="/fish" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <Link to="/self-driving-car" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
-                      src="/three-mlagents/fish_example.jpg" 
-                      alt="Fish Example"
+                      src="/three-mlagents/self_driving_car_interpretability_example.jpg" 
+                      alt="Self-Driving Car Example"
                       style={{
                         width: '100%',
                         height: '200px',
@@ -152,15 +152,15 @@ export default function ExamplesIndex() {
                 </Link>
               </Card.Content>
               <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/fish" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <Link to="/self-driving-car" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Fish
+                    Self-Driving Car (Interpretability)
                   </Text>
                 </Link>
                 <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  A school of fish that learn to find food and survive a shark.
+                  A self-driving car learning to navigate a city and explaining its decisions.
                 </Text>
-                <Link to="/fish" style={{ textDecoration: 'none' }}>
+                <Link to="/self-driving-car" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
                     icon={<Play />} 
@@ -234,11 +234,11 @@ export default function ExamplesIndex() {
               }}
             >
               <Card.Content style={{ padding: 0 }}>
-                <Link to="/self-driving-car" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <Link to="/fish" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
-                      src="/three-mlagents/self_driving_car_interpretability_example.jpg" 
-                      alt="Self-Driving Car Example"
+                      src="/three-mlagents/fish_example.jpg" 
+                      alt="Fish Example"
                       style={{
                         width: '100%',
                         height: '200px',
@@ -250,15 +250,15 @@ export default function ExamplesIndex() {
                 </Link>
               </Card.Content>
               <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/self-driving-car" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <Link to="/fish" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Self-Driving Car (Interpretability)
+                    Fish
                   </Text>
                 </Link>
                 <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  A self-driving car learning to navigate a city and explaining its decisions.
+                  A school of fish that learn to find food and survive a shark.
                 </Text>
-                <Link to="/self-driving-car" style={{ textDecoration: 'none' }}>
+                <Link to="/fish" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
                     icon={<Play />} 
