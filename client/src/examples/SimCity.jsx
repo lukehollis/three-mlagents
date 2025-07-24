@@ -201,14 +201,16 @@ const ResourcePanel = ({ pedestrians, resources }) => {
       position: 'absolute',
       top: '10px',
       right: '10px',
-      width: '300px',
+      width: '320px',
       background: 'rgba(0,0,0,0.8)',
       color: '#fff',
       border: '1px solid #555',
-      padding: '16px',
-      boxSizing: 'border-box'
+      padding: '0px',
+      boxSizing: 'border-box',
+      height: '220px',
+      overflowY: 'scroll',
     }}>
-      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>City Resources</Text>
+      <Text h4 style={{ margin: '0 0 8px 0', color: '#37F5EB', fontSize: '12px', position: 'sticky', top: '0px' }}>City Resources</Text>
       
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
         {Object.entries(totalResources).map(([resource, total]) => (
@@ -265,17 +267,17 @@ const BuildingPanel = ({ buildings, buildingRecipes }) => {
     <Card style={{
       position: 'absolute',
       top: '10px',
-      right: '320px',
+      right: '340px',
       width: '320px',
       background: 'rgba(0,0,0,0.8)',
       color: '#fff',
       border: '1px solid #555',
-      padding: '16px',
+      padding: '0px',
       boxSizing: 'border-box',
-      maxHeight: '400px',
-      overflowY: 'auto'
+      height: '220px',
+      overflowY: 'scroll'
     }}>
-      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>Building Projects</Text>
+      <Text h4 style={{ margin: '0 0 8px 0', color: '#37F5EB', fontSize: '12px' }}>Building Projects</Text>
       
       <div style={{ marginBottom: '16px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
@@ -290,7 +292,7 @@ const BuildingPanel = ({ buildings, buildingRecipes }) => {
         </div>
       </div>
 
-      <Text h5 style={{ margin: '0 0 8px 0', color: '#fff' }}>Active Projects:</Text>
+      <Text h5 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: '12px', position: 'sticky', }}>Active Projects:</Text>
       {activeProjects.map(building => (
         <div key={building.id} style={{
           marginBottom: '12px',
@@ -370,19 +372,19 @@ const BuildingPanel = ({ buildings, buildingRecipes }) => {
 const RecipePanel = ({ buildingRecipes }) => {
   return (
     <Card style={{
-      position: 'absolute',
-      bottom: '10px',
-      left: '10px',
+      position: 'fixed',
+      top: '240px',
+      right: '10px',
       width: '320px',
       background: 'rgba(0,0,0,0.8)',
       color: '#fff',
       border: '1px solid #555',
-      padding: '16px',
+      padding: '0px',
       boxSizing: 'border-box',
-      maxHeight: '300px',
+      maxHeight: '220px',
       overflowY: 'auto'
     }}>
-      <Text h4 style={{ margin: '0 0 16px 0', color: '#37F5EB' }}>Building Recipes</Text>
+      <Text h4 style={{ margin: '0 0 8px 0', color: '#37F5EB', fontSize: '12px', position: 'sticky', top: '0px' }}>Building Recipes</Text>
       
       {buildingRecipes && Object.entries(buildingRecipes).map(([buildingType, recipe]) => (
         <div key={buildingType} style={{
@@ -597,13 +599,8 @@ export default function SimCityExample() {
       <BuildingPanel buildings={state?.buildings} buildingRecipes={state?.building_recipes} />
       <RecipePanel buildingRecipes={state?.building_recipes} />
       <MessagePanel 
-          messages={state?.messages} 
-          title="Agent Communications"
-          position={{ position: 'fixed', bottom: '10px', left: '10px' }}
-          width="400px"
-          height="200px"
-          maxHeight="200px"
-        />
+        messages={state?.messages} 
+      />
     </div>
   );
 } 
