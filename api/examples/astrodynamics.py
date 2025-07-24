@@ -40,7 +40,7 @@ class AstrodynamicsEnv:
         self.max_thrust = 2500.0  # N (more realistic for orbital maneuvers)
         self.specific_impulse = 300.0  # seconds
         self.initial_fuel = 750.0  # kg (for orbit-to-orbit transfer)
-        self.dt = 1.0  # seconds
+        self.dt = 10.0  # seconds
         
         # Mission parameters
         self.docking_threshold = 50.0  # meters
