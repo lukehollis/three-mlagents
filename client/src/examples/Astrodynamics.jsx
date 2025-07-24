@@ -111,7 +111,7 @@ const Trail = ({ trail, color }) => {
       <Line
         points={points}
         color={color}
-        lineWidth={2}
+        lineWidth={1}
         transparent
         opacity={0.6}
       />
@@ -139,7 +139,7 @@ const ThrustIndicator = ({ state }) => {
     <Line
       points={[position, position.clone().add(velocity)]}
       color="#ff00ff"
-      lineWidth={3}
+      lineWidth={1}
       transparent
       opacity={0.8}
     />
@@ -185,12 +185,10 @@ const OrbitalGrid = () => {
       {/* Orbital plane indicator */}
       <Circle args={[orbitRadius, 128]} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <meshStandardMaterial 
-          color="#ffff00" 
+          color="#ffffff" 
           transparent 
           opacity={0.1} 
           wireframe 
-          emissive="#ffff00" 
-          emissiveIntensity={0.2} 
           toneMapped={false} 
         />
       </Circle>
