@@ -389,6 +389,7 @@ Current Status:
 - Position: {self.pos.tolist()}
 - Resources: {self.resources}
 - Current goal: Build a {self.building_goal}
+- Current project: {self.current_building_project if self.current_building_project is not None else 'None'}
 - State: {self.state}
 - Satisfaction: {self.satisfaction:.1f}
 
@@ -410,14 +411,17 @@ Current building projects needing help:
     "contributors": len(b.contributors)
 } for b in current_projects[:3]])}
 
-Choose your next action based on:
-1. COMMUNICATE frequently to coordinate with other agents
-2. If you see a building project that needs resources you have, CONTRIBUTE
-3. If no suitable projects exist and you want to build something, START_BUILDING
-4. If you need resources, GATHER from businesses
-5. MOVE towards opportunities
+IMPORTANT PRIORITIES (follow these in order):
+1. **FINISH EXISTING PROJECTS FIRST** - If there are building projects in "planning" status that need resources you have, CONTRIBUTE to them instead of starting new ones
+2. **FOCUS ON YOUR CURRENT PROJECT** - If you have a current_building_project, prioritize contributing to it
+3. **HELP OTHERS COMPLETE** - Look for buildings that are close to starting construction or completion
+4. **COMMUNICATE** frequently to coordinate with other agents
+5. **GATHER RESOURCES** only if you need them to contribute to existing projects
+6. **START NEW BUILDINGS** only if there are very few active projects (less than {len(self.pedestrians) // 3}) and you have no current project
 
-Priority: Collaborate and communicate to build amazing structures together!
+FORBIDDEN: Do NOT start new buildings if you already have a current_building_project or if there are many unfinished projects!
+
+Choose your action focusing on COMPLETION over starting new projects:
 
 Respond with valid JSON only, no explanations."""
 
@@ -804,7 +808,7 @@ class SimCityEnv:
             
             # Check 1: Not too close to a road
             is_on_road = False
-            min_road_dist = 0.00015 # ~15 meters, to give some clearance from roads
+            min_road_dist = 0.002 # ~200 meters, to account for building size
             
             try:
                 # Use osmnx to find the distance to the nearest road edge
@@ -824,7 +828,7 @@ class SimCityEnv:
 
             # Check 2: Not too close to another building or business
             is_too_close = False
-            min_building_dist = 0.00035 # ~35 meters, to ensure spacing
+            min_building_dist = 0.0006 # ~60 meters, to ensure better spacing
             
             for building in self.buildings:
                 dist = np.linalg.norm(candidate_pos - building.pos)
@@ -884,12 +888,68 @@ class SimCityEnv:
         elif action == "start_building":
             building_type = data.get("building_type", "house")
             base_value = BUILDING_RECIPES.get(building_type, {}).get("base_value", 100)
-            reward += base_value * 0.1  # Reward for initiating valuable projects
+            
+            # Count unfinished buildings
+            unfinished_buildings = len([b for b in self.buildings if b.status in ["planning", "under_construction"]])
+            
+            # Heavy penalty for starting new buildings when there are many unfinished ones
+            if unfinished_buildings > len(self.pedestrians) // 3:  # More than 1/3 of agents worth of buildings
+                reward -= base_value * 0.5  # Large penalty
+                reward -= unfinished_buildings * 10  # Additional penalty per unfinished building
+            else:
+                reward += base_value * 0.1  # Reward for initiating valuable projects only when not too many active
 
         elif action == "contribute_building":
             resources_contributed = data.get("resources", {})
+            if not resources_contributed:  # No actual contribution
+                reward -= 5.0  # Penalty for trying to contribute nothing
+                return reward
+                
             contribution_value = sum([RESOURCES[r]["value"] * amount for r, amount in resources_contributed.items()])
-            reward += contribution_value * 0.5  # Reward for collaboration
+            base_contribution_reward = contribution_value * 0.5
+            
+            # Find the building being contributed to
+            building_id = data.get("building_id")
+            building = next((b for b in self.buildings if b.id == building_id), None)
+            
+            if building:
+                # Extra rewards for strategic contributions
+                if building.status == "planning":
+                    # Check if this contribution could help the building start construction
+                    remaining_resources = {}
+                    for resource, needed in building.resources_needed.items():
+                        remaining = needed - building.resources_contributed[resource]
+                        if remaining > 0:
+                            remaining_resources[resource] = remaining
+                    
+                    # Check how much of the remaining resources this contribution covers
+                    total_remaining_value = sum([RESOURCES[r]["value"] * amount for r, amount in remaining_resources.items()])
+                    covered_value = sum([RESOURCES[r]["value"] * min(amount, remaining_resources.get(r, 0)) 
+                                       for r, amount in resources_contributed.items()])
+                    
+                    if total_remaining_value > 0:
+                        completion_percentage = covered_value / total_remaining_value
+                        
+                        # Massive bonus if this contribution allows building to start construction
+                        if all(building.resources_contributed[r] + resources_contributed.get(r, 0) >= needed 
+                               for r, needed in building.resources_needed.items()):
+                            reward += 50.0  # Huge bonus for enabling construction start
+                        
+                        # Additional bonus based on how much progress this makes
+                        reward += completion_percentage * 30.0
+                
+                elif building.status == "under_construction":
+                    # Bonus for contributing to buildings already under construction
+                    progress_ratio = building.progress / building.build_time
+                    reward += base_contribution_reward * (1.0 + progress_ratio)  # More reward for buildings closer to completion
+                
+                # Bonus if this is the agent's current project
+                if agent.current_building_project == building_id:
+                    reward += 10.0  # Loyalty bonus for sticking to current project
+                
+                reward += base_contribution_reward
+            else:
+                reward += base_contribution_reward
 
         elif action == "communicate":
             reward += 3.0  # Reward communication for coordination
@@ -999,6 +1059,27 @@ class SimCityEnv:
             agent.add_to_memory_stream(f"Failed to start building - unknown type: {building_type}", self.step_count)
             return
         
+        # IMPORTANT: Prevent agents from starting new buildings if they already have an active project
+        if agent.current_building_project is not None:
+            # Check if their current project still exists and isn't completed
+            current_building = next((b for b in self.buildings if b.id == agent.current_building_project), None)
+            if current_building and current_building.status != "completed":
+                agent.add_to_memory_stream(f"Cannot start new building - already working on building {agent.current_building_project}", self.step_count)
+                log_to_frontend(f"🚫 Agent {agent.id} tried to start {building_type} but already working on building {agent.current_building_project}")
+                return
+            else:
+                # Clear the project if it's completed or doesn't exist
+                agent.current_building_project = None
+        
+        # Limit total number of planning/under_construction buildings to prevent too many unfinished projects
+        active_buildings = [b for b in self.buildings if b.status in ["planning", "under_construction"]]
+        max_concurrent_buildings = max(3, len(self.pedestrians) // 2)  # At least 3, or half the number of agents
+        
+        if len(active_buildings) >= max_concurrent_buildings:
+            agent.add_to_memory_stream(f"Cannot start new building - too many active projects ({len(active_buildings)}/{max_concurrent_buildings})", self.step_count)
+            log_to_frontend(f"🚫 Agent {agent.id} tried to start {building_type} but too many active projects ({len(active_buildings)}/{max_concurrent_buildings})")
+            return
+        
         # Find a valid location for the new building
         building_pos = self._find_valid_building_spot(agent.pos)
         
@@ -1014,7 +1095,7 @@ class SimCityEnv:
         agent.current_building_project = building_id
         agent.building_contributions[building_id] = {}
         
-        log_to_frontend(f"🏗️ Agent {agent.id} started building project: {building_type}")
+        log_to_frontend(f"🏗️ Agent {agent.id} started building project: {building_type} (#{building_id})")
         agent.add_to_memory_stream(f"Started {building_type} building project (ID: {building_id}). Reason: {reason}", self.step_count)
         
         # Send to all agents
@@ -1032,6 +1113,9 @@ class SimCityEnv:
         
         if building.status == "completed":
             agent.add_to_memory_stream(f"Building {building_id} already completed", self.step_count)
+            # Clear current project if it's this building
+            if agent.current_building_project == building_id:
+                agent.current_building_project = None
             return
         
         total_contributed = {}
@@ -1046,6 +1130,17 @@ class SimCityEnv:
                     contribution_value += RESOURCES[resource]["value"] * actual_contribution
         
         if total_contributed:
+            # Update current project if not set or if contributing to a different building
+            if agent.current_building_project is None or agent.current_building_project != building_id:
+                # Check if their old project is completed
+                if agent.current_building_project is not None:
+                    old_building = next((b for b in self.buildings if b.id == agent.current_building_project), None)
+                    if old_building and old_building.status == "completed":
+                        log_to_frontend(f"✅ Agent {agent.id}'s project {agent.current_building_project} completed, switching to {building_id}")
+                
+                agent.current_building_project = building_id
+                agent.add_to_memory_stream(f"Switched focus to building project {building_id}", self.step_count)
+            
             # Track personal contributions
             if building_id not in agent.building_contributions:
                 agent.building_contributions[building_id] = {}
@@ -1056,6 +1151,11 @@ class SimCityEnv:
             
             log_to_frontend(f"🔨 Agent {agent.id} contributed {total_contributed} to building {building_id}")
             agent.add_to_memory_stream(f"Contributed {total_contributed} to {building.type} project (value: ${contribution_value})", self.step_count)
+            
+            # Check if building can now start construction
+            if building.status == "planning" and building.can_start_construction():
+                log_to_frontend(f"🚀 Building {building_id} ({building.type}) can now start construction!")
+                agent.add_to_memory_stream(f"Building {building_id} ready for construction thanks to my contribution!", self.step_count)
             
             # Notify others
             self.add_message(agent.id, f"I contributed {total_contributed} to the {building.type} project! Progress continues.")
@@ -1186,11 +1286,15 @@ class SimCityEnv:
         for building in self.buildings:
             if building.advance_construction():
                 log_to_frontend(f"🏗️ Building {building.id} ({building.type}) completed!")
-                # Notify all contributors
+                # Notify all contributors and clear their current_building_project if it was this building
                 for contributor_id in building.contributors:
                     contributor = next((p for p in self.pedestrians if p.id == contributor_id), None)
                     if contributor:
                         contributor.add_to_memory_stream(f"Building {building.id} ({building.type}) completed! I was a contributor.", self.step_count)
+                        # Clear current project if it was this building
+                        if contributor.current_building_project == building.id:
+                            contributor.current_building_project = None
+                            log_to_frontend(f"✅ Agent {contributor.id} completed their building project {building.id}")
         
         # Update pedestrians
         for pedestrian in self.pedestrians:
@@ -1267,13 +1371,20 @@ def get_valid_actions_mask(agent: Pedestrian, businesses: List[Business], buildi
     start_building_idx = DISCRETE_ACTIONS.index("start_building")
     contribute_idx = DISCRETE_ACTIONS.index("contribute_building")
     
-    # Can start building if agent has some resources
-    if sum(agent.resources.values()) < 10:
+    # Can start building only if:
+    # 1. Agent has some resources
+    # 2. Agent doesn't already have a current project
+    # 3. There aren't too many active buildings
+    active_buildings = [b for b in buildings if b.status in ["planning", "under_construction"]]
+    max_concurrent_buildings = 6  # Reasonable default limit
+    
+    if (sum(agent.resources.values()) < 10 or 
+        agent.current_building_project is not None or 
+        len(active_buildings) >= max_concurrent_buildings):
         mask[start_building_idx] = False
     
     # Can contribute if there are active projects and agent has resources
-    active_projects = [b for b in buildings if b.status in ["planning", "under_construction"]]
-    if not active_projects or sum(agent.resources.values()) < 5:
+    if not active_buildings or sum(agent.resources.values()) < 5:
         mask[contribute_idx] = False
     
     return mask

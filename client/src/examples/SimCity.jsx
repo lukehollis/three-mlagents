@@ -244,7 +244,7 @@ const ResourcePanel = ({ pedestrians, resources }) => {
   );
 };
 
-const BuildingPanel = ({ buildings, buildingRecipes }) => {
+const BuildingPanel = ({ buildings, buildingRecipes, pedestrians }) => {
   const buildingStats = useMemo(() => {
     if (!buildings) return { total: 0, completed: 0, underConstruction: 0, planning: 0 };
     return {
@@ -293,7 +293,11 @@ const BuildingPanel = ({ buildings, buildingRecipes }) => {
       </div>
 
       <Text h5 style={{ margin: '0 0 8px 0', color: '#fff', fontSize: '12px', position: 'sticky', }}>Active Projects:</Text>
-      {activeProjects.map(building => (
+      {activeProjects.map(building => {
+        // Find agents currently working on this project
+        const focusedAgents = pedestrians?.filter(p => p.current_building_project === building.id) || [];
+        
+        return (
         <div key={building.id} style={{
           marginBottom: '12px',
           padding: '12px',
@@ -313,6 +317,11 @@ const BuildingPanel = ({ buildings, buildingRecipes }) => {
           
           <div style={{ fontSize: '10px', color: '#ccc', marginBottom: '4px' }}>
             Contributors: {building.contributors.length} | Height: {building.height} stories
+            {focusedAgents.length > 0 && (
+              <span style={{ color: '#00ff88', marginLeft: '8px' }}>
+                • {focusedAgents.length} focused agent{focusedAgents.length !== 1 ? 's' : ''}
+              </span>
+            )}
           </div>
           
           {/* Progress bar for under construction */}
@@ -358,7 +367,8 @@ const BuildingPanel = ({ buildings, buildingRecipes }) => {
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
       
       {activeProjects.length === 0 && (
         <Text p style={{ fontSize: '12px', color: '#666', textAlign: 'center' }}>
@@ -596,7 +606,7 @@ export default function SimCityExample() {
       <InfoPanel logs={logs} chartState={chartState} />
       <ModelInfoPanel modelInfo={modelInfo} />
       <ResourcePanel pedestrians={state?.pedestrians} resources={state?.resources} />
-      <BuildingPanel buildings={state?.buildings} buildingRecipes={state?.building_recipes} />
+      <BuildingPanel buildings={state?.buildings} buildingRecipes={state?.building_recipes} pedestrians={state?.pedestrians} />
       <RecipePanel buildingRecipes={state?.building_recipes} />
       <MessagePanel 
         messages={state?.messages} 

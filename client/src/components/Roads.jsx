@@ -18,7 +18,7 @@ const Roads = ({ roadNetwork, coordinateTransformer }) => {
           key={i}
           points={points}
           color="white"
-          lineWidth={2}
+          lineWidth={1}
         />
       );
     });
