@@ -98,6 +98,42 @@ const SpaceStation = ({ position }) => {
   );
 };
 
+const StationOrbit = () => {
+  const stationOrbitRadius = (6.371e6 + 15000e3) * VIZ_SCALE;
+  return (
+      <Torus args={[stationOrbitRadius, 0.1, 16, 128]} rotation={[Math.PI / 2, 0, 0]}>
+          <meshStandardMaterial
+              color="white"
+              transparent
+              opacity={0.2}
+          />
+      </Torus>
+  );
+};
+
+const EarthOrbit = () => {
+  const sunPosition = [20000, 0, -15000];
+  const earthPosition = [0, 0, 0];
+  const radius = Math.sqrt(
+      Math.pow(sunPosition[0] - earthPosition[0], 2) +
+      Math.pow(sunPosition[1] - earthPosition[1], 2) +
+      Math.pow(sunPosition[2] - earthPosition[2], 2)
+  );
+
+  return (
+      <group position={sunPosition}>
+          <Torus args={[radius, 1, 16, 200]} rotation={[Math.PI / 2, 0, 0]} wireframe={true}>
+              <meshStandardMaterial
+                  color="white"
+                  transparent
+                  opacity={0.2}
+                  
+              />
+          </Torus>
+      </group>
+  );
+};
+
 const Trail = ({ trail, color }) => {
     if (!trail || trail.length < 2) return null;
   
@@ -187,7 +223,7 @@ const OrbitalGrid = () => {
         <meshStandardMaterial 
           color="#ffffff" 
           transparent 
-          opacity={0.1} 
+          opacity={0.05} 
           wireframe 
           toneMapped={false} 
         />
@@ -202,6 +238,8 @@ const Scene = ({ state }) => {
         <Sun />
         <Earth />
         <OrbitalGrid />
+        <StationOrbit />
+        <EarthOrbit />
   
         {state && (
           <>
@@ -213,7 +251,7 @@ const Scene = ({ state }) => {
           </>
         )}
   
-        <Stars radius={8000} depth={100} count={5000} factor={20} saturation={0} fade speed={0.2} />
+        <Stars radius={100000} depth={100} count={5000} factor={20} saturation={0} fade speed={0.2} />
         <EffectComposer>
           <Bloom 
             intensity={1.2} 
