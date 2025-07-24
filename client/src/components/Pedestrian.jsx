@@ -5,20 +5,12 @@ import * as THREE from 'three';
 const Pedestrian = ({ pedestrian, coordinateTransformer }) => {
     const { pos, state, id, color, satisfaction, resources } = pedestrian;
     const [pedPosition, setPedPosition] = useState(null);
-    const [orientation, setOrientation] = useState(new THREE.Quaternion());
 
     useEffect(() => {
         if (coordinateTransformer) {
             const [lat, lng] = pos;
             const vector = coordinateTransformer.latLngToECEF(lat, lng, 1); // Elevate slightly
             setPedPosition(vector);
-
-            const up = vector.clone().normalize();
-            const newOrientation = new THREE.Quaternion().setFromUnitVectors(
-                new THREE.Vector3(0, 1, 0), // Default model's 'up'
-                up                          // Target 'up' on the globe
-            );
-            setOrientation(newOrientation);
         }
     }, [pos, coordinateTransformer]);
 
@@ -53,7 +45,7 @@ const Pedestrian = ({ pedestrian, coordinateTransformer }) => {
     const scale = 6; // Made slightly smaller to fit more pedestrians
 
     return (
-        <group position={pedPosition} quaternion={orientation}>
+        <group position={pedPosition}>
           <group position={[0, 6, 0]}>
             {/* Head - colored by satisfaction */}
             <mesh position={[0, 0.75 * scale, 0]}>
