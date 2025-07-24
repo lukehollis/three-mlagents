@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, Box, Cylinder, Stars, Plane, Grid, Line, Cone, Circle, Sphere, Torus } from '@react-three/drei';
+import { OrbitControls, Box, Cylinder, Stars, Plane, Grid, Cone, Circle, Sphere, Torus } from '@react-three/drei';
 import { Button, Text } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import * as THREE from 'three';
@@ -15,6 +15,7 @@ import { useResponsive } from '../hooks/useResponsive.js';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/astrodynamics`;
 const VIZ_SCALE = 0.00001; // Scale down meters to scene units
+const MAX_TRAIL_POINTS = 10000; // Must match backend
 
 const Sun = () => (
     <group position={[20000, 0, -15000]}>
@@ -135,50 +136,96 @@ const EarthOrbit = () => {
 };
 
 const Trail = ({ trail, color }) => {
-    if (!trail || trail.length < 2) return null;
-  
-    const points = trail.map(pos => new THREE.Vector3(
-      pos[0] * VIZ_SCALE,
-      pos[2] * VIZ_SCALE,
-      -pos[1] * VIZ_SCALE
-    ));
-  
-    return (
-      <Line
-        points={points}
-        color={color}
-        lineWidth={1}
-        transparent
-        opacity={0.6}
-      />
-    );
-  };
+  const lineRef = useRef();
+
+  const intensifiedColor = useMemo(() => new THREE.Color(color).multiplyScalar(9), [color]);
+
+  const geometry = useMemo(() => {
+    const geom = new THREE.BufferGeometry();
+    const positions = new Float32Array(MAX_TRAIL_POINTS * 3);
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setDrawRange(0, 0);
+    return geom;
+  }, []);
+
+  useFrame(() => {
+    if (!lineRef.current) return;
+
+    if (!trail || trail.length < 2) {
+      lineRef.current.geometry.setDrawRange(0, 0);
+      return;
+    }
+
+    const positions = lineRef.current.geometry.attributes.position.array;
+    
+    let i = 0;
+    for (const pos of trail) {
+      positions[i++] = pos[0] * VIZ_SCALE;
+      positions[i++] = pos[2] * VIZ_SCALE;
+      positions[i++] = -pos[1] * VIZ_SCALE;
+    }
+
+    lineRef.current.geometry.setDrawRange(0, trail.length);
+    lineRef.current.geometry.attributes.position.needsUpdate = true;
+  });
+
+  return (
+    <line ref={lineRef} geometry={geometry}>
+      <lineBasicMaterial color={intensifiedColor} transparent opacity={0.6} lineWidth={1} toneMapped={false} />
+    </line>
+  );
+};
   
 
 // Thrust visualization
 const ThrustIndicator = ({ state }) => {
-  if (!state || !state.spacecraft_vel_abs) return null;
+  const lineRef = useRef();
 
-  const velocity = new THREE.Vector3(
-    state.spacecraft_vel_abs[0],
-    state.spacecraft_vel_abs[2],
-    -state.spacecraft_vel_abs[1]
-  ).normalize().multiplyScalar(5);
+  const geometry = useMemo(() => {
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(2 * 3), 3));
+    return geom;
+  }, []);
 
-  const position = new THREE.Vector3(
-    state.spacecraft_pos_abs[0] * VIZ_SCALE,
-    state.spacecraft_pos_abs[2] * VIZ_SCALE,
-    -state.spacecraft_pos_abs[1] * VIZ_SCALE
-  );
+  useFrame(() => {
+    if (!lineRef.current) return;
+
+    if (!state || !state.spacecraft_vel_abs) {
+      lineRef.current.visible = false;
+      return;
+    }
+    lineRef.current.visible = true;
+
+    const positions = lineRef.current.geometry.attributes.position.array;
+
+    const velocity = new THREE.Vector3(
+      state.spacecraft_vel_abs[0],
+      state.spacecraft_vel_abs[2],
+      -state.spacecraft_vel_abs[1]
+    ).normalize().multiplyScalar(5);
+
+    const position = new THREE.Vector3(
+      state.spacecraft_pos_abs[0] * VIZ_SCALE,
+      state.spacecraft_pos_abs[2] * VIZ_SCALE,
+      -state.spacecraft_pos_abs[1] * VIZ_SCALE
+    );
+    const endPoint = position.clone().add(velocity);
+
+    positions[0] = position.x;
+    positions[1] = position.y;
+    positions[2] = position.z;
+    positions[3] = endPoint.x;
+    positions[4] = endPoint.y;
+    positions[5] = endPoint.z;
+
+    lineRef.current.geometry.attributes.position.needsUpdate = true;
+    lineRef.current.geometry.computeBoundingSphere();
+  });
 
   return (
-    <Line
-      points={[position, position.clone().add(velocity)]}
-      color="#ff00ff"
-      lineWidth={1}
-      transparent
-      opacity={0.8}
-    />
+    <line ref={lineRef} geometry={geometry}>
+      <lineBasicMaterial color="#ff00ff" transparent opacity={0.8} />
+    </line>
   );
 };
 
@@ -253,11 +300,11 @@ const Scene = ({ state }) => {
   
         <Stars radius={100000} depth={100} count={5000} factor={20} saturation={0} fade speed={0.2} />
         <EffectComposer>
-          <Bloom 
-            intensity={1.2} 
-            luminanceThreshold={0.05} 
-            luminanceSmoothing={0.9} 
-            toneMapped={false} 
+          <Bloom
+            intensity={.3}
+            mipmapBlur
+            luminanceThreshold={0.4}
+            luminanceSmoothing={0}
           />
         </EffectComposer>
       </>
@@ -328,7 +375,7 @@ export default function AstrodynamicsExample() {
   const addLog = (txt) => {
     setLogs((l) => {
       const upd = [...l, txt];
-      return upd.length > 200 ? upd.slice(upd.length - 200) : upd;
+      return upd.length > 100 ? upd.slice(upd.length - 100) : upd;
     });
   };
 
@@ -337,24 +384,25 @@ export default function AstrodynamicsExample() {
     wsRef.current = ws;
     ws.onopen = () => addLog('WS opened');
     ws.onmessage = (ev) => {
-      addLog(ev.data);
       let parsed;
       try {
         parsed = JSON.parse(ev.data);
       } catch {
+        addLog(`Received non-JSON: ${ev.data}`);
         return;
       }
+
       if ((parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state') && parsed.state) {
         setState(parsed.state);
-      }
-      if (parsed.type === 'progress') {
+      } else if (parsed.type === 'progress') {
+        addLog(`Episode ${parsed.episode}: Reward=${parsed.reward.toFixed(3)}, Loss=${(parsed.loss ?? 0).toFixed(3)}`);
         setChartState((prev) => ({
           labels: [...prev.labels, parsed.episode],
           rewards: [...prev.rewards, parsed.reward],
           losses: [...prev.losses, parsed.loss ?? null],
         }));
-      }
-      if (parsed.type === 'trained') {
+      } else if (parsed.type === 'trained') {
+        addLog(`Training complete. Model: ${parsed.model_filename}`);
         setTraining(false);
         setTrained(true);
         setModelInfo({ 
@@ -363,6 +411,8 @@ export default function AstrodynamicsExample() {
           sessionUuid: parsed.session_uuid, 
           fileUrl: parsed.file_url 
         });
+      } else {
+        addLog(ev.data);
       }
     };
     ws.onclose = () => addLog('WS closed');
@@ -456,11 +506,6 @@ export default function AstrodynamicsExample() {
             <Button auto type="success" disabled={!trained} onClick={startRun}>
               Run
             </Button>
-            {/* {trained && (
-              <Button auto type="error" onClick={resetTraining}>
-                Reset
-              </Button>
-            )} */}
           </div>
           <ModelInfoPanel modelInfo={modelInfo} />
         </div>

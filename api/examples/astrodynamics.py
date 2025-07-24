@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 import uuid
 from typing import List, Dict, Any
+from collections import deque
 
 import asyncio
 import numpy as np
@@ -62,9 +63,9 @@ class AstrodynamicsEnv:
         self.target_vel = np.zeros(3)  # target space station velocity (in relative frame, so always 0)
         
         # Visualization trail
-        self.spacecraft_trail = []
-        self.target_trail = []
         self.max_trail_length = 10000
+        self.spacecraft_trail = deque(maxlen=self.max_trail_length)
+        self.target_trail = deque(maxlen=self.max_trail_length)
         
         self.steps = 0
         self.reset()
@@ -104,8 +105,8 @@ class AstrodynamicsEnv:
         self.relative_vel = self.spacecraft_vel_abs - self.target_vel_abs
         
         self.fuel = self.initial_fuel
-        self.spacecraft_trail = []
-        self.target_trail = []
+        self.spacecraft_trail.clear()
+        self.target_trail.clear()
         self.steps = 0
         return self._get_obs()
 
@@ -185,12 +186,7 @@ class AstrodynamicsEnv:
 
         # Update trail for visualization
         self.spacecraft_trail.append(self.spacecraft_pos_abs.copy())
-        if len(self.spacecraft_trail) > self.max_trail_length:
-            self.spacecraft_trail.pop(0)
-
         self.target_trail.append(self.target_pos_abs.copy())
-        if len(self.target_trail) > self.max_trail_length:
-            self.target_trail.pop(0)
 
         # Calculate reward and termination
         distance = np.linalg.norm(self.relative_pos)
