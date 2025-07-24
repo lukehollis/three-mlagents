@@ -23,34 +23,48 @@ class AstrodynamicsEnv:
         # Physical constants
         self.mu = 3.986e14  # Earth's gravitational parameter (m³/s²)
         self.earth_radius = 6.371e6  # Earth radius (m)
-        self.orbit_altitude = 400e3  # Orbital altitude (m)
-        self.orbit_radius = self.earth_radius + self.orbit_altitude
         
-        # Orbital velocity at this altitude
+        # Target orbit (MEO - Medium Earth Orbit)
+        self.orbit_altitude = 15000e3  # Target orbital altitude (m)
+        self.orbit_radius = self.earth_radius + self.orbit_altitude
         self.orbital_velocity = np.sqrt(self.mu / self.orbit_radius)
         
+        # Spacecraft starting orbit (LEO - Low Earth Orbit)
+        self.leo_altitude = 400e3 # 400 km altitude
+        self.leo_radius = self.earth_radius + self.leo_altitude
+        self.leo_velocity = np.sqrt(self.mu / self.leo_radius)
+
         # Spacecraft parameters
         self.mass = 1000.0  # kg
-        self.max_thrust = 500.0  # N
+        self.max_thrust = 2500.0  # N (more realistic for orbital maneuvers)
         self.specific_impulse = 300.0  # seconds
-        self.initial_fuel = 500.0  # kg
+        self.initial_fuel = 750.0  # kg (for orbit-to-orbit transfer)
         self.dt = 1.0  # seconds
         
         # Mission parameters
-        self.docking_threshold = 10.0  # meters
-        self.velocity_threshold = 0.5  # m/s for successful docking
-        self.max_distance = 5000.0  # maximum distance from target (m)
+        self.docking_threshold = 50.0  # meters
+        self.velocity_threshold = 2.0  # m/s for successful docking
+        self.max_distance = 25000e3  # maximum distance from target (m)
         
-        # State variables (in orbital reference frame)
-        self.pos = np.zeros(3)  # relative position to target (m)
-        self.vel = np.zeros(3)  # relative velocity to target (m/s)
+        # State variables
+        # Relative state (in orbital reference frame of the target)
+        self.relative_pos = np.zeros(3)  # relative position to target (m)
+        self.relative_vel = np.zeros(3)  # relative velocity to target (m/s)
+        
+        # Absolute state (in Earth-Centered Inertial frame)
+        self.spacecraft_pos_abs = np.zeros(3)
+        self.spacecraft_vel_abs = np.zeros(3)
+        self.target_pos_abs = np.zeros(3)
+        self.target_vel_abs = np.zeros(3)
+        
         self.fuel = self.initial_fuel  # remaining fuel (kg)
-        self.target_pos = np.zeros(3)  # target space station position
-        self.target_vel = np.zeros(3)  # target space station velocity
+        self.target_pos = np.zeros(3)  # target space station position (in relative frame, so always 0)
+        self.target_vel = np.zeros(3)  # target space station velocity (in relative frame, so always 0)
         
         # Visualization trail
         self.spacecraft_trail = []
-        self.max_trail_length = 100
+        self.target_trail = []
+        self.max_trail_length = 500
         
         self.steps = 0
         self.reset()
@@ -65,63 +79,75 @@ class AstrodynamicsEnv:
         accel = -self.mu * pos_global / (r**3)
         return accel
 
-    def _relative_motion_dynamics(self, rel_pos: np.ndarray, rel_vel: np.ndarray) -> tuple:
-        """Hill's equations for relative orbital motion."""
-        x, y, z = rel_pos
-        vx, vy, vz = rel_vel
-        
-        # Mean motion (angular velocity of reference orbit)
-        n = np.sqrt(self.mu / (self.orbit_radius**3))
-        
-        # Hill's equations (Clohessy-Wiltshire)
-        ax = 3 * n**2 * x + 2 * n * vy
-        ay = -2 * n * vx
-        az = -n**2 * z
-        
-        return np.array([ax, ay, az])
-
     def reset(self):
-        # Start spacecraft at a random position around the target
-        angle = np.random.uniform(0, 2 * np.pi)
-        distance = np.random.uniform(1000, 3000)  # meters
-        
-        self.pos = np.array([
-            distance * np.cos(angle),
-            distance * np.sin(angle),
-            np.random.uniform(-500, 500)
+        # Target starts in a circular MEO in the XY plane
+        self.target_pos_abs = np.array([self.orbit_radius, 0.0, 0.0])
+        self.target_vel_abs = np.array([0.0, self.orbital_velocity, 0.0])
+
+        # Start spacecraft in a random position in LEO in the same plane
+        start_angle = np.random.uniform(0, 2 * np.pi)
+        self.spacecraft_pos_abs = np.array([
+            self.leo_radius * np.cos(start_angle),
+            self.leo_radius * np.sin(start_angle),
+            0.0
         ])
         
-        # Small initial relative velocity
-        self.vel = np.random.uniform(-2, 2, 3)
+        # Velocity is tangential to the orbit
+        self.spacecraft_vel_abs = np.array([
+            -self.leo_velocity * np.sin(start_angle),
+            self.leo_velocity * np.cos(start_angle),
+            0.0
+        ])
         
-        # Target is at origin of relative coordinate system
-        self.target_pos = np.array([0.0, 0.0, 0.0])
-        self.target_vel = np.array([0.0, 0.0, 0.0])
+        # Calculate initial relative state
+        self.relative_pos = self.spacecraft_pos_abs - self.target_pos_abs
+        self.relative_vel = self.spacecraft_vel_abs - self.target_vel_abs
         
         self.fuel = self.initial_fuel
         self.spacecraft_trail = []
+        self.target_trail = []
         self.steps = 0
         return self._get_obs()
 
     def step(self, action: int):
         self.steps += 1
 
-        # Action mapping: 0=no thrust, 1-6=thrust in +/-x,y,z directions
+        # --- Define local reference frame (Up, North, East) ---
+        up_dir = self.spacecraft_pos_abs / (np.linalg.norm(self.spacecraft_pos_abs) + 1e-8)
+        
+        # North direction (aligns with Earth's rotational axis)
+        # To get a consistent North, project world Z onto the tangent plane
+        z_axis = np.array([0, 0, 1])
+        north_dir = z_axis - np.dot(z_axis, up_dir) * up_dir
+        north_dir /= (np.linalg.norm(north_dir) + 1e-8)
+
+        # East direction is orthogonal to North and Up
+        east_dir = np.cross(north_dir, up_dir)
+
+        # Action mapping: 0=no thrust, 1-6=thrust in local frame
         thrust_vector = np.zeros(3)
         thrust_magnitude = self.max_thrust
         
-        if action == 1:   # +X thrust
-            thrust_vector = np.array([thrust_magnitude, 0, 0])
-        elif action == 2: # -X thrust
-            thrust_vector = np.array([-thrust_magnitude, 0, 0])
-        elif action == 3: # +Y thrust
-            thrust_vector = np.array([0, thrust_magnitude, 0])
-        elif action == 4: # -Y thrust
-            thrust_vector = np.array([0, -thrust_magnitude, 0])
-        elif action == 5: # +Z thrust
-            thrust_vector = np.array([0, 0, thrust_magnitude])
-        elif action == 6: # -Z thrust
-            thrust_vector = np.array([0, 0, -thrust_magnitude])
+        local_thrust_direction = np.zeros(3)
+        if action == 1:   # +Up (main thrust)
+            local_thrust_direction = np.array([1, 0, 0])
+        elif action == 2: # -Up (retro/down)
+            local_thrust_direction = np.array([-1, 0, 0])
+        elif action == 3: # +North
+            local_thrust_direction = np.array([0, 1, 0])
+        elif action == 4: # -North
+            local_thrust_direction = np.array([0, -1, 0])
+        elif action == 5: # +East
+            local_thrust_direction = np.array([0, 0, 1])
+        elif action == 6: # -East
+            local_thrust_direction = np.array([0, 0, -1])
+        
+        if action > 0:
+            # Convert local thrust direction to global ECI frame
+            # The basis vectors (up, north, east) form the columns of the transformation matrix
+            rotation_matrix = np.column_stack([up_dir, north_dir, east_dir])
+            global_thrust_dir = rotation_matrix @ local_thrust_direction
+            thrust_vector = global_thrust_dir * thrust_magnitude
         
         # Calculate fuel consumption
         thrust_mag = np.linalg.norm(thrust_vector)
@@ -133,100 +159,127 @@ class AstrodynamicsEnv:
             if self.fuel <= 0:
                 thrust_vector = np.zeros(3)
 
-        # Apply orbital dynamics
-        rel_accel = self._relative_motion_dynamics(self.pos, self.vel)
+        # Calculate gravitational acceleration for both spacecraft and target
+        spacecraft_grav_accel = self._orbital_dynamics(self.spacecraft_pos_abs)
+        target_grav_accel = self._orbital_dynamics(self.target_pos_abs)
+
+        # Total acceleration for spacecraft
+        thrust_accel = np.zeros(3)
+        current_mass = self.mass + self.fuel
+        if self.fuel > 0 and current_mass > 0:
+            thrust_accel = thrust_vector / current_mass
         
-        # Add thrust acceleration
-        if self.fuel > 0:
-            thrust_accel = thrust_vector / self.mass
-            rel_accel += thrust_accel
+        spacecraft_total_accel = spacecraft_grav_accel + thrust_accel
+
+        # Integrate motion for spacecraft
+        self.spacecraft_vel_abs += spacecraft_total_accel * self.dt
+        self.spacecraft_pos_abs += self.spacecraft_vel_abs * self.dt
         
-        # Integrate motion
-        self.vel += rel_accel * self.dt
-        self.pos += self.vel * self.dt
+        # Integrate motion for target
+        self.target_vel_abs += target_grav_accel * self.dt
+        self.target_pos_abs += self.target_vel_abs * self.dt
         
+        # Update relative state for observations and rewards
+        self.relative_pos = self.spacecraft_pos_abs - self.target_pos_abs
+        self.relative_vel = self.spacecraft_vel_abs - self.target_vel_abs
+
         # Update trail for visualization
-        self.spacecraft_trail.append(self.pos.copy())
+        self.spacecraft_trail.append(self.spacecraft_pos_abs.copy())
         if len(self.spacecraft_trail) > self.max_trail_length:
             self.spacecraft_trail.pop(0)
 
+        self.target_trail.append(self.target_pos_abs.copy())
+        if len(self.target_trail) > self.max_trail_length:
+            self.target_trail.pop(0)
+
         # Calculate reward and termination
-        distance = np.linalg.norm(self.pos)
-        velocity_mag = np.linalg.norm(self.vel)
+        distance = np.linalg.norm(self.relative_pos)
+        velocity_mag = np.linalg.norm(self.relative_vel)
         
         done = False
         reward = 0.0
         
         # Primary reward: negative distance (encourages approach)
-        reward -= distance / 1000.0  # Scale to reasonable range
+        reward -= (distance / self.max_distance) * 0.5
         
-        # Velocity penalty (encourages slow, controlled approach)
-        reward -= velocity_mag * 0.1
+        # Velocity penalty (encourages controlled approach)
+        reward -= (velocity_mag / 10000.0) * 0.1
         
-        # Fuel efficiency bonus
+        # Fuel efficiency bonus (small incentive)
         fuel_ratio = self.fuel / self.initial_fuel
-        reward += fuel_ratio * 0.01
+        reward += fuel_ratio * 0.001
         
         # Success reward
         if distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
-            reward += 100.0  # Large success bonus
+            reward += 1000.0  # Large success bonus for successful orbital rendezvous
             done = True
         
         # Failure conditions
         if distance > self.max_distance:
-            reward = -50.0  # Penalty for drifting too far
+            reward = -10.0  # Penalty for drifting too far
+            done = True
+        
+        # Crash into Earth
+        spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
+        if spacecraft_radius < self.earth_radius:  # Crash if below surface
+            reward = -200.0  # Large penalty for crashing
             done = True
         
         if self.fuel <= 0 and distance > self.docking_threshold:
-            reward = -30.0  # Penalty for running out of fuel
+            reward = -50.0  # Penalty for running out of fuel
             done = True
         
         # Collision penalty (too fast approach)
         if distance < self.docking_threshold and velocity_mag > self.velocity_threshold:
-            reward = -25.0
+            reward = -50.0
             done = True
         
         # Timeout
-        if self.steps > 1000:
+        if self.steps > 4000:  # Increased timeout for orbit-to-orbit mission
             done = True
 
         return self._get_obs(), reward, done
 
     def _get_obs(self):
         """Get observation vector for the agent."""
-        distance = np.linalg.norm(self.pos)
-        velocity_mag = np.linalg.norm(self.vel)
+        distance = np.linalg.norm(self.relative_pos)
+        velocity_mag = np.linalg.norm(self.relative_vel)
         
         # Normalize observations
-        pos_norm = self.pos / 5000.0  # Normalize by max distance
-        vel_norm = self.vel / 10.0    # Normalize by reasonable velocity range
+        pos_norm = self.relative_pos / self.max_distance
+        vel_norm = self.relative_vel / 10000.0     # Normalize by a typical orbital velocity delta
         
         # Unit vector pointing to target
-        target_dir = -self.pos / (distance + 1e-8)
+        target_dir = -self.relative_pos / (distance + 1e-8)
         
         return np.concatenate([
             pos_norm,                          # Relative position (3)
             vel_norm,                          # Relative velocity (3)
             target_dir,                        # Direction to target (3)
-            [distance / 5000.0],               # Distance to target (1)
-            [velocity_mag / 10.0],             # Speed magnitude (1)
+            [distance / self.max_distance],    # Distance to target (1)
+            [velocity_mag / 10000.0],          # Speed magnitude (1)
             [self.fuel / self.initial_fuel],   # Fuel ratio (1)
-            [self.steps / 1000.0]              # Time progress (1)
+            [self.steps / 4000.0]              # Time progress (1)
         ])
 
     def get_state_for_viz(self) -> Dict[str, Any]:
         """Get state information for visualization."""
         return {
-            "spacecraft_pos": self.pos.tolist(),
-            "spacecraft_vel": self.vel.tolist(),
+            "spacecraft_pos": self.relative_pos.tolist(),
+            "spacecraft_vel": self.relative_vel.tolist(),
+            "spacecraft_pos_abs": self.spacecraft_pos_abs.tolist(),
+            "spacecraft_vel_abs": self.spacecraft_vel_abs.tolist(),
+            "target_pos_abs": self.target_pos_abs.tolist(),
             "target_pos": self.target_pos.tolist(),
             "fuel_ratio": self.fuel / self.initial_fuel,
-            "distance_to_target": float(np.linalg.norm(self.pos)),
-            "velocity_magnitude": float(np.linalg.norm(self.vel)),
+            "distance_to_target": float(np.linalg.norm(self.relative_pos)),
+            "velocity_magnitude": float(np.linalg.norm(self.relative_vel)),
             "trail": [pos.tolist() for pos in self.spacecraft_trail],
+            "target_trail": [pos.tolist() for pos in self.target_trail],
             "orbit_params": {
                 "radius": self.orbit_radius,
-                "velocity": self.orbital_velocity
+                "velocity": self.orbital_velocity,
+                "leo_radius": self.leo_radius
             }
         }
 
@@ -305,7 +358,7 @@ async def train_astrodynamics(websocket: WebSocket):
     
     total_steps = 0
 
-    while ep_counter < 2000:
+    while ep_counter < 3000: # Increased training episodes
         with torch.no_grad():
             dist, value = model(obs)
             actions = dist.sample()
@@ -392,7 +445,8 @@ async def train_astrodynamics(websocket: WebSocket):
             avg_loss = float(loss.detach().cpu().item())
             step_buffer = []
             total_steps = 0
-            await websocket.send_json({"type": "progress", "episode": ep_counter + 1, "reward": avg_reward, "loss": avg_loss})
+            if ep_counter > 10: # Avoid noisy first updates
+                await websocket.send_json({"type": "progress", "episode": ep_counter + 1, "reward": avg_reward, "loss": avg_loss})
 
     _export_model_onnx(model, model_path)
     await websocket.send_json({"type": "trained", "file_url": f"/policies/{model_filename}", "model_filename": model_filename, "timestamp": ts, "session_uuid": session_uuid})

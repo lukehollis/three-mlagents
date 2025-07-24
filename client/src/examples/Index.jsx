@@ -207,7 +207,7 @@ export default function ExamplesIndex() {
                   </Text>
                 </Link>
                 <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Use RL+LLM to play a SimCity-like on a map with intelligent agents.
+                  Use RL+LLM to play a SimCity-like simulation on a map with intelligent agents.
                 </Text>
                 <Link to="/simcity" style={{ textDecoration: 'none' }}>
                   <Button 

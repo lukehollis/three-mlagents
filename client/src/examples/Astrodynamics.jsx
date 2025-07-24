@@ -14,33 +14,27 @@ import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/astrodynamics`;
-const STATION_ORBIT_RADIUS = 50;
-const STATION_ORBIT_SPEED = 0.001;
-const EARTH_ORBIT_RADIUS = 250;
-const EARTH_ORBIT_SPEED = 0.0001;
+const VIZ_SCALE = 0.00001; // Scale down meters to scene units
 
 const Sun = () => (
-    <group>
-      <Sphere args={[20, 32, 32]}>
-        <meshStandardMaterial emissive="#ffff00" emissiveIntensity={2} color="#ffff00" toneMapped={false} />
+    <group position={[20000, 0, -15000]}>
+      <Sphere args={[1000, 32, 32]}>
+        <meshStandardMaterial emissive="#ffffc5" emissiveIntensity={10} color="#ffffc5" toneMapped={false} />
       </Sphere>
-      <pointLight intensity={5} distance={1000} color="#ffffff" />
+      <pointLight intensity={1e9} distance={100000} color="#ffffff" />
     </group>
-  );
+);
 
 // Spacecraft component
-const Spacecraft = ({ state }) => {
-  const { spacecraft_pos } = state;
+const Spacecraft = ({ position }) => {
   const groupRef = useRef();
-
+  
   useFrame(() => {
-    if (groupRef.current && spacecraft_pos) {
-      // Scale positions for better visualization (meters to scene units)
-      const scale = 0.01;
+    if (groupRef.current && position) {
       groupRef.current.position.set(
-        spacecraft_pos[0] * scale,
-        spacecraft_pos[2] * scale,
-        -spacecraft_pos[1] * scale
+        position[0] * VIZ_SCALE,
+        position[2] * VIZ_SCALE,
+        -position[1] * VIZ_SCALE
       );
     }
   });
@@ -67,25 +61,28 @@ const Spacecraft = ({ state }) => {
 };
 
 // Space station (target)
-const SpaceStation = () => {
+const SpaceStation = ({ position }) => {
   const groupRef = useRef();
 
   useFrame(() => {
     if (groupRef.current) {
       groupRef.current.rotation.y += 0.005;
+      if (position) {
+        groupRef.current.position.set(
+            position[0] * VIZ_SCALE,
+            position[2] * VIZ_SCALE,
+            -position[1] * VIZ_SCALE
+        );
+      }
     }
   });
 
   return (
-    <group ref={groupRef} position={[0,0,0]}>
+    <group ref={groupRef}>
       {/* Central hub */}
       <Sphere args={[1.5]}>
         <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={0.3} toneMapped={false} />
       </Sphere>
-      {/* Docking ring */}
-      <Torus args={[2.5, 0.3, 8, 16]}>
-        <meshStandardMaterial color="#ffff00" emissive="#ffff00" emissiveIntensity={0.5} toneMapped={false} />
-      </Torus>
       {/* Communication array */}
       <Box args={[0.1, 4, 0.1]} position={[0, 3, 0]}>
         <meshStandardMaterial color="#ff8800" emissive="#ff8800" emissiveIntensity={0.4} toneMapped={false} />
@@ -101,44 +98,41 @@ const SpaceStation = () => {
   );
 };
 
-// Orbital trail visualization
-const SpacecraftTrail = ({ trail }) => {
-  if (!trail || trail.length < 2) return null;
-
-  const scale = 0.01;
-  const points = trail.map(pos => new THREE.Vector3(
-    pos[0] * scale,
-    pos[2] * scale,
-    -pos[1] * scale
-  ));
-
-  return (
-    <Line
-      points={points}
-      color="#00ffff"
-      lineWidth={2}
-      transparent
-      opacity={0.6}
-    />
-  );
-};
+const Trail = ({ trail, color }) => {
+    if (!trail || trail.length < 2) return null;
+  
+    const points = trail.map(pos => new THREE.Vector3(
+      pos[0] * VIZ_SCALE,
+      pos[2] * VIZ_SCALE,
+      -pos[1] * VIZ_SCALE
+    ));
+  
+    return (
+      <Line
+        points={points}
+        color={color}
+        lineWidth={2}
+        transparent
+        opacity={0.6}
+      />
+    );
+  };
+  
 
 // Thrust visualization
 const ThrustIndicator = ({ state }) => {
-  const { spacecraft_pos, spacecraft_vel } = state;
-  if (!spacecraft_pos || !spacecraft_vel) return null;
+  if (!state || !state.spacecraft_vel_abs) return null;
 
-  const scale = 0.01;
   const velocity = new THREE.Vector3(
-    spacecraft_vel[0],
-    spacecraft_vel[2],
-    -spacecraft_vel[1]
+    state.spacecraft_vel_abs[0],
+    state.spacecraft_vel_abs[2],
+    -state.spacecraft_vel_abs[1]
   ).normalize().multiplyScalar(5);
 
   const position = new THREE.Vector3(
-    spacecraft_pos[0] * scale,
-    spacecraft_pos[2] * scale,
-    -spacecraft_pos[1] * scale
+    state.spacecraft_pos_abs[0] * VIZ_SCALE,
+    state.spacecraft_pos_abs[2] * VIZ_SCALE,
+    -state.spacecraft_pos_abs[1] * VIZ_SCALE
   );
 
   return (
@@ -155,6 +149,7 @@ const ThrustIndicator = ({ state }) => {
 // Earth visualization
 const Earth = () => {
   const earthRef = useRef();
+  const earthRadius = 6.371e6; // m
 
   useFrame(() => {
     if (earthRef.current) {
@@ -164,11 +159,11 @@ const Earth = () => {
 
   return (
     <group position={[0, 0, 0]}>
-      <Sphere ref={earthRef} args={[12]}>
+      <Sphere ref={earthRef} args={[earthRadius * VIZ_SCALE, 64, 64]}>
         <meshStandardMaterial color="#004488" emissive="#004488" emissiveIntensity={0.2} toneMapped={false} />
       </Sphere>
       {/* Atmosphere glow */}
-      <Sphere args={[13]}>
+      <Sphere args={[earthRadius * VIZ_SCALE * 1.02, 64, 64]}>
         <meshStandardMaterial 
           color="#0088ff" 
           transparent 
@@ -184,10 +179,11 @@ const Earth = () => {
 
 // Orbital reference grid
 const OrbitalGrid = () => {
+  const orbitRadius = (6.371e6 + 15000e3) * VIZ_SCALE;
   return (
     <group rotation={[0, 0, 0]}>
       {/* Orbital plane indicator */}
-      <Circle args={[50]} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+      <Circle args={[orbitRadius, 128]} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <meshStandardMaterial 
           color="#ffff00" 
           transparent 
@@ -202,58 +198,55 @@ const OrbitalGrid = () => {
   );
 };
 
-const OrbitalSystem = ({ state }) => {
-  const groupRef = useRef();
-
-  useFrame(({ clock }) => {
-    if (groupRef.current) {
-      const t = clock.getElapsedTime() * STATION_ORBIT_SPEED;
-      groupRef.current.position.set(
-        STATION_ORBIT_RADIUS * Math.cos(t),
-        0,
-        STATION_ORBIT_RADIUS * Math.sin(t)
-      );
-    }
-  });
-
-  return (
-    <group ref={groupRef}>
-      <SpaceStation />
-      {state && <Spacecraft state={state} />}
-      {state && state.trail && <SpacecraftTrail trail={state.trail} />}
-      {state && <ThrustIndicator state={state} />}
-    </group>
-  );
-};
-
-const EarthSystem = ({ state }) => {
-    const groupRef = useRef();
-  
-    useFrame(({ clock }) => {
-      if (groupRef.current) {
-        const t = clock.getElapsedTime() * EARTH_ORBIT_SPEED;
-        groupRef.current.position.set(
-          EARTH_ORBIT_RADIUS * Math.cos(t),
-          0,
-          EARTH_ORBIT_RADIUS * Math.sin(t)
-        );
-      }
-    });
-  
+const Scene = ({ state }) => {
     return (
-      <group ref={groupRef}>
+      <>
+        <Sun />
         <Earth />
         <OrbitalGrid />
-        <OrbitalSystem state={state} />
-      </group>
+  
+        {state && (
+          <>
+            <Spacecraft position={state.spacecraft_pos_abs} />
+            <SpaceStation position={state.target_pos_abs} />
+            <Trail trail={state.trail} color="#00ffff" />
+            <Trail trail={state.target_trail} color="#ffff00" />
+            <ThrustIndicator state={state} />
+          </>
+        )}
+  
+        <Stars radius={8000} depth={100} count={5000} factor={20} saturation={0} fade speed={0.2} />
+        <EffectComposer>
+          <Bloom 
+            intensity={1.2} 
+            luminanceThreshold={0.05} 
+            luminanceSmoothing={0.9} 
+            toneMapped={false} 
+          />
+        </EffectComposer>
+      </>
     );
-  }
+  };
 
 // Status display component
 const StatusDisplay = ({ state }) => {
   if (!state) return null;
 
   const { fuel_ratio, distance_to_target, velocity_magnitude } = state;
+
+  // Format distance with appropriate units
+  const formatDistance = (distance) => {
+    if (distance > 1000000) {
+      return `${(distance / 1000000).toFixed(1)}Mm`; // Megameters
+    } else if (distance > 1000) {
+      return `${(distance / 1000).toFixed(1)}km`;
+    } else {
+      return `${distance.toFixed(1)}m`;
+    }
+  };
+
+  const isDockingReady = distance_to_target < 50 && velocity_magnitude < 2.0;
+  const isCloseApproach = distance_to_target < 1000;
 
   return (
     <div style={{
@@ -270,15 +263,15 @@ const StatusDisplay = ({ state }) => {
       textShadow: '0 0 4px #000',
     }}>
       <div>Fuel: {(fuel_ratio * 100).toFixed(1)}%</div>
-      <div style={{ color: distance_to_target < 50 ? '#00ff00' : '#ffffff' }}>
-        Distance: {distance_to_target.toFixed(1)}m
+      <div style={{ color: isCloseApproach ? '#00ff00' : '#ffffff' }}>
+        Distance: {formatDistance(distance_to_target)}
       </div>
       <div>Velocity: {velocity_magnitude.toFixed(2)}m/s</div>
       <div style={{ 
         marginTop: '8px', 
-        color: distance_to_target < 10 && velocity_magnitude < 0.5 ? '#00ff00' : '#ffffff' 
+        color: isDockingReady ? '#00ff00' : isCloseApproach ? '#ffff00' : '#ffffff' 
       }}>
-        {distance_to_target < 10 && velocity_magnitude < 0.5 ? 'DOCKING READY' : 'APPROACHING'}
+        {isDockingReady ? 'DOCKING READY' : isCloseApproach ? 'CLOSE APPROACH' : 'LAUNCHING TO ORBIT'}
       </div>
     </div>
   );
@@ -379,28 +372,14 @@ export default function AstrodynamicsExample() {
     >
       <div style={{ flex: 1, position: 'relative' }}>
         <Canvas 
-          camera={{ position: [350, 150, 350], fov: 60 }} 
+          camera={{ position: [450, 250, 450], fov: 60, far: 50000000 }} 
           style={{ background: 'transparent', width: '100vw', height: '100vh', overflow: 'hidden' }}
         >
           <ambientLight intensity={0.1} />
-          
-          <Stars radius={800} depth={100} count={5000} factor={10} saturation={0} fade speed={0.2} />
-          
-          <Sun />
-          <EarthSystem state={state} />
-
-          <EffectComposer>
-            <Bloom 
-              intensity={1.2} 
-              luminanceThreshold={0.05} 
-              luminanceSmoothing={0.9} 
-              toneMapped={false} 
-            />
-          </EffectComposer>
-          
+          <Scene state={state} />
           <OrbitControls 
             ref={controlsRef} 
-            maxDistance={1000} 
+            maxDistance={40000} 
             minDistance={10}
             target={[0, 0, 0]}
           />
