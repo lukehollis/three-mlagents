@@ -14,6 +14,19 @@ import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/astrodynamics`;
+const STATION_ORBIT_RADIUS = 50;
+const STATION_ORBIT_SPEED = 0.001;
+const EARTH_ORBIT_RADIUS = 250;
+const EARTH_ORBIT_SPEED = 0.0001;
+
+const Sun = () => (
+    <group>
+      <Sphere args={[20, 32, 32]}>
+        <meshStandardMaterial emissive="#ffff00" emissiveIntensity={2} color="#ffff00" toneMapped={false} />
+      </Sphere>
+      <pointLight intensity={5} distance={1000} color="#ffffff" />
+    </group>
+  );
 
 // Spacecraft component
 const Spacecraft = ({ state }) => {
@@ -54,7 +67,7 @@ const Spacecraft = ({ state }) => {
 };
 
 // Space station (target)
-const SpaceStation = ({ position = [0, 0, 0] }) => {
+const SpaceStation = () => {
   const groupRef = useRef();
 
   useFrame(() => {
@@ -64,7 +77,7 @@ const SpaceStation = ({ position = [0, 0, 0] }) => {
   });
 
   return (
-    <group ref={groupRef} position={position}>
+    <group ref={groupRef} position={[0,0,0]}>
       {/* Central hub */}
       <Sphere args={[1.5]}>
         <meshStandardMaterial color="#ffffff" emissive="#ffffff" emissiveIntensity={0.3} toneMapped={false} />
@@ -150,7 +163,7 @@ const Earth = () => {
   });
 
   return (
-    <group position={[0, -70, 0]}>
+    <group position={[0, 0, 0]}>
       <Sphere ref={earthRef} args={[12]}>
         <meshStandardMaterial color="#004488" emissive="#004488" emissiveIntensity={0.2} toneMapped={false} />
       </Sphere>
@@ -172,16 +185,7 @@ const Earth = () => {
 // Orbital reference grid
 const OrbitalGrid = () => {
   return (
-    <group>
-      <Grid 
-        infiniteGrid 
-        cellSize={2} 
-        sectionSize={10} 
-        sectionColor={"#4488ff"} 
-        sectionThickness={1} 
-        fadeDistance={100} 
-        position={[0, 0, 0]}
-      />
+    <group rotation={[0, 0, 0]}>
       {/* Orbital plane indicator */}
       <Circle args={[50]} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <meshStandardMaterial 
@@ -198,36 +202,52 @@ const OrbitalGrid = () => {
   );
 };
 
-// Camera controller for smooth following
-const CameraController = ({ state, controlsRef }) => {
-  const { camera } = useThree();
+const OrbitalSystem = ({ state }) => {
+  const groupRef = useRef();
 
-  useFrame(() => {
-    if (state && state.spacecraft_pos && controlsRef.current) {
-      const controls = controlsRef.current;
-      const scale = 0.01;
-      
-      // Spacecraft position in scene coordinates
-      const spacecraftPosition = new THREE.Vector3(
-        state.spacecraft_pos[0] * scale,
-        state.spacecraft_pos[2] * scale,
-        -state.spacecraft_pos[1] * scale
+  useFrame(({ clock }) => {
+    if (groupRef.current) {
+      const t = clock.getElapsedTime() * STATION_ORBIT_SPEED;
+      groupRef.current.position.set(
+        STATION_ORBIT_RADIUS * Math.cos(t),
+        0,
+        STATION_ORBIT_RADIUS * Math.sin(t)
       );
-
-      // Smoothly move the camera target to follow spacecraft
-      controls.target.lerp(spacecraftPosition, 0.05);
-
-      // Maintain camera distance but follow the target
-      const idealOffset = camera.position.clone().sub(controls.target);
-      const idealPosition = new THREE.Vector3().copy(spacecraftPosition).add(idealOffset);
-      camera.position.lerp(idealPosition, 0.05);
-
-      controls.update();
     }
   });
 
-  return null;
+  return (
+    <group ref={groupRef}>
+      <SpaceStation />
+      {state && <Spacecraft state={state} />}
+      {state && state.trail && <SpacecraftTrail trail={state.trail} />}
+      {state && <ThrustIndicator state={state} />}
+    </group>
+  );
 };
+
+const EarthSystem = ({ state }) => {
+    const groupRef = useRef();
+  
+    useFrame(({ clock }) => {
+      if (groupRef.current) {
+        const t = clock.getElapsedTime() * EARTH_ORBIT_SPEED;
+        groupRef.current.position.set(
+          EARTH_ORBIT_RADIUS * Math.cos(t),
+          0,
+          EARTH_ORBIT_RADIUS * Math.sin(t)
+        );
+      }
+    });
+  
+    return (
+      <group ref={groupRef}>
+        <Earth />
+        <OrbitalGrid />
+        <OrbitalSystem state={state} />
+      </group>
+    );
+  }
 
 // Status display component
 const StatusDisplay = ({ state }) => {
@@ -359,22 +379,15 @@ export default function AstrodynamicsExample() {
     >
       <div style={{ flex: 1, position: 'relative' }}>
         <Canvas 
-          camera={{ position: [30, 20, 30], fov: 60 }} 
+          camera={{ position: [350, 150, 350], fov: 60 }} 
           style={{ background: 'transparent', width: '100vw', height: '100vh', overflow: 'hidden' }}
         >
-          <ambientLight intensity={0.3} />
-          <directionalLight position={[10, 10, 5]} intensity={0.8} />
-          <pointLight position={[0, 0, 0]} intensity={0.5} color="#ffff00" />
+          <ambientLight intensity={0.1} />
           
-          <Stars radius={200} depth={50} count={3000} factor={6} saturation={0} fade speed={0.5} />
+          <Stars radius={800} depth={100} count={5000} factor={10} saturation={0} fade speed={0.2} />
           
-          <Earth />
-          <OrbitalGrid />
-          <SpaceStation position={[0, 0, 0]} />
-          
-          {state && <Spacecraft state={state} />}
-          {state && state.trail && <SpacecraftTrail trail={state.trail} />}
-          {state && <ThrustIndicator state={state} />}
+          <Sun />
+          <EarthSystem state={state} />
 
           <EffectComposer>
             <Bloom 
@@ -387,13 +400,10 @@ export default function AstrodynamicsExample() {
           
           <OrbitControls 
             ref={controlsRef} 
-            maxDistance={100} 
-            minDistance={5}
-            enablePan={true}
-            enableZoom={true}
-            enableRotate={true}
+            maxDistance={1000} 
+            minDistance={10}
+            target={[0, 0, 0]}
           />
-          <CameraController state={state} controlsRef={controlsRef} />
         </Canvas>
 
         {/* UI overlay */}
@@ -443,6 +453,7 @@ export default function AstrodynamicsExample() {
         <EquationPanel
           equation="\begin{aligned} \text{Observations} &= [\vec{r}_{rel}, \vec{v}_{rel}, \hat{r}_{target}, d_{target}, |\vec{v}|, m_{fuel}, t] \\ \text{Actions} &= [F_x, F_y, F_z] \in \{0, \pm F_{max}\} \\ \text{Hill's Eq} &: \ddot{x} = 3n^2x + 2n\dot{y} + \frac{F_x}{m}, \quad \ddot{y} = -2n\dot{x} + \frac{F_y}{m}, \quad \ddot{z} = -n^2z + \frac{F_z}{m} \end{aligned}"
           description="Orbital rendezvous: spacecraft state observations, thrust actions, and Hill's equations for relative motion dynamics in orbit"
+          collapsed={true}
         />
 
         <StatusDisplay state={state} />

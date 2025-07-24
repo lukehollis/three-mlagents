@@ -6,9 +6,9 @@ import { Function } from '@geist-ui/icons';
 import { useResponsive } from '../hooks/useResponsive';
 
 
-export default function EquationPanel({ equation, description }) {
+export default function EquationPanel({ equation, description, collapsed }) {
   const { isMobile } = useResponsive();
-  const [isOpen, setIsOpen] = useState(!isMobile);
+  const [isOpen, setIsOpen] = useState(!isMobile && !collapsed);
 
   if (!isOpen) {
     return (
