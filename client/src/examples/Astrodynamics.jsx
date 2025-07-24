@@ -208,7 +208,7 @@ const Scene = ({ state }) => {
             <Spacecraft position={state.spacecraft_pos_abs} />
             <SpaceStation position={state.target_pos_abs} />
             <Trail trail={state.trail} color="#00ffff" />
-            <Trail trail={state.target_trail} color="#ffff00" />
+            <Trail trail={state.target_trail} color="#ffffff" />
             <ThrustIndicator state={state} />
           </>
         )}
