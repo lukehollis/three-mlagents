@@ -237,9 +237,9 @@ const StatusDisplay = ({ state }) => {
 
   return (
     <div style={{
-      position: 'absolute',
-      bottom: '20px',
-      right: '20px',
+      position: 'fixed',
+      top: '10px',
+      right: '10px',
       color: '#fff',
       background: 'rgba(0, 0, 20, 0.8)',
       padding: '15px',
@@ -431,11 +431,11 @@ export default function AstrodynamicsExample() {
             <Button auto type="success" disabled={!trained} onClick={startRun}>
               Run
             </Button>
-            {trained && (
+            {/* {trained && (
               <Button auto type="error" onClick={resetTraining}>
                 Reset
               </Button>
-            )}
+            )} */}
           </div>
           <ModelInfoPanel modelInfo={modelInfo} />
         </div>
@@ -447,7 +447,6 @@ export default function AstrodynamicsExample() {
 
         <StatusDisplay state={state} />
         <InfoPanel logs={logs} chartState={chartState} />
-        <ButtonForkOnGithub position={{ top: '10px', right: '10px' }} />
       </div>
     </div>
   );
