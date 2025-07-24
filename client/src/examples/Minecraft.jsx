@@ -9,6 +9,7 @@ import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import MessagePanel from '../components/MessagePanel.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/minecraft`;
 
@@ -263,48 +264,7 @@ const TradePanel = ({ offers }) => {
     );
 }
 
-const MessagePanel = ({ messages }) => {
-    const containerRef = useRef(null);
-    
-    useEffect(() => {
-        const el = containerRef.current;
-        if (el) {
-            el.scrollTop = el.scrollHeight;
-        }
-    }, [messages]);
 
-
-    const codeStyle = { color: '#f81ce5', fontFamily: 'monospace' };
-    return (
-        <Card 
-            ref={containerRef}
-            style={{
-                position: 'absolute', bottom: '10px', left: '10px', width: '450px',
-                maxHeight: '40vh', overflowY: 'auto', background: 'rgba(0,0,0,0.6)',
-                color: '#fff', border: '1px solid #444',
-            }}
-        >
-          {messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No messages]</Text>}
-          {messages.map((msg, i) => {
-              let content;
-              if (msg.recipient_id !== null && msg.recipient_id !== undefined) {
-                  content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[DM to {msg.recipient_id}]</span> {msg.message}</Text>;
-              } else {
-                  content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[Broadcast]</span> {msg.message}</Text>;
-              }
-              
-              return (
-                  <div key={i} style={{ marginBottom: '12px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '12px' }}>
-                      <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-                          <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
-                      </Text>
-                      {content}
-                  </div>
-              );
-          })}
-        </Card>
-    );
-};
 
 
 export default function MineCraftExample() {

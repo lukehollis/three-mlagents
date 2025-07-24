@@ -9,6 +9,7 @@ import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import MessagePanel from '../components/MessagePanel.jsx';
 import Map2D from '../components/Map2D.jsx';
 import Roads from '../components/Roads.jsx';
 import TrafficLight from '../components/TrafficLight.jsx';
@@ -263,8 +264,8 @@ const BuildingPanel = ({ buildings, buildingRecipes }) => {
   return (
     <Card style={{
       position: 'absolute',
-      bottom: '10px',
-      right: '10px',
+      top: '10px',
+      right: '320px',
       width: '320px',
       background: 'rgba(0,0,0,0.8)',
       color: '#fff',
@@ -415,57 +416,7 @@ const RecipePanel = ({ buildingRecipes }) => {
   );
 };
 
-const MessagePanel = ({ messages }) => {
-  const containerRef = useRef(null);
-  
-  useEffect(() => {
-    const el = containerRef.current;
-    if (el) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [messages]);
 
-  const codeStyle = { color: '#f81ce5', fontFamily: 'monospace' };
-  
-  return (
-    <Card 
-      ref={containerRef}
-      style={{
-        position: 'absolute', 
-        top: '50%', 
-        left: '10px', 
-        width: '400px',
-        height: '200px',
-        maxHeight: '200px', 
-        overflowY: 'auto', 
-        background: 'rgba(0,0,0,0.6)',
-        color: '#fff', 
-        border: '1px solid #444',
-        transform: 'translateY(-50%)'
-      }}
-    >
-      <Text h5 style={{ margin: '0 0 8px 0', color: '#37F5EB' }}>Agent Communications</Text>
-      {messages && messages.length === 0 && <Text p style={{ margin: 0, fontSize: '12px' }}>[No messages]</Text>}
-      {messages && messages.map((msg, i) => {
-        let content;
-        if (msg.recipient_id !== null && msg.recipient_id !== undefined) {
-          content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[DM to {msg.recipient_id}]</span> {msg.message}</Text>;
-        } else {
-          content = <Text p style={{ margin: 0 }}><span style={codeStyle}>[Broadcast]</span> {msg.message}</Text>;
-        }
-        
-        return (
-          <div key={i} style={{ marginBottom: '8px', padding: '6px', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', fontSize: '11px' }}>
-            <Text p style={{ margin: 0, fontWeight: 'bold' }}>
-              <span style={codeStyle}>[Step {msg.step}] Agent {msg.sender_id}</span>
-            </Text>
-            {content}
-          </div>
-        );
-      })}
-    </Card>
-  );
-};
 
 export default function SimCityExample() {
   const [state, setState] = useState(null);
@@ -645,7 +596,14 @@ export default function SimCityExample() {
       <ResourcePanel pedestrians={state?.pedestrians} resources={state?.resources} />
       <BuildingPanel buildings={state?.buildings} buildingRecipes={state?.building_recipes} />
       <RecipePanel buildingRecipes={state?.building_recipes} />
-      <MessagePanel messages={state?.messages} />
+      <MessagePanel 
+          messages={state?.messages} 
+          title="Agent Communications"
+          position={{ position: 'fixed', bottom: '10px', left: '10px' }}
+          width="400px"
+          height="200px"
+          maxHeight="200px"
+        />
     </div>
   );
 } 
