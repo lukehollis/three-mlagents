@@ -18,6 +18,7 @@ from examples.brick_break import train_brick_break, run_brick_break, BrickBreakE
 from examples.food_collector import train_food_collector, run_food_collector, FoodCollectorEnv
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
+from examples.astrodynamics import train_astrodynamics, run_astrodynamics, AstrodynamicsEnv
 from examples.minecraft import run_minecraft, train_minecraft, MineCraftEnv
 from examples.fish import run_fish, train_fish, FishEnv
 from examples.intersection import run_intersection, train_intersection, MultiVehicleEnv as IntersectionEnv
@@ -283,6 +284,24 @@ async def websocket_glider(websocket: WebSocket):
                 await run_glider(websocket)
     except Exception as e:
         print(f"Glider websocket disconnected: {e}")
+
+
+# WebSocket endpoint for Astrodynamics
+@app.websocket("/ws/astrodynamics")
+async def websocket_astrodynamics(websocket: WebSocket):
+    await websocket.accept()
+    preview_env = AstrodynamicsEnv()
+    preview_state = preview_env.get_state_for_viz()
+    await websocket.send_json({"type": "state", "state": preview_state, "episode": 0})
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data['cmd'] == 'train':
+                await train_astrodynamics(websocket)
+            elif data['cmd'] == 'run':
+                await run_astrodynamics(websocket)
+    except Exception as e:
+        print(f"Astrodynamics websocket disconnected: {e}")
 
 
 # WebSocket endpoint for MineCraft

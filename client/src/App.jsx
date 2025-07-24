@@ -12,7 +12,8 @@ import BrickBreakExample from './examples/BrickBreak.jsx';
 import FoodCollectorExample from './examples/FoodCollector.jsx';
 import BicycleExample from './examples/Bicycle.jsx';
 import GliderExample from './examples/Glider.jsx';
-import MineCraftExample from './examples/MineCraft.jsx';
+import AstrodynamicsExample from './examples/Astrodynamics.jsx';
+import MinecraftExample from './examples/Minecraft.jsx';
 import SimCityExample from './examples/SimCity.jsx';
 import FishExample from './examples/Fish.jsx';
 import IntersectionExample from './examples/Intersection.jsx';
@@ -39,7 +40,8 @@ export default function App() {
         <Route path="/foodcollector" element={<FoodCollectorExample />} />
         <Route path="/bicycle" element={<BicycleExample />} />
         <Route path="/glider" element={<GliderExample />} />
-        <Route path="/minecraft" element={<MineCraftExample />} />
+        <Route path="/astrodynamics" element={<AstrodynamicsExample />} />
+        <Route path="/minecraft" element={<MinecraftExample />} />
         <Route path="/simcity" element={<SimCityExample />} />
         <Route path="/fish" element={<FishExample />} />
         <Route path="/intersection" element={<IntersectionExample />} />
