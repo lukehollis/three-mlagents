@@ -290,40 +290,41 @@ async def websocket_glider(websocket: WebSocket):
 @app.websocket("/ws/astrodynamics")
 async def websocket_astrodynamics(websocket: WebSocket):
     await websocket.accept()
-    client_task = None
-    try:
-        sim_task = asyncio.create_task(run_simulation(websocket))
+    # Start with the physics-only simulation
+    active_task = asyncio.create_task(run_simulation(websocket))
 
-        async for message in websocket.iter_json():
+    try:
+        while True:
+            message = await websocket.receive_json()
             cmd = message.get("cmd")
 
             if cmd:
-                if sim_task and not sim_task.done():
-                    sim_task.cancel()
+                # Cancel the currently active task
+                if active_task:
+                    active_task.cancel()
                     try:
-                        await sim_task
+                        await active_task
                     except asyncio.CancelledError:
-                        pass
+                        pass  # Expected
 
+                # Handle the new command
                 if cmd == 'train':
-                    client_task = asyncio.create_task(train_astrodynamics(websocket))
-                    await client_task
-                    # After training, we can restart the simulation or just wait for next command
-                    sim_task = asyncio.create_task(run_simulation(websocket))
+                    # Training is a blocking operation
+                    await train_astrodynamics(websocket)
+                    # After training, revert to the default simulation
+                    active_task = asyncio.create_task(run_simulation(websocket))
+                
                 elif cmd == 'run':
+                    # Running with a model is a non-blocking background task
                     model_filename = message.get('model_filename')
-                    client_task = asyncio.create_task(run_astrodynamics(websocket, model_filename))
-                    await client_task
-                    # After a run, we can restart the simulation
-                    sim_task = asyncio.create_task(run_simulation(websocket))
+                    active_task = asyncio.create_task(run_astrodynamics(websocket, model_filename))
 
     except WebSocketDisconnect:
         print("Client disconnected from astrodynamics")
     finally:
-        if client_task and not client_task.done():
-            client_task.cancel()
-        if 'sim_task' in locals() and sim_task and not sim_task.done():
-            sim_task.cancel()
+        # Clean up the active task when the connection closes
+        if 'active_task' in locals() and active_task and not active_task.done():
+            active_task.cancel()
 
 
 # WebSocket endpoint for MineCraft
