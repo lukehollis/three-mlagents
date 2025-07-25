@@ -13,6 +13,19 @@ import torch.optim as optim
 from torch.distributions.categorical import Categorical
 from fastapi import WebSocket
 
+
+ACTION_SIZE = 7  # 0=no thrust, 1-6=thrust directions
+POLICIES_DIR = "policies"
+BATCH_SIZE = 4096
+MINI_BATCH = 512
+EPOCHS = 8
+GAMMA = 0.99
+GAE_LAMBDA = 0.95
+CLIP_EPS = 0.2
+ENT_COEF = 0.01
+LR = 3e-4
+EPISODES = 1500
+
 # -----------------------------------------------------------------------------------
 # Astrodynamics Environment
 # -----------------------------------------------------------------------------------
@@ -20,7 +33,7 @@ from fastapi import WebSocket
 class AstrodynamicsEnv:
     """An orbital rendezvous environment for spacecraft navigation."""
 
-    def __init__(self):
+    def __init__(self, training_mode: bool = True):
         # Physical constants
         self.mu = 3.986e14  # Earth's gravitational parameter (m³/s²)
         self.earth_radius = 6.371e6  # Earth radius (m)
@@ -37,15 +50,15 @@ class AstrodynamicsEnv:
 
         # Spacecraft parameters
         self.mass = 1000.0  # kg
-        self.max_thrust = 2500.0  # N (more realistic for orbital maneuvers)
+        self.max_thrust = 5000.0  # N (more realistic for orbital maneuvers)
         self.specific_impulse = 300.0  # seconds
-        self.initial_fuel = 750.0  # kg (for orbit-to-orbit transfer)
-        self.dt = 10.0  # seconds
+        self.initial_fuel = 10000.0  # kg (for orbit-to-orbit transfer)
+        self.dt = 100.0  # seconds
         
         # Mission parameters
         self.docking_threshold = 50.0  # meters
         self.velocity_threshold = 2.0  # m/s for successful docking
-        self.max_distance = 25000e3  # maximum distance from target (m)
+        self.max_distance = 25000e5  # maximum distance from target (m)
         
         # State variables
         # Relative state (in orbital reference frame of the target)
@@ -68,6 +81,7 @@ class AstrodynamicsEnv:
         self.target_trail = deque(maxlen=self.max_trail_length)
         
         self.steps = 0
+        self.training_mode = training_mode
         self.reset()
 
     def _orbital_dynamics(self, pos_global: np.ndarray) -> np.ndarray:
@@ -191,47 +205,75 @@ class AstrodynamicsEnv:
         # Calculate reward and termination
         distance = np.linalg.norm(self.relative_pos)
         velocity_mag = np.linalg.norm(self.relative_vel)
+
         
         done = False
         reward = 0.0
+
+        # If not in training mode, don't calculate rewards and only terminate on crash
+        if not self.training_mode:
+            spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
+            if spacecraft_radius < self.earth_radius:
+                done = True
+            return self._get_obs(), reward, done
         
-        # Primary reward: negative distance (encourages approach)
-        reward -= (distance / self.max_distance) * 0.5
+        # --- Reward Shaping ---
         
-        # Velocity penalty (encourages controlled approach)
-        reward -= (velocity_mag / 10000.0) * 0.1
-        
-        # Fuel efficiency bonus (small incentive)
-        fuel_ratio = self.fuel / self.initial_fuel
-        reward += fuel_ratio * 0.001
-        
-        # Success reward
-        if distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
-            reward += 1000.0  # Large success bonus for successful orbital rendezvous
-            done = True
-        
-        # Failure conditions
-        if distance > self.max_distance:
-            reward = -10.0  # Penalty for drifting too far
-            done = True
-        
-        # Crash into Earth
+        # 1. Primary reward: Encourage getting to the target orbital altitude
         spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
-        if spacecraft_radius < self.earth_radius:  # Crash if below surface
-            reward = -200.0  # Large penalty for crashing
+        target_radius = self.orbit_radius
+        
+        # Reward for being closer to the target orbit radius
+        # We use an exponential reward to give a stronger signal as it gets closer.
+        radius_diff = abs(spacecraft_radius - target_radius)
+        # Scale the reward, so being at LEO vs MEO is a big difference.
+        # Let's use a characteristic scale of the altitude difference.
+        altitude_scale = self.orbit_altitude - self.leo_altitude
+        radius_reward = np.exp(-radius_diff / altitude_scale) * 20.0 # Reward up to 20 for correct altitude
+        reward += radius_reward
+        
+        # 2. Secondary reward: Encourage approaching the target satellite
+        # This reward is smaller, so it doesn't override the altitude goal.
+        distance_penalty = (distance / self.max_distance) * 5.0
+        reward -= distance_penalty
+
+        # 3. Velocity penalty: Encourage a controlled, slower approach when near
+        # This penalty should be small when far away.
+        if distance < self.orbit_altitude: # Only apply velocity penalty when relatively close
+            velocity_penalty = (velocity_mag / 1000.0) * 0.5
+            reward -= velocity_penalty
+        
+        # 4. Fuel efficiency bonus (small incentive)
+        fuel_ratio = self.fuel / self.initial_fuel
+        reward += fuel_ratio * 0.01
+        
+        # 5. Time penalty: small penalty for each step to encourage efficiency
+        reward -= 0.01
+
+        # 6. Large success bonus for achieving the goal
+        if distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
+            reward += 1000.0
+            done = True
+        
+        # 7. Penalties for failure conditions
+        if distance > self.max_distance:
+            reward = -10.0
+            done = True
+        
+        if spacecraft_radius < self.earth_radius:
+            reward = -200.0
             done = True
         
         if self.fuel <= 0 and distance > self.docking_threshold:
-            reward = -50.0  # Penalty for running out of fuel
+            reward = -50.0
             done = True
         
-        # Collision penalty (too fast approach)
         if distance < self.docking_threshold and velocity_mag > self.velocity_threshold:
             reward = -50.0
             done = True
         
         # Timeout
-        if self.steps > 4000:  # Increased timeout for orbit-to-orbit mission
+        if self.steps > 4000:
             done = True
 
         return self._get_obs(), reward, done
@@ -283,8 +325,6 @@ class AstrodynamicsEnv:
 # PPO agent (adapted for discrete actions)
 # -----------------------------------------------------------------------------------
 
-ACTION_SIZE = 7  # 0=no thrust, 1-6=thrust directions
-
 class ActorCritic(nn.Module):
     def __init__(self, obs_size: int, action_size: int):
         super().__init__()
@@ -302,15 +342,6 @@ class ActorCritic(nn.Module):
         value = self.critic(h)
         return dist, value
 
-POLICIES_DIR = "policies"
-BATCH_SIZE = 4096
-MINI_BATCH = 512
-EPOCHS = 8
-GAMMA = 0.99
-GAE_LAMBDA = 0.95
-CLIP_EPS = 0.2
-ENT_COEF = 0.01
-LR = 3e-4
 
 def _export_model_onnx(model: nn.Module, path: str):
     dummy_input_dim = model.shared[0].in_features
@@ -354,7 +385,7 @@ async def train_astrodynamics(websocket: WebSocket):
     
     total_steps = 0
 
-    while ep_counter < 3000: # Increased training episodes
+    while ep_counter < EPISODES: # Increased training episodes
         with torch.no_grad():
             dist, value = model(obs)
             actions = dist.sample()
@@ -449,7 +480,7 @@ async def train_astrodynamics(websocket: WebSocket):
 
 async def run_simulation(websocket: WebSocket):
     """Runs a physics-only simulation and streams state."""
-    env = AstrodynamicsEnv()
+    env = AstrodynamicsEnv(training_mode=False)
     env.reset()
     from starlette.websockets import WebSocketState, WebSocketDisconnect
 
@@ -475,24 +506,43 @@ _ORT_CACHE: dict[str, "onnxruntime.InferenceSession"] = {}
 
 def infer_action_astrodynamics(obs: List[float], model_filename: str | None = None) -> int:
     import onnxruntime as ort
+    
+    # If no model filename is provided, try to find the latest one.
     if model_filename is None:
         files = [f for f in os.listdir(POLICIES_DIR) if f.startswith("astrodynamics_policy_") and f.endswith(".onnx")]
         if not files:
-            raise FileNotFoundError("No astrodynamics policy found.")
+            # If no policy is found, return a default action (e.g., no thrust)
+            print("Warning: No astrodynamics policy found. Returning default action 0 (no thrust).")
+            return 0
         files.sort(reverse=True)
         model_filename = files[0]
+
+    model_path = os.path.join(POLICIES_DIR, model_filename)
+
+    # Check if the specific model file exists
+    if not os.path.exists(model_path):
+        print(f"Warning: Model file '{model_filename}' not found. Returning default action 0 (no thrust).")
+        return 0
     
     if model_filename not in _ORT_CACHE:
-        sess = ort.InferenceSession(os.path.join(POLICIES_DIR, model_filename), providers=["CPUExecutionProvider"])
-        _ORT_CACHE[model_filename] = sess
+        try:
+            sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+            _ORT_CACHE[model_filename] = sess
+        except Exception as e:
+            print(f"Error loading ONNX model '{model_filename}': {e}. Returning default action 0.")
+            return 0
 
-    inp = np.array([obs], dtype=np.float32)
-    out = _ORT_CACHE[model_filename].run(None, {"input": inp})[0]
-    action = np.argmax(out, axis=1)[0]
-    return int(action)
+    try:
+        inp = np.array([obs], dtype=np.float32)
+        out = _ORT_CACHE[model_filename].run(None, {"input": inp})[0]
+        action = np.argmax(out, axis=1)[0]
+        return int(action)
+    except Exception as e:
+        print(f"Error during inference with model '{model_filename}': {e}. Returning default action 0.")
+        return 0
 
 async def run_astrodynamics(websocket: WebSocket, model_filename: str | None = None):
-    env = AstrodynamicsEnv()
+    env = AstrodynamicsEnv(training_mode=False)
     episode = 0
     obs = env.reset()
     from starlette.websockets import WebSocketState

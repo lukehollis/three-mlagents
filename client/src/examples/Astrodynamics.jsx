@@ -123,7 +123,7 @@ const EarthOrbit = () => {
 
   return (
       <group position={sunPosition}>
-          <Torus args={[radius, 1, 16, 200]} rotation={[Math.PI / 2, 0, 0]} wireframe={true}>
+          <Torus args={[radius, 0.1, 16, 200]} rotation={[Math.PI / 2, 0, 0]} wireframe={true}>
               <meshStandardMaterial
                   color="white"
                   transparent
@@ -242,8 +242,8 @@ const Earth = () => {
 
   return (
     <group position={[0, 0, 0]}>
-      <Sphere ref={earthRef} args={[earthRadius * VIZ_SCALE, 64, 64]}>
-        <meshStandardMaterial color="#004488" emissive="#004488" emissiveIntensity={0.2} toneMapped={false} />
+      <Sphere ref={earthRef} args={[earthRadius * VIZ_SCALE, 64, 64]} >
+      <meshStandardMaterial color="#004488" emissive="#004488" emissiveIntensity={0.2} toneMapped={false} wireframe />
       </Sphere>
       {/* Atmosphere glow */}
       <Sphere args={[earthRadius * VIZ_SCALE * 1.02, 64, 64]}>
@@ -432,8 +432,8 @@ export default function AstrodynamicsExample() {
   };
 
   const startRun = () => {
-    if (!trained) return;
-    send({ cmd: 'run' });
+    if (!trained || !modelInfo) return;
+    send({ cmd: 'run', model_filename: modelInfo.filename });
   };
 
   const resetTraining = () => {
