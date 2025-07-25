@@ -22,9 +22,9 @@ EPOCHS = 8
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 CLIP_EPS = 0.2
-ENT_COEF = 0.01
+ENT_COEF = 0.025
 LR = 1e-3
-EPISODES = 1500
+EPISODES = 3000
 
 # -----------------------------------------------------------------------------------
 # Astrodynamics Environment
@@ -52,7 +52,7 @@ class AstrodynamicsEnv:
         self.mass = 1000.0  # kg
         self.max_thrust = 5000.0  # N (more realistic for orbital maneuvers)
         self.specific_impulse = 300.0  # seconds
-        self.initial_fuel = 50000.0  # kg (for orbit-to-orbit transfer)
+        self.initial_fuel = 200000.0  # kg (for orbit-to-orbit transfer)
         self.dt = 100.0  # seconds
         
         # Mission parameters
@@ -219,42 +219,82 @@ class AstrodynamicsEnv:
         
         # --- Reward Shaping ---
         
-        # 1. Primary reward: Encourage getting to the target orbital altitude
         spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
         target_radius = self.orbit_radius
+        altitude_scale = self.orbit_altitude - self.leo_altitude
+
+        # Unit vector pointing away from Earth center (radial direction)
+        up_dir = self.spacecraft_pos_abs / (spacecraft_radius + 1e-8)
         
-        # The previous exponential reward function gave a significant positive reward for
-        # staying in low orbit, creating a local optimum. A linear reward for altitude 
-        # progress provides a much clearer gradient for the agent to start climbing.
-        altitude_progress = (spacecraft_radius - self.leo_radius) / (target_radius - self.leo_radius)
-        radius_reward = np.clip(altitude_progress, 0, 1.2) * 25.0 # Reward scaling and clip to handle overshooting
+        # NEW: Anti-stagnation penalty to strongly discourage staying in LEO.
+        # This creates a 'hill' the agent is pushed off of at the start.
+        altitude_progress = (spacecraft_radius - self.leo_radius) / (altitude_scale + 1e-8)
+        stagnation_penalty = (1.0 - np.clip(altitude_progress, 0, 1.0)) * 1.0
+        reward -= stagnation_penalty
+
+        # 1. Radial Velocity Reward: A direct incentive to move upwards.
+        # This rewards the agent for having a positive radial velocity (moving away from Earth)
+        # but only when it's below the target orbit. This encourages the initial burn.
+        if spacecraft_radius < target_radius:
+            radial_velocity = np.dot(self.spacecraft_vel_abs, up_dir)
+            # Scale reward. A radial velocity of 200 m/s gives a reward of 1.0.
+            radial_velocity_reward = (radial_velocity / 100.0)
+            reward += radial_velocity_reward
+        
+        # 2. Altitude Reward: Use a Gaussian function to create a strong incentive
+        # to be *at* the target orbital radius, penalizing both under- and over-shooting.
+        radius_diff = spacecraft_radius - target_radius
+        # The 'sharpness' of the peak is controlled by the denominator. A smaller value
+        # creates a sharper, more precise reward peak.
+        radius_reward = np.exp(-(radius_diff / (altitude_scale * 0.1))**2) * 50.0
         reward += radius_reward
         
-        # 2. Secondary reward: Encourage approaching the target satellite
-        # This reward is smaller, so it doesn't override the altitude goal.
-        distance_penalty = (distance / self.max_distance) * 5.0
-        reward -= distance_penalty
-
-        # 3. Velocity penalty: Encourage a controlled, slower approach when near
-        # This penalty should be small when far away.
-        if distance < self.orbit_altitude: # Only apply velocity penalty when relatively close
-            velocity_penalty = (velocity_mag / 1000.0) * 0.5
-            reward -= velocity_penalty
+        # 3. Orbital Velocity Reward: Encourage the agent to match the correct speed for a
+        # stable circular orbit at the target altitude. This is key to avoid overshooting.
+        # This reward is scaled by altitude proximity, so it only matters when the
+        # agent is near the correct altitude.
         
-        # 4. Fuel efficiency bonus (small incentive)
+        # Calculate tangential velocity
+        radial_velocity_component = np.dot(self.spacecraft_vel_abs, up_dir) * up_dir
+        tangential_velocity_vec = self.spacecraft_vel_abs - radial_velocity_component
+        tangential_velocity_mag = np.linalg.norm(tangential_velocity_vec)
+        
+        # Calculate reward for matching the target orbital velocity
+        velocity_diff = tangential_velocity_mag - self.orbital_velocity
+        # The sharpness of this peak is relative to the target velocity itself.
+        velocity_match_reward = np.exp(-(velocity_diff / (self.orbital_velocity * 0.15))**2) * 40.0
+
+        # Phase in the velocity reward as the spacecraft approaches the target altitude
+        altitude_proximity = np.exp(-(radius_diff / (altitude_scale * 0.5))**2)
+        reward += altitude_proximity * velocity_match_reward
+        
+        # NEW: Reward for excess tangential velocity when below target to encourage prograde thrust for orbit raising
+        if spacecraft_radius < target_radius:
+            local_circular_v = np.sqrt(self.mu / spacecraft_radius)
+            excess = (tangential_velocity_mag - local_circular_v) / (local_circular_v + 1e-8)
+            excess_reward = np.clip(excess, 0, 1) * 5.0
+            reward += excess_reward
+
+        # 4. Secondary reward: Encourage approaching the target satellite.
+        # This is now also conditioned on altitude proximity so the agent isn't afraid
+        # to perform the transfer orbit.
+        distance_penalty = (distance / self.max_distance) * 5.0
+        reward -= altitude_proximity * distance_penalty
+
+        # 5. Fuel efficiency bonus (small incentive)
         fuel_ratio = self.fuel / self.initial_fuel
         reward += fuel_ratio * 0.01
         
-        # 5. Time penalty: small penalty for each step to encourage efficiency
+        # 6. Time penalty: small penalty for each step to encourage efficiency
         reward -= 0.01
 
-        # 6. Large success bonus for achieving the goal
+        # 7. Large success bonus for achieving the goal
         if distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
             print(f"Step {self.steps}: Done -> SUCCESS: Docked with target.")
             reward += 1000.0
             done = True
         
-        # 7. Penalties for failure conditions
+        # 8. Penalties for failure conditions
         if distance > self.max_distance:
             print(f"Step {self.steps}: Done -> Exceeded max distance: {distance:.2f} > {self.max_distance:.2f}")
             reward = -10.0
@@ -276,7 +316,7 @@ class AstrodynamicsEnv:
             done = True
         
         # Timeout
-        if self.steps > 4000:
+        if self.steps > 6000:
             print(f"Step {self.steps}: Done -> Timeout.")
             done = True
 
@@ -301,7 +341,7 @@ class AstrodynamicsEnv:
             [distance / self.max_distance],    # Distance to target (1)
             [velocity_mag / 10000.0],          # Speed magnitude (1)
             [self.fuel / self.initial_fuel],   # Fuel ratio (1)
-            [self.steps / 4000.0]              # Time progress (1)
+            [self.steps / 6000.0]              # Time progress (1)
         ])
 
     def get_state_for_viz(self) -> Dict[str, Any]:
@@ -377,7 +417,7 @@ async def train_astrodynamics(websocket: WebSocket):
     model_filename = f"astrodynamics_policy_{ts}_{session_uuid}.onnx"
     model_path = os.path.join(POLICIES_DIR, model_filename)
 
-    envs: List[AstrodynamicsEnv] = [AstrodynamicsEnv() for _ in range(16)]
+    envs: List[AstrodynamicsEnv] = [AstrodynamicsEnv() for _ in range(32)]
     OBS_SIZE = envs[0]._get_obs().shape[0]
 
     model = ActorCritic(OBS_SIZE, ACTION_SIZE)
