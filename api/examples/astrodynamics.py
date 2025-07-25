@@ -21,9 +21,9 @@ MINI_BATCH = 512
 EPOCHS = 8
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
-CLIP_EPS = 0.2
-ENT_COEF = 0.025
-LR = 1e-3
+CLIP_EPS = 0.1
+ENT_COEF = 0.1
+LR = 5e-4
 EPISODES = 3000
 
 # -----------------------------------------------------------------------------------
@@ -50,10 +50,10 @@ class AstrodynamicsEnv:
 
         # Spacecraft parameters
         self.mass = 1000.0  # kg
-        self.max_thrust = 5000.0  # N (more realistic for orbital maneuvers)
-        self.specific_impulse = 300.0  # seconds
-        self.initial_fuel = 200000.0  # kg (for orbit-to-orbit transfer)
-        self.dt = 100.0  # seconds
+        self.max_thrust = 500000.0  # N (powerful, but allows for sustained burn)
+        self.specific_impulse = 300000.0  # seconds
+        self.initial_fuel = 500000.0  # kg (enough for a long burn)
+        self.dt = 50.0  # seconds (more stable timestep)
         
         # Mission parameters
         self.docking_threshold = 50.0  # meters
@@ -205,121 +205,80 @@ class AstrodynamicsEnv:
         # Calculate reward and termination
         distance = np.linalg.norm(self.relative_pos)
         velocity_mag = np.linalg.norm(self.relative_vel)
+        spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
 
-        
+        # First, check for terminal conditions which apply in all phases
         done = False
         reward = 0.0
 
-        # If not in training mode, don't calculate rewards and only terminate on crash
         if not self.training_mode:
-            spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
-            if spacecraft_radius < self.earth_radius:
-                done = True
+            if spacecraft_radius < self.earth_radius: done = True
             return self._get_obs(), reward, done
-        
-        # --- Reward Shaping ---
-        
-        spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
-        target_radius = self.orbit_radius
-        altitude_scale = self.orbit_altitude - self.leo_altitude
 
-        # Unit vector pointing away from Earth center (radial direction)
-        up_dir = self.spacecraft_pos_abs / (spacecraft_radius + 1e-8)
-        
-        # NEW: Anti-stagnation penalty to strongly discourage staying in LEO.
-        # This creates a 'hill' the agent is pushed off of at the start.
-        altitude_progress = (spacecraft_radius - self.leo_radius) / (altitude_scale + 1e-8)
-        stagnation_penalty = (1.0 - np.clip(altitude_progress, 0, 1.0)) * 1.0
-        reward -= stagnation_penalty
-
-        # 1. Radial Velocity Reward: A direct incentive to move upwards.
-        # This rewards the agent for having a positive radial velocity (moving away from Earth)
-        # but only when it's below the target orbit. This encourages the initial burn.
-        if spacecraft_radius < target_radius:
-            radial_velocity = np.dot(self.spacecraft_vel_abs, up_dir)
-            # Scale reward. A radial velocity of 200 m/s gives a reward of 1.0.
-            radial_velocity_reward = (radial_velocity / 100.0)
-            reward += radial_velocity_reward
-        
-        # 2. Altitude Reward: Use a Gaussian function to create a strong incentive
-        # to be *at* the target orbital radius, penalizing both under- and over-shooting.
-        radius_diff = spacecraft_radius - target_radius
-        # The 'sharpness' of the peak is controlled by the denominator. A smaller value
-        # creates a sharper, more precise reward peak.
-        radius_reward = np.exp(-(radius_diff / (altitude_scale * 0.1))**2) * 50.0
-        reward += radius_reward
-        
-        # 3. Orbital Velocity Reward: Encourage the agent to match the correct speed for a
-        # stable circular orbit at the target altitude. This is key to avoid overshooting.
-        # This reward is scaled by altitude proximity, so it only matters when the
-        # agent is near the correct altitude.
-        
-        # Calculate tangential velocity
-        radial_velocity_component = np.dot(self.spacecraft_vel_abs, up_dir) * up_dir
-        tangential_velocity_vec = self.spacecraft_vel_abs - radial_velocity_component
-        tangential_velocity_mag = np.linalg.norm(tangential_velocity_vec)
-        
-        # Calculate reward for matching the target orbital velocity
-        velocity_diff = tangential_velocity_mag - self.orbital_velocity
-        # The sharpness of this peak is relative to the target velocity itself.
-        velocity_match_reward = np.exp(-(velocity_diff / (self.orbital_velocity * 0.15))**2) * 40.0
-
-        # Phase in the velocity reward as the spacecraft approaches the target altitude
-        altitude_proximity = np.exp(-(radius_diff / (altitude_scale * 0.5))**2)
-        reward += altitude_proximity * velocity_match_reward
-        
-        # NEW: Reward for excess tangential velocity when below target to encourage prograde thrust for orbit raising
-        if spacecraft_radius < target_radius:
-            local_circular_v = np.sqrt(self.mu / spacecraft_radius)
-            excess = (tangential_velocity_mag - local_circular_v) / (local_circular_v + 1e-8)
-            excess_reward = np.clip(excess, 0, 1) * 5.0
-            reward += excess_reward
-
-        # 4. Secondary reward: Encourage approaching the target satellite.
-        # This is now also conditioned on altitude proximity so the agent isn't afraid
-        # to perform the transfer orbit.
-        distance_penalty = (distance / self.max_distance) * 5.0
-        reward -= altitude_proximity * distance_penalty
-
-        # 5. Fuel efficiency bonus (small incentive)
-        fuel_ratio = self.fuel / self.initial_fuel
-        reward += fuel_ratio * 0.01
-        
-        # 6. Time penalty: small penalty for each step to encourage efficiency
-        reward -= 0.01
-
-        # 7. Large success bonus for achieving the goal
-        if distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
-            print(f"Step {self.steps}: Done -> SUCCESS: Docked with target.")
-            reward += 1000.0
-            done = True
-        
-        # 8. Penalties for failure conditions
-        if distance > self.max_distance:
-            print(f"Step {self.steps}: Done -> Exceeded max distance: {distance:.2f} > {self.max_distance:.2f}")
-            reward = -10.0
-            done = True
-        
+        # Universal Failure & Success Conditions
         if spacecraft_radius < self.earth_radius:
-            print(f"Step {self.steps}: Done -> Crashed into Earth: {spacecraft_radius:.2f} < {self.earth_radius:.2f}")
-            reward = -200.0
-            done = True
+            print(f"Episode End: Crashed into Earth at step {self.steps}.")
+            reward = -200.0; done = True
+        elif distance > self.max_distance:
+            print(f"Episode End: Exceeded max distance at step {self.steps}.")
+            reward = -10.0; done = True
+        elif self.fuel <= 0 and distance > self.docking_threshold:
+            print(f"Episode End: Out of fuel at step {self.steps}.")
+            reward = -50.0; done = True
+        elif distance < self.docking_threshold and velocity_mag > self.velocity_threshold:
+            print(f"Episode End: Crashed into target at step {self.steps}.")
+            reward = -50.0; done = True
+        elif self.steps > 12000:
+            print(f"Episode End: Timeout at step {self.steps}.")
+            reward = -5.0; done = True
+        elif distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
+            print(f"Episode End: Successfully docked at step {self.steps}.")
+            reward = 1000.0; done = True
         
-        if self.fuel <= 0 and distance > self.docking_threshold:
-            print(f"Step {self.steps}: Done -> Out of fuel. Distance: {distance:.2f}")
-            reward = -50.0
-            done = True
-        
-        if distance < self.docking_threshold and velocity_mag > self.velocity_threshold:
-            print(f"Step {self.steps}: Done -> Crashed into target. Velocity: {velocity_mag:.2f} > {self.velocity_threshold:.2f}")
-            reward = -50.0
-            done = True
-        
-        # Timeout
-        if self.steps > 6000:
-            print(f"Step {self.steps}: Done -> Timeout.")
-            done = True
+        if done:
+            return self._get_obs(), reward, done
 
+        # --- State-Dependent Reward Logic ---
+        # The agent MUST be forced to leave LEO immediately.
+        LEO_EXIT_THRESHOLD_RADIUS = self.leo_radius * 1.1
+
+        if spacecraft_radius < LEO_EXIT_THRESHOLD_RADIUS:
+            # PHASE 1: LEAVING LEO.
+            # The only goal is to thrust. Any thrust.
+            if action == 0:
+                # Unignorable penalty for inaction.
+                reward = -100.0
+            else:
+                # Positive reward for ANY thrust action.
+                reward = 5.0
+        else:
+            # PHASE 2: ORBITAL RENDEZVOUS.
+            # Now that we've left LEO, we can use more nuanced rewards.
+            target_radius = self.orbit_radius
+            altitude_scale = self.orbit_altitude - self.leo_altitude
+            up_dir = self.spacecraft_pos_abs / (spacecraft_radius + 1e-8)
+
+            # 1. Altitude Reward: Gaussian peak at the target orbit.
+            radius_diff = spacecraft_radius - target_radius
+            radius_reward = np.exp(-(radius_diff / (altitude_scale * 0.1))**2) * 50.0
+            reward += radius_reward
+            
+            # 2. Orbital Velocity Reward
+            radial_velocity_component = np.dot(self.spacecraft_vel_abs, up_dir) * up_dir
+            tangential_velocity_vec = self.spacecraft_vel_abs - radial_velocity_component
+            tangential_velocity_mag = np.linalg.norm(tangential_velocity_vec)
+            velocity_diff = tangential_velocity_mag - self.orbital_velocity
+            velocity_match_reward = np.exp(-(velocity_diff / (self.orbital_velocity * 0.15))**2) * 40.0
+            altitude_proximity = np.exp(-(radius_diff / (altitude_scale * 0.5))**2)
+            reward += altitude_proximity * velocity_match_reward
+
+            # 3. Approach Reward
+            distance_penalty = (distance / self.max_distance) * 5.0
+            reward -= altitude_proximity * distance_penalty
+
+        # Small universal time penalty
+        reward -= 0.1
+        
         return self._get_obs(), reward, done
 
     def _get_obs(self):
@@ -377,6 +336,8 @@ class ActorCritic(nn.Module):
             nn.Linear(256, 128), nn.Tanh()
         )
         self.actor_logits = nn.Linear(128, action_size)
+        self.actor_logits.bias.data.fill_(0.0)
+        self.actor_logits.bias.data[0] = -1.0  # Slight bias against action 0 (no thrust)
         self.critic = nn.Linear(128, 1)
 
     def forward(self, obs: torch.Tensor):
@@ -506,6 +467,13 @@ async def train_astrodynamics(websocket: WebSocket):
                     policy_loss = -torch.min(policy_loss1, policy_loss2).mean()
                     
                     value_loss = (value - mb_ret).pow(2).mean()
+                    approx_kl = (mb_logp_old - logp_new).mean()
+                    if approx_kl > 0.01:
+                        continue
+                    value_clipped = val_cat[mb_idx] + torch.clamp(value - val_cat[mb_idx], -CLIP_EPS, CLIP_EPS)
+                    value_loss_clipped = (value_clipped - mb_ret).pow(2).mean()
+                    value_loss = 0.5 * torch.max(value_loss, value_loss_clipped)
+
                     loss = policy_loss + 0.5 * value_loss - ENT_COEF * entropy_bonus
 
                     optimizer.zero_grad()
