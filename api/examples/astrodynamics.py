@@ -23,7 +23,7 @@ GAMMA = 0.99
 GAE_LAMBDA = 0.95
 CLIP_EPS = 0.2
 ENT_COEF = 0.01
-LR = 3e-4
+LR = 1e-3
 EPISODES = 1500
 
 # -----------------------------------------------------------------------------------
@@ -52,7 +52,7 @@ class AstrodynamicsEnv:
         self.mass = 1000.0  # kg
         self.max_thrust = 5000.0  # N (more realistic for orbital maneuvers)
         self.specific_impulse = 300.0  # seconds
-        self.initial_fuel = 10000.0  # kg (for orbit-to-orbit transfer)
+        self.initial_fuel = 50000.0  # kg (for orbit-to-orbit transfer)
         self.dt = 100.0  # seconds
         
         # Mission parameters
@@ -223,13 +223,11 @@ class AstrodynamicsEnv:
         spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
         target_radius = self.orbit_radius
         
-        # Reward for being closer to the target orbit radius
-        # We use an exponential reward to give a stronger signal as it gets closer.
-        radius_diff = abs(spacecraft_radius - target_radius)
-        # Scale the reward, so being at LEO vs MEO is a big difference.
-        # Let's use a characteristic scale of the altitude difference.
-        altitude_scale = self.orbit_altitude - self.leo_altitude
-        radius_reward = np.exp(-radius_diff / altitude_scale) * 20.0 # Reward up to 20 for correct altitude
+        # The previous exponential reward function gave a significant positive reward for
+        # staying in low orbit, creating a local optimum. A linear reward for altitude 
+        # progress provides a much clearer gradient for the agent to start climbing.
+        altitude_progress = (spacecraft_radius - self.leo_radius) / (target_radius - self.leo_radius)
+        radius_reward = np.clip(altitude_progress, 0, 1.2) * 25.0 # Reward scaling and clip to handle overshooting
         reward += radius_reward
         
         # 2. Secondary reward: Encourage approaching the target satellite
@@ -252,28 +250,34 @@ class AstrodynamicsEnv:
 
         # 6. Large success bonus for achieving the goal
         if distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
+            print(f"Step {self.steps}: Done -> SUCCESS: Docked with target.")
             reward += 1000.0
             done = True
         
         # 7. Penalties for failure conditions
         if distance > self.max_distance:
+            print(f"Step {self.steps}: Done -> Exceeded max distance: {distance:.2f} > {self.max_distance:.2f}")
             reward = -10.0
             done = True
         
         if spacecraft_radius < self.earth_radius:
+            print(f"Step {self.steps}: Done -> Crashed into Earth: {spacecraft_radius:.2f} < {self.earth_radius:.2f}")
             reward = -200.0
             done = True
         
         if self.fuel <= 0 and distance > self.docking_threshold:
+            print(f"Step {self.steps}: Done -> Out of fuel. Distance: {distance:.2f}")
             reward = -50.0
             done = True
         
         if distance < self.docking_threshold and velocity_mag > self.velocity_threshold:
+            print(f"Step {self.steps}: Done -> Crashed into target. Velocity: {velocity_mag:.2f} > {self.velocity_threshold:.2f}")
             reward = -50.0
             done = True
         
         # Timeout
         if self.steps > 4000:
+            print(f"Step {self.steps}: Done -> Timeout.")
             done = True
 
         return self._get_obs(), reward, done
