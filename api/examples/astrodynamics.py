@@ -58,7 +58,7 @@ class AstrodynamicsEnv:
         # Mission parameters
         self.docking_threshold = 50.0  # meters
         self.velocity_threshold = 2.0  # m/s for successful docking
-        self.max_distance = 25000e5  # maximum distance from target (m)
+        self.max_distance = 100e6  # maximum distance from target (m)
         
         # State variables
         # Relative state (in orbital reference frame of the target)

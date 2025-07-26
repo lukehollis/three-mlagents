@@ -350,12 +350,6 @@ const StatusDisplay = ({ state }) => {
         Distance: {formatDistance(distance_to_target)}
       </div>
       <div>Velocity: {velocity_magnitude.toFixed(2)}m/s</div>
-      <div style={{ 
-        marginTop: '8px', 
-        color: isDockingReady ? '#00ff00' : isCloseApproach ? '#ffff00' : '#ffffff' 
-      }}>
-        {isDockingReady ? 'DOCKING READY' : isCloseApproach ? 'CLOSE APPROACH' : 'LAUNCHING TO ORBIT'}
-      </div>
     </div>
   );
 };
