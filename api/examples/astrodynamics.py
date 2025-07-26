@@ -16,15 +16,15 @@ from fastapi import WebSocket
 
 ACTION_SIZE = 7  # 0=no thrust, 1-6=thrust directions
 POLICIES_DIR = "policies"
-BATCH_SIZE = 4096
+BATCH_SIZE = 8192
 MINI_BATCH = 512
-EPOCHS = 8
+EPOCHS = 10
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
-CLIP_EPS = 0.1
-ENT_COEF = 0.1
-LR = 5e-4
-EPISODES = 3000
+CLIP_EPS = 0.2
+ENT_COEF = 0.01
+LR = 1e-4
+EPISODES = 5000
 
 # -----------------------------------------------------------------------------------
 # Astrodynamics Environment
@@ -59,6 +59,7 @@ class AstrodynamicsEnv:
         self.docking_threshold = 50.0  # meters
         self.velocity_threshold = 2.0  # m/s for successful docking
         self.max_distance = 100e6  # maximum distance from target (m)
+        self.docking_approach_threshold = 10000.0 # 10 km, for reward shaping
         
         # State variables
         # Relative state (in orbital reference frame of the target)
@@ -251,7 +252,8 @@ class AstrodynamicsEnv:
             else:
                 # Positive reward for ANY thrust action.
                 reward = 5.0
-        else:
+        
+        elif distance > self.docking_approach_threshold:
             # PHASE 2: ORBITAL RENDEZVOUS.
             # Now that we've left LEO, we can use more nuanced rewards.
             target_radius = self.orbit_radius
@@ -272,9 +274,35 @@ class AstrodynamicsEnv:
             altitude_proximity = np.exp(-(radius_diff / (altitude_scale * 0.5))**2)
             reward += altitude_proximity * velocity_match_reward
 
-            # 3. Approach Reward
-            distance_penalty = (distance / self.max_distance) * 5.0
-            reward -= altitude_proximity * distance_penalty
+            # 3. Approach Reward - log-scaled penalty for distance
+            distance_penalty = np.log1p(distance / 1000.0) * 0.5 # distance in km
+            reward -= distance_penalty
+
+            # 4. Orbital Energy Reward
+            target_energy = -self.mu / (2 * self.orbit_radius)
+            current_radius = np.linalg.norm(self.spacecraft_pos_abs)
+            current_speed = np.linalg.norm(self.spacecraft_vel_abs)
+            if current_radius < 1.0: current_radius = 1.0 # Avoid division by zero
+            current_energy = (current_speed**2 / 2) - (self.mu / current_radius)
+            energy_diff = np.abs(current_energy - target_energy)
+            energy_match_reward = np.exp(-(energy_diff / np.abs(target_energy)) * 2.0) * 35.0
+            reward += energy_match_reward
+        else:
+            # PHASE 3: DOCKING (Terminal Guidance)
+            # Once close, focus on killing relative velocity and position.
+            reward_gate = (1.0 - (distance / self.docking_approach_threshold))
+
+            # 1. Reward for distance reduction
+            distance_reward = (1.0 - (distance / self.docking_approach_threshold)) * 25.0
+            reward += distance_reward
+
+            # 2. Velocity matching reward (critical at close range)
+            velocity_reward = np.exp(-(velocity_mag / self.velocity_threshold)**2) * 50.0
+            reward += reward_gate * velocity_reward
+
+            # 3. Fuel efficiency reward when close
+            if action == 0:
+                reward += reward_gate * 0.5
 
         # Small universal time penalty
         reward -= 0.1
@@ -332,8 +360,9 @@ class ActorCritic(nn.Module):
     def __init__(self, obs_size: int, action_size: int):
         super().__init__()
         self.shared = nn.Sequential(
-            nn.Linear(obs_size, 256), nn.Tanh(),
-            nn.Linear(256, 128), nn.Tanh()
+            nn.Linear(obs_size, 512), nn.GELU(),
+            nn.Linear(512, 256), nn.GELU(),
+            nn.Linear(256, 128), nn.GELU()
         )
         self.actor_logits = nn.Linear(128, action_size)
         self.actor_logits.bias.data.fill_(0.0)
@@ -478,6 +507,7 @@ async def train_astrodynamics(websocket: WebSocket):
 
                     optimizer.zero_grad()
                     loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
                     optimizer.step()
 
             avg_reward = float(torch.cat([b["reward"] for b in step_buffer]).mean().cpu().item())
