@@ -18,91 +18,23 @@ A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https:
 
 The goal of this repository is to make the ideas from Unity ML-Agents easily approachable from the browser (React + Three.js) and from lightweight Python back-ends (FastAPI) to be used for future study.
 
----
 
-## Motivation
-
-*   Learn reinforcement-learning concepts with nothing more than a web browser.
-*   Provide interactive visualisations of the original ML-Agents example scenes.
-*   Keep parity with the official C#/Unity implementation so that lessons learned here transfer directly to the original toolkit.
-
----
 
 ## Examples
 
-### 0. Basic 1-D Move to Goal
+View all the demos on the live demos page: [Live Demos](https://lukehollis.github.io/three-mlagents/). 
 
-![three_ml_agents_basic_example](https://github.com/user-attachments/assets/4fa2da3a-f983-41e0-8a66-620b2d809674)
-
-[Live demo](https://lukehollis.github.io/three-mlagents/basic)
+Select demos are here. 
 
 
+### MineCraft
 
-### 1. 3DBall Balance
-
-![three_mlagents_3dball_example](https://github.com/user-attachments/assets/3b15e67f-daae-467a-80d3-ecdae09decd8)
-
-[Live demo](https://lukehollis.github.io/three-mlagents/ball3d)
+![minecraft_example](https://github.com/user-attachments/assets/1338e926-8c8d-412e-bc2c-0627e47df165)
 
 
+[Live demo](https://lukehollis.github.io/three-mlagents/minecraft)
 
-### 2. GridWorld Navigation
-
-![three_ml_agents_gridworld_example](https://github.com/user-attachments/assets/eef5ae25-5189-41b1-8143-045e1d701533)
-
-[Live demo](https://lukehollis.github.io/three-mlagents/gridworld)
-
-
-
-### 3. Push-Block
-
-![push_block_example](https://github.com/user-attachments/assets/825b8437-45cc-47b7-ba90-6f17ed90385c)
-
-
-[Live demo](https://lukehollis.github.io/three-mlagents/push)
-
-
-### 4. Wall Jump 
-
-![wall_jump_example](https://github.com/user-attachments/assets/deb75a72-8a8a-4c94-9465-49c41c1b5f24)
-
-[Live demo](https://lukehollis.github.io/three-mlagents/walljump)
-
-
-### 5. Ant (Crawler)
-
-![ant_example](https://github.com/user-attachments/assets/81b7ca6b-e8db-4b7e-baf1-d9d7635fa6c1)
-
-[Live demo](https://lukehollis.github.io/three-mlagents/crawler)
-
-### 6. Swimmer / Worm
-
-![worm_example](https://github.com/user-attachments/assets/6ae84aac-ef38-4e79-a2e9-b4079b61bb8e)
-
-[Live demo](https://lukehollis.github.io/three-mlagents/worm)
-
-### 7. Brick Break
-
-![brick_break_example](https://github.com/user-attachments/assets/790b1bbf-3758-4e6c-b570-7dd268b6f987)
-
-
-[Live demo](https://lukehollis.github.io/three-mlagents/brickbreak)
-
-### 8. Food Collector
-
-![food_collector_example](https://github.com/user-attachments/assets/199505ec-361e-475c-9f15-94becf525599)
-
-
-[Live demo](https://lukehollis.github.io/three-mlagents/foodcollector)
-
-### 9. Bicycle
-
-![bicycle_example](https://github.com/user-attachments/assets/929a8c8d-8154-4f35-9af9-95b78940c9be)
-
-
-[Live demo](https://lukehollis.github.io/three-mlagents/bicycle)
-
-### 10. Glider
+### Glider
 
 ![glider_example](https://github.com/user-attachments/assets/1c82281a-6982-4d05-95e4-816e6b8f61b4)
 
@@ -110,15 +42,7 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 [Live demo](https://lukehollis.github.io/three-mlagents/glider)
 
 
-### 11. MineCraft
-
-![minecraft_example](https://github.com/user-attachments/assets/1338e926-8c8d-412e-bc2c-0627e47df165)
-
-
-[Live demo](https://lukehollis.github.io/three-mlagents/minecraft)
-
-
-### 12. Fish
+### Fish
 
 ![fish_example](https://github.com/user-attachments/assets/df5e947f-cbe1-401a-a491-180159515acc)
 
@@ -126,24 +50,27 @@ The goal of this repository is to make the ideas from Unity ML-Agents easily app
 [Live demo](https://lukehollis.github.io/three-mlagents/fish)
 
 
-### 13. Intersection
-
-![intersection_example](https://github.com/user-attachments/assets/0f9c6b90-2a62-466c-af83-0f695e231671)
-
-
-[Live demo](https://lukehollis.github.io/three-mlagents/intersection)
-
-
-### 14. Self-driving Car (Interpretability)
+### Self-driving Car (Interpretability)
 
 ![self_driving_car_interpretability_example](https://github.com/user-attachments/assets/7bf64b31-71fa-4c3b-a872-9aa952df4285)
-
 
 
 [Live demo](https://lukehollis.github.io/three-mlagents/self-driving-car)
 
 
-
+| Demo                           | Live Demo                                                          |
+|--------------------------------|--------------------------------------------------------------------|
+| Basic 1-D Move to Goal         | [Live Demo](https://lukehollis.github.io/three-mlagents/basic)     |
+| 3DBall Balance                 | [Live Demo](https://lukehollis.github.io/three-mlagents/ball3d)    |
+| GridWorld Navigation           | [Live Demo](https://lukehollis.github.io/three-mlagents/gridworld) |
+| Push-Block                     | [Live Demo](https://lukehollis.github.io/three-mlagents/push)      |
+| Wall Jump                      | [Live Demo](https://lukehollis.github.io/three-mlagents/walljump)  |
+| Ant (Crawler)                  | [Live Demo](https://lukehollis.github.io/three-mlagents/crawler)   |
+| Swimmer / Worm                 | [Live Demo](https://lukehollis.github.io/three-mlagents/worm)      |
+| Brick Break                    | [Live Demo](https://lukehollis.github.io/three-mlagents/brickbreak)|
+| Food Collector                 | [Live Demo](https://lukehollis.github.io/three-mlagents/foodcollector) |
+| Bicycle                        | [Live Demo](https://lukehollis.github.io/three-mlagents/bicycle)   |
+| Intersection                   | [Live Demo](https://lukehollis.github.io/three-mlagents/intersection) |
 
 ## Project layout
 
