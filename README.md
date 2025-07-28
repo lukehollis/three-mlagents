@@ -12,7 +12,8 @@
 
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples.
 
-![minecraft_example](https://github.com/user-attachments/assets/1338e926-8c8d-412e-bc2c-0627e47df165)
+![threejs_mlagents_overview](https://github.com/user-attachments/assets/933f8214-552d-4241-a726-f40ce4d765ff)
+
 
 
 The goal of this repository is to make the ideas from Unity ML-Agents easily approachable from the browser (React + Three.js) and from lightweight Python back-ends (FastAPI) to be used for future study.
