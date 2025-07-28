@@ -19,6 +19,7 @@ from examples.food_collector import train_food_collector, run_food_collector, Fo
 from examples.bicycle import train_bicycle, run_bicycle, BicycleEnv
 from examples.glider import train_glider, run_glider, GliderEnv
 from examples.astrodynamics import train_astrodynamics, run_astrodynamics, AstrodynamicsEnv, run_simulation
+from examples.labyrinth import train_labyrinth, run_labyrinth, LabyrinthEnv, run_simulation as run_labyrinth_simulation
 from examples.minecraft import run_minecraft, train_minecraft, MineCraftEnv
 from examples.fish import run_fish, train_fish, FishEnv
 from examples.intersection import run_intersection, train_intersection, MultiVehicleEnv as IntersectionEnv
@@ -324,6 +325,44 @@ async def websocket_astrodynamics(websocket: WebSocket):
     finally:
         # Clean up the active task when the connection closes
         if 'active_task' in locals() and active_task and not active_task.done():
+            active_task.cancel()
+
+
+@app.websocket("/ws/labyrinth")
+async def websocket_labyrinth(websocket: WebSocket):
+    await websocket.accept()
+    
+    # Send an initial static state
+    env = LabyrinthEnv(training_mode=False)
+    state = env.get_state_for_viz()
+    await websocket.send_json({"type": "state", "state": state})
+
+    active_task = None
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            cmd = message.get("cmd")
+
+            if cmd:
+                if active_task:
+                    active_task.cancel()
+                    try:
+                        await active_task
+                    except asyncio.CancelledError:
+                        pass
+                
+                if cmd == 'train':
+                    active_task = asyncio.create_task(train_labyrinth(websocket))
+                
+                elif cmd == 'run':
+                    model_filename = message.get('model_filename')
+                    active_task = asyncio.create_task(run_labyrinth(websocket, model_filename))
+
+    except WebSocketDisconnect:
+        print("Client disconnected from labyrinth")
+    finally:
+        if active_task and not active_task.done():
             active_task.cancel()
 
 

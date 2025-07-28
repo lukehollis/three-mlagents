@@ -390,6 +390,7 @@ export default function GliderExample() {
   const startTraining = () => {
     if (training || trained) return;
     setTraining(true);
+    addLog('Starting training...');
     send({ cmd: 'train' });
   };
 
@@ -404,6 +405,7 @@ export default function GliderExample() {
     setModelInfo(null);
     setChartState({ labels: [], rewards: [], losses: [] });
     setState(null);
+    addLog('Training has been reset.');
   };
   
   return (

@@ -13,6 +13,7 @@ import FoodCollectorExample from './examples/FoodCollector.jsx';
 import BicycleExample from './examples/Bicycle.jsx';
 import GliderExample from './examples/Glider.jsx';
 import AstrodynamicsExample from './examples/Astrodynamics.jsx';
+import LabyrinthExample from './examples/Labyrinth.jsx';
 import MinecraftExample from './examples/Minecraft.jsx';
 import SimCityExample from './examples/SimCity.jsx';
 import FishExample from './examples/Fish.jsx';
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="/bicycle" element={<BicycleExample />} />
         <Route path="/glider" element={<GliderExample />} />
         <Route path="/astrodynamics" element={<AstrodynamicsExample />} />
+        <Route path="/labyrinth" element={<LabyrinthExample />} />
         <Route path="/minecraft" element={<MinecraftExample />} />
         <Route path="/simcity" element={<SimCityExample />} />
         <Route path="/fish" element={<FishExample />} />
