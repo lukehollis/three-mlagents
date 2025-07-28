@@ -41,6 +41,11 @@ Select demos are here.
 
 [Live demo](https://lukehollis.github.io/three-mlagents/glider)
 
+### Astrodynamics
+
+![astrodynamics_example](https://github.com/user-attachments/assets/d06b7d03-1ade-409f-aabc-fb1b283c7aab)
+
+[Live demo](https://lukehollis.github.io/three-mlagents/astrodynamics)
 
 ### Fish
 
@@ -56,6 +61,13 @@ Select demos are here.
 
 
 [Live demo](https://lukehollis.github.io/three-mlagents/self-driving-car)
+
+
+### Labyrinth
+
+![labyrinth_example](https://github.com/user-attachments/assets/39a2fe92-d279-4d23-a816-9c2a76e538b6)
+
+[Live demo](https://lukehollis.github.io/three-mlagents/labyrinth)
 
 
 | Demo                           | Live Demo                                                          |
