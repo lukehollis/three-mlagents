@@ -35,7 +35,6 @@ export default function TensorboardPanel({ logs }) {
     >
       <div
         style={{
-          height: '180px',
           position: 'relative',
         }}
       >
@@ -47,7 +46,7 @@ export default function TensorboardPanel({ logs }) {
           style={{ position: 'absolute', top: 5, right: 5, zIndex: 10 }}
           type="abort"
         />
-        <TensorBoardViewer height="180px" />
+        {/* <TensorBoardViewer height="180px" /> */}
       </div>
       <div style={{ width: 'calc(100% - 15px)' }}>
         <DebugConsole logs={logs} />

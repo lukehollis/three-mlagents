@@ -387,8 +387,15 @@ export default function AstrodynamicsExample() {
 
       if ((parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state') && parsed.state) {
         setState(parsed.state);
+      } else if (parsed.type === 'episode_end') {
+        addLog(`Episode ${parsed.episode}: ${parsed.reason} at step ${parsed.steps} (reward: ${parsed.reward.toFixed(2)}) [env ${parsed.env_idx}]`);
       } else if (parsed.type === 'progress') {
-        addLog(`Episode ${parsed.episode}: Reward=${parsed.reward?.toFixed(3) ?? 'N/A'}, Loss=${(parsed.loss ?? 0)?.toFixed(3) ?? 'N/A'}`);
+        addLog(`Rollout Progress - Episode ${parsed.episode}: Avg Reward=${parsed.reward?.toFixed(3) ?? 'N/A'}, Loss=${(parsed.loss ?? 0)?.toFixed(3) ?? 'N/A'}`);
+      } else if (parsed.type === 'training_started') {
+        addLog(`Training started: ${parsed.message} (${parsed.total_timesteps} timesteps)`);
+      } else if (parsed.type === 'training_error') {
+        addLog(`Training error: ${parsed.message}`);
+        setTraining(false);
       } else if (parsed.type === 'trained') {
         addLog(`Training complete. Model: ${parsed.model_filename}`);
         setTraining(false);

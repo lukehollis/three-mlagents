@@ -17,6 +17,9 @@ export default function TensorBoardViewer({ height = '300px' }) {
   const checkTensorBoardStatus = async () => {
     try {
       const response = await fetch(statusUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
       const data = await response.json();
       setIsServerRunning(data.running);
       if (data.running) {
@@ -24,7 +27,8 @@ export default function TensorBoardViewer({ height = '300px' }) {
         setError(null);
       }
     } catch (err) {
-      setError('Failed to check TensorBoard status');
+      console.error('TensorBoard status check failed:', err);
+      setError(`Failed to check TensorBoard status: ${err.message}`);
       setIsLoading(false);
     }
   };
@@ -35,45 +39,53 @@ export default function TensorBoardViewer({ height = '300px' }) {
       setError(null);
       
       // Call the start endpoint
-      await fetch(startUrl);
+      const startResponse = await fetch(startUrl);
+      if (!startResponse.ok) {
+        throw new Error(`Failed to start TensorBoard: HTTP ${startResponse.status}`);
+      }
       
       // Poll for server to be ready
       let attempts = 0;
       const maxAttempts = 20;
       
-             const pollForReady = async () => {
-         try {
-           const response = await fetch(statusUrl);
-           const data = await response.json();
-           if (data.running) {
-             setIsServerRunning(true);
-             setIsLoading(false);
-             setError(null);
-             // Server is ready, reload iframe
-             if (iframeRef.current) {
-               iframeRef.current.src = tensorboardUrl;
-             }
-           } else if (attempts < maxAttempts) {
-             attempts++;
-             setTimeout(pollForReady, 500);
-           } else {
-             setError('TensorBoard server failed to start');
-             setIsLoading(false);
-           }
-         } catch (err) {
-           if (attempts < maxAttempts) {
-             attempts++;
-             setTimeout(pollForReady, 500);
-           } else {
-             setError('TensorBoard server failed to start');
-             setIsLoading(false);
-           }
-         }
-       };
+      const pollForReady = async () => {
+        try {
+          const response = await fetch(statusUrl);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          const data = await response.json();
+          if (data.running) {
+            setIsServerRunning(true);
+            setIsLoading(false);
+            setError(null);
+            // Server is ready, reload iframe
+            if (iframeRef.current) {
+              iframeRef.current.src = tensorboardUrl;
+            }
+          } else if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(pollForReady, 500);
+          } else {
+            setError('TensorBoard server failed to start within timeout');
+            setIsLoading(false);
+          }
+        } catch (err) {
+          console.error(`TensorBoard poll attempt ${attempts + 1} failed:`, err);
+          if (attempts < maxAttempts) {
+            attempts++;
+            setTimeout(pollForReady, 500);
+          } else {
+            setError(`TensorBoard server failed to start: ${err.message}`);
+            setIsLoading(false);
+          }
+        }
+      };
       
       pollForReady();
     } catch (err) {
-      setError('Failed to start TensorBoard server');
+      console.error('Failed to start TensorBoard:', err);
+      setError(`Failed to start TensorBoard server: ${err.message}`);
       setIsLoading(false);
     }
   };
@@ -85,8 +97,8 @@ export default function TensorBoardViewer({ height = '300px' }) {
   };
 
   useEffect(() => {
-    // Check initial status
-    checkTensorBoardStatus();
+    // Automatically start TensorBoard on mount
+    startTensorBoard();
     
     // Set up polling every 5 seconds
     pollIntervalRef.current = setInterval(checkTensorBoardStatus, 5000);
@@ -116,8 +128,8 @@ export default function TensorBoardViewer({ height = '300px' }) {
         }}
       >
         <div style={{ marginBottom: '15px', color: '#ff6b6b' }}>{error}</div>
-        <Button auto onClick={startTensorBoard} type="secondary" icon={<Activity />}>
-          Start TensorBoard
+        <Button auto onClick={startTensorBoard} type="secondary" icon={<RefreshCw />}>
+          Retry
         </Button>
       </div>
     );
@@ -140,19 +152,8 @@ export default function TensorBoardViewer({ height = '300px' }) {
           textAlign: 'center',
         }}
       >
-        {isLoading ? (
-          <>
-            <Loading size="medium" />
-            <div style={{ marginTop: '15px' }}>Starting TensorBoard...</div>
-          </>
-        ) : (
-          <>
-            <div style={{ marginBottom: '15px' }}>TensorBoard Not Running</div>
-            <Button auto onClick={startTensorBoard} type="secondary" icon={<Activity />}>
-              Start TensorBoard
-            </Button>
-          </>
-        )}
+        <Loading size="medium" />
+        <div style={{ marginTop: '15px' }}>Starting TensorBoard...</div>
       </div>
     );
   }

@@ -1,5 +1,6 @@
 from fastapi import FastAPI, WebSocket, HTTPException
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import json
 import os
@@ -43,10 +44,23 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ML-Agents API")
 
+# Add CORS middleware to allow frontend to access API endpoints
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, replace with specific origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up TensorBoard server on app shutdown."""
     stop_tensorboard_server()
+
+@app.on_event("startup")
+def startup_event():
+    start_tensorboard_server()
 
 SMALL_GOAL = 7
 LARGE_GOAL = 17

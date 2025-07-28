@@ -9,6 +9,8 @@ import asyncio
 import numpy as np
 import torch
 import torch.nn as nn
+import onnx
+import onnxruntime
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
@@ -92,6 +94,9 @@ class AstrodynamicsEnv(gym.Env):
         self.steps = 0
         self.training_mode = training_mode
         
+        # Episode tracking for callback
+        self.total_episode_reward = 0.0
+        
         self.action_space = spaces.Discrete(ACTION_SIZE)
         obs_shape = self._get_obs_dummy().shape
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=obs_shape, dtype=np.float32)
@@ -173,6 +178,10 @@ class AstrodynamicsEnv(gym.Env):
         self.spacecraft_trail.clear()
         self.target_trail.clear()
         self.steps = 0
+        
+        # Reset episode tracking
+        self.total_episode_reward = 0.0
+        
         return self._get_obs(), {}
 
     def step(self, action: int):
@@ -267,34 +276,52 @@ class AstrodynamicsEnv(gym.Env):
         reward = 0.0
         terminated = False
         truncated = False
+        info = {}
 
         if not self.training_mode:
             if spacecraft_radius < self.earth_radius:
                 terminated = True
-            return self._get_obs(), reward, terminated, truncated, {}
+            return self._get_obs(), reward, terminated, truncated, info
 
         # Universal Failure & Success Conditions
+        episode_end_reason = None
         if spacecraft_radius < self.earth_radius:
             print(f"Episode End: Crashed into Earth at step {self.steps}.")
             reward = -200.0; terminated = True
+            episode_end_reason = "Crashed into Earth"
         elif distance > self.max_distance:
             print(f"Episode End: Exceeded max distance at step {self.steps}.")
             reward = -10.0; terminated = True
+            episode_end_reason = "Exceeded max distance"
         elif self.fuel <= 0 and distance > self.docking_threshold:
             print(f"Episode End: Out of fuel at step {self.steps}.")
             reward = -50.0; terminated = True
+            episode_end_reason = "Out of fuel"
         elif distance < self.docking_threshold and velocity_mag > self.velocity_threshold:
             print(f"Episode End: Crashed into target at step {self.steps}.")
             reward = -50.0; terminated = True
+            episode_end_reason = "Crashed into target"
         elif self.steps > 60000:
             print(f"Episode End: Timeout at step {self.steps}.")
             reward = -5.0; truncated = True
+            episode_end_reason = "Timeout"
         elif distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
             print(f"Episode End: Successfully docked at step {self.steps}.")
             reward = 1000.0; terminated = True
+            episode_end_reason = "Successfully docked"
+        
+        # Track total episode reward
+        self.total_episode_reward += reward
         
         if terminated or truncated:
-            return self._get_obs(), reward, terminated, truncated, {}
+            # Add episode end to queue for callback
+            if episode_end_reason and self.training_mode:
+                info["episode_end"] = {
+                    "reason": episode_end_reason,
+                    "steps": self.steps,
+                    "total_reward": self.total_episode_reward,
+                }
+            return self._get_obs(), reward, terminated, truncated, info
 
         # --- State-Dependent Reward Logic ---
         # The agent ALWAYS starts in a stable orbit. Its goal is to maneuver to the target.
@@ -352,7 +379,10 @@ class AstrodynamicsEnv(gym.Env):
         # Small universal time penalty
         reward -= 0.1
         
-        return self._get_obs(), reward, terminated, truncated, {}
+        # Track total episode reward for non-terminal steps too
+        self.total_episode_reward += reward
+        
+        return self._get_obs(), reward, terminated, truncated, info
 
     def _get_obs_dummy(self):
         """Helper to get dummy observation for space definition."""
@@ -405,46 +435,155 @@ class AstrodynamicsEnv(gym.Env):
             }
         }
 
+
 # -----------------------------------------------------------------------------------
 # Callbacks and training setup
 # -----------------------------------------------------------------------------------
 
 class WebSocketCallback(BaseCallback):
-    def __init__(self, websocket: WebSocket, verbose=0):
+    def __init__(self, websocket: WebSocket, loop: asyncio.AbstractEventLoop, verbose=0):
         super(WebSocketCallback, self).__init__(verbose)
         self.websocket = websocket
-        self.loop = asyncio.get_event_loop()
+        self.loop = loop
+        self.should_stop = False
+        self.episode_count = 0
+        self.last_timesteps = 0
+        self.failed_sends = 0
+        self.max_failed_sends = 1000
+        # Visualization tracking
+        self.vis_env_idx = 0 # The environment to visualize
+        self.step_counter = 0 # Counter for cycling through environments
 
-    def _on_step(self) -> bool:
+    def _send_message_safely(self, payload: dict) -> bool:
+        """Send a message via WebSocket with proper error handling."""
         if self.websocket.application_state != WebSocketState.CONNECTED:
-            print("WebSocket is disconnected. Stopping training.")
+            print("WebSocket is not connected. Stopping training.")
+            self.should_stop = True
             return False
             
-        # Send visualization state periodically for a smooth animation.
-        if self.num_timesteps % 128 == 0:
-            states = self.training_env.env_method("get_state_for_viz", indices=[0])
-            if states:
+        try:
+            # Schedule the async send and wait for it to complete with timeout
+            future = asyncio.run_coroutine_threadsafe(
+                self.websocket.send_json(payload), 
+                self.loop
+            )
+            # Wait for completion with a very short timeout to avoid blocking training
+            future.result(timeout=0.1)
+            self.failed_sends = 0  # Reset counter on success
+            return True
+        except Exception as e:
+            self.failed_sends += 1
+            # Only print every 500 failed sends to avoid spam since we're sending every step now
+            if self.failed_sends % 500 == 0:
+                print(f"Error sending WebSocket message (attempt {self.failed_sends}): {e}")
+            
+            if self.failed_sends >= self.max_failed_sends:
+                print(f"Too many failed WebSocket sends ({self.failed_sends}). Stopping training.")
+                self.should_stop = True
+                return False
+            return False
+
+    def _on_step(self) -> bool:
+        if self.should_stop:
+            return False
+
+        self.step_counter += 1
+        
+        # Cycle through environments to ensure continuous updates
+        self.vis_env_idx = self.step_counter % self.training_env.num_envs
+
+        # Check for episode ends from all environments.
+        # This is the standard SB3 way to get info from completed episodes.
+        for i, done in enumerate(self.locals["dones"]):
+            if done:
+                info = self.locals["infos"][i]
+                if "episode_end" in info:
+                    self.episode_count += 1
+                    episode_info = info["episode_end"]
+                    
+                    # --- Send final state of the episode that just ended ---
+                    try:
+                        states = self.training_env.env_method("get_state_for_viz", indices=[i])
+                        if states and states[0]:
+                            final_state_payload = {
+                                "type": "train_step",
+                                "state": states[0],
+                                "episode": self.episode_count,
+                                "timestep": self.num_timesteps,
+                            }
+                            self._send_message_safely(final_state_payload)
+                    except Exception as e:
+                        print(f"Error getting final viz state for env {i}: {e}")
+                    # ---------------------------------------------------------
+
+                    print(
+                        f"Episode {self.episode_count} (env {i}): {episode_info['reason']} at step {episode_info['steps']} "
+                        f"(reward: {episode_info['total_reward']:.2f})"
+                    )
+
+                    payload = {
+                        "type": "episode_end",
+                        "episode": self.episode_count,
+                        "timestep": self.num_timesteps,
+                        "reason": episode_info["reason"],
+                        "steps": episode_info["steps"],
+                        "reward": episode_info["total_reward"],
+                        "env_idx": i,
+                    }
+                    success = self._send_message_safely(payload)
+                    if not success and self.should_stop:
+                        return False
+        
+        # SEND EVERY STEP TO THE FRONTEND - JUST LIKE THE GLIDER
+        try:
+            states = self.training_env.env_method("get_state_for_viz", indices=[self.vis_env_idx])
+            if states and states[0]:
                 state = states[0]
-                payload = {"type": "state", "state": state}
-                asyncio.run_coroutine_threadsafe(self.websocket.send_json(payload), self.loop)
+                payload = {
+                    "type": "train_step", 
+                    "state": state, 
+                    "episode": self.episode_count,
+                    "timestep": self.num_timesteps
+                }
+                
+                success = self._send_message_safely(payload)
+                if not success and self.should_stop:
+                    return False
+                    
+        except Exception as e:
+            print(f"Error getting environment state for env {self.vis_env_idx}: {e}")
+            # Don't stop training for environment state errors
+                
         return True
 
     def _on_rollout_end(self) -> None:
-        """
-        This event is triggered after collecting a rollout and before updating the policy.
-        The logger has access to the latest rollout metrics here.
-        """
+        """Send progress updates after each rollout."""
+        if self.should_stop:
+            return
+            
+        # Simple episode counting: estimate based on timesteps and typical episode length
+        timesteps_this_rollout = self.num_timesteps - self.last_timesteps
+        self.last_timesteps = self.num_timesteps
+            
         reward = self.logger.name_to_value.get("rollout/ep_rew_mean")
         loss = self.logger.name_to_value.get("train/loss")
 
-        # Always send progress. Frontend will handle nulls for unavailable metrics.
         payload = {
             "type": "progress",
-            "episode": self.num_timesteps,  # Use timesteps for the x-axis
+            "episode": self.episode_count,
+            "timestep": self.num_timesteps,
             "reward": float(reward) if reward is not None else None,
             "loss": float(loss) if loss is not None else None,
         }
-        asyncio.run_coroutine_threadsafe(self.websocket.send_json(payload), self.loop)
+        
+        success = self._send_message_safely(payload)
+        if not success and self.should_stop:
+            print("Stopping training due to WebSocket communication failure")
+
+    def stop_training(self):
+        """Signal that training should stop."""
+        print("Training stop requested via callback")
+        self.should_stop = True
 
 
 def _export_model_onnx(model: PPO, path: str):
@@ -478,7 +617,27 @@ def _export_model_onnx(model: PPO, path: str):
 # Training loop
 # -----------------------------------------------------------------------------------
 
+# Global variable to track training state
+_training_task = None
+_training_callback = None
+
 async def train_astrodynamics(websocket: WebSocket):
+    global _training_task, _training_callback
+    
+    # Clean up any existing training
+    if _training_task and not _training_task.done():
+        print("Stopping existing training...")
+        if _training_callback:
+            _training_callback.stop_training()
+        _training_task.cancel()
+        try:
+            await _training_task
+        except asyncio.CancelledError:
+            pass
+    
+    print("Starting astrodynamics training...")
+    print(f"WebSocket state: {websocket.application_state}")
+    
     os.makedirs(POLICIES_DIR, exist_ok=True)
     os.makedirs("astrodynamics_tensorboard", exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -487,55 +646,184 @@ async def train_astrodynamics(websocket: WebSocket):
     model_path = os.path.join(POLICIES_DIR, f"{model_filename_base}.zip")
     onnx_path = os.path.join(POLICIES_DIR, f"{model_filename_base}.onnx")
     
-    # Use a vectorized environment for parallel training
-    # Recommended to use 'fork' start method on Linux for performance
-    # 'spawn' is default on macOS and Windows, which is fine.
-    vec_env = make_vec_env(AstrodynamicsEnv, n_envs=32, env_kwargs=dict(training_mode=True))
+    loop = asyncio.get_running_loop()
 
-    policy_kwargs = dict(
-        net_arch=dict(pi=[512, 256, 128], vf=[512, 256, 128])
-    )
+    def train_model():
+        """Synchronous training function to run in executor."""
+        try:
+            print("Setting up vectorized environment...")
+            # Use a vectorized environment for parallel training
+            vec_env = make_vec_env(AstrodynamicsEnv, n_envs=32, env_kwargs=dict(training_mode=True))
 
-    model = PPO(
-        "MlpPolicy",
-        vec_env,
-        verbose=1,
-        gamma=GAMMA,
-        gae_lambda=GAE_LAMBDA,
-        clip_range=CLIP_EPS,
-        ent_coef=ENT_COEF,
-        learning_rate=LR,
-        n_epochs=10,
-        batch_size=512,
-        n_steps=2048,
-        policy_kwargs=policy_kwargs,
-        tensorboard_log=f"./astrodynamics_tensorboard/"
-    )
+            policy_kwargs = dict(
+                net_arch=dict(pi=[512, 256, 128], vf=[512, 256, 128])
+            )
 
-    callback = WebSocketCallback(websocket)
+            print("Creating PPO model...")
+            model = PPO(
+                "MlpPolicy",
+                vec_env,
+                verbose=1,
+                gamma=GAMMA,
+                gae_lambda=GAE_LAMBDA,
+                clip_range=CLIP_EPS,
+                ent_coef=ENT_COEF,
+                learning_rate=LR,
+                n_epochs=10,
+                batch_size=512,
+                n_steps=2048,
+                policy_kwargs=policy_kwargs,
+                tensorboard_log=f"./astrodynamics_tensorboard/"
+            )
+
+            print("Setting up WebSocket callback...")
+            websocket_callback = WebSocketCallback(websocket, loop)
+            global _training_callback
+            _training_callback = websocket_callback
+            
+            print("Starting training loop...")
+            # Send initial status to frontend
+            try:
+                initial_payload = {
+                    "type": "training_started",
+                    "message": "Training initialized successfully",
+                    "total_timesteps": TOTAL_TIMESTEPS
+                }
+                websocket_callback._send_message_safely(initial_payload)
+            except Exception as e:
+                print(f"Failed to send initial training message: {e}")
+            
+            # Manually implement the training loop to be more responsive to cancellation.
+            total_timesteps, callback = model._setup_learn(
+                TOTAL_TIMESTEPS,
+                websocket_callback,
+                reset_num_timesteps=True,
+                tb_log_name="PPO",
+                progress_bar=True # Enable progress bar setup on callback
+            )
+            
+            # The progress bar needs the total_timesteps in locals.
+            # We call on_training_start here to initialize callbacks, especially the progress bar.
+            callback.on_training_start(
+                locals_={"self": model, "total_timesteps": total_timesteps}, 
+                globals_=globals()
+            )
+
+            print(f"Training for {total_timesteps} timesteps...")
+            iteration = 0
+            while model.num_timesteps < total_timesteps:
+                iteration += 1
+                
+                if websocket_callback.should_stop:
+                    print(f"Training stop signaled at iteration {iteration}. Exiting loop.")
+                    break
+
+                print(f"Starting rollout collection iteration {iteration}, timesteps: {model.num_timesteps}/{total_timesteps}")
+                
+                # The collect_rollouts method will call our callback's _on_step
+                continue_training = model.collect_rollouts(
+                    model.env,
+                    callback=callback,
+                    rollout_buffer=model.rollout_buffer,
+                    n_rollout_steps=model.n_steps
+                )
+
+                if not continue_training:
+                    print("Callback requested stop during rollout collection.")
+                    break
+                
+                # Check again before the blocking policy update
+                if websocket_callback.should_stop:
+                    print("Training stop signaled before policy update.")
+                    break
+                
+                print(f"Training policy update iteration {iteration}...")
+                model.train()
+                print(f"Completed iteration {iteration}")
+
+            callback.on_training_end()
+            print("Training loop completed")
+
+            if not websocket_callback.should_stop:
+                # Only save if training completed successfully
+                print("Saving model...")
+                model.save(model_path)
+                _export_model_onnx(model, onnx_path)
+                print(f"Model saved to {model_path}")
+                return {
+                    "success": True,
+                    "model_filename_base": model_filename_base,
+                    "ts": ts,
+                    "session_uuid": session_uuid
+                }
+            else:
+                print("Training stopped early - not saving model")
+                return {"success": False, "reason": "Training stopped early"}
+                
+        except Exception as e:
+            print(f"Training error: {e}")
+            import traceback
+            traceback.print_exc()
+            if _training_callback:
+                _training_callback.stop_training()
+            return {"success": False, "reason": str(e)}
     
-    # model.learn is a blocking call, so run it in a thread
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(
-        None,
-        lambda: model.learn(
-            total_timesteps=TOTAL_TIMESTEPS,
-            callback=callback,
-            progress_bar=True
-        )
-    )
-
-    model.save(model_path)
-    _export_model_onnx(model, onnx_path)
+    # Run training in executor with proper task management
+    print("Starting training task...")
+    _training_task = asyncio.create_task(asyncio.to_thread(train_model))
     
-    await websocket.send_json({
-        "type": "trained",
-        "file_url": f"/policies/{model_filename_base}.zip",
-        "model_filename": f"{model_filename_base}.zip",
-        "onnx_filename": f"{model_filename_base}.onnx",
-        "timestamp": ts,
-        "session_uuid": session_uuid
-    })
+    try:
+        result = await _training_task
+        print(f"Training completed with result: {result}")
+        
+        if result["success"]:
+            print("Sending training completion message...")
+            await websocket.send_json({
+                "type": "trained",
+                "file_url": f"/policies/{result['model_filename_base']}.zip",
+                "model_filename": f"{result['model_filename_base']}.zip",
+                "onnx_filename": f"{result['model_filename_base']}.onnx",
+                "timestamp": result["ts"],
+                "session_uuid": result["session_uuid"]
+            })
+            print("Training completion message sent")
+        else:
+            print(f"Training failed: {result.get('reason', 'Unknown error')}")
+            await websocket.send_json({
+                "type": "training_error",
+                "message": f"Training failed: {result.get('reason', 'Unknown error')}"
+            })
+            
+    except asyncio.CancelledError:
+        print("Training task was cancelled. Signaling stop to the training thread.")
+        if _training_callback:
+            _training_callback.stop_training()
+        await websocket.send_json({
+            "type": "training_error", 
+            "message": "Training was cancelled by the server."
+        })
+        # Wait for the thread to finish, but with a timeout
+        try:
+            await asyncio.wait_for(_training_task, timeout=10.0)
+        except asyncio.TimeoutError:
+            print("Warning: Training thread did not stop within 10 seconds.")
+        except asyncio.CancelledError:
+            pass # Task is already cancelled.
+        raise
+    except Exception as e:
+        print(f"Training failed with an unexpected exception: {e}")
+        import traceback
+        traceback.print_exc()
+        if _training_callback:
+            _training_callback.stop_training()
+        await websocket.send_json({
+            "type": "training_error",
+            "message": f"Training failed: {str(e)}"
+        })
+    finally:
+        print("Cleaning up training task...")
+        _training_task = None
+        _training_callback = None
 
 
 async def run_simulation(websocket: WebSocket):
@@ -605,7 +893,7 @@ async def run_astrodynamics(websocket: WebSocket, model_filename: str | None = N
         done = terminated or truncated
         state = env.get_state_for_viz()
         await websocket.send_json({"type": "run_step", "state": state, "episode": episode + 1})
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.03)
         if done:
             episode += 1
             obs, _ = env.reset()

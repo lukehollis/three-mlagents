@@ -1,20 +1,11 @@
 fastapi
 uvicorn
-python-dotenv
+python-multipart
 websockets
-numpy
+stable-baselines3[extra]
+Shimmy[gym-v21]
 torch
-pandas
-matplotlib
-scikit-learn
-requests
-beautifulsoup4
-sentence-transformers
+numpy
 tensorboard
-# Added for interpretability
-instructor
-lru-dict
-# For self-driving car example
-osmnx
-geopandas
-shapely
+onnx
+onnxruntime
