@@ -9,31 +9,38 @@ import asyncio
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.distributions.categorical import Categorical
 from fastapi import WebSocket
+
+import gymnasium as gym
+from gymnasium import spaces
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.env_util import make_vec_env
 
 
 ACTION_SIZE = 7  # 0=no thrust, 1-6=thrust directions
 POLICIES_DIR = "policies"
-BATCH_SIZE = 8192
-MINI_BATCH = 512
-EPOCHS = 10
+# BATCH_SIZE = 8192 - Handled by SB3 n_steps
+# MINI_BATCH = 512 - Handled by SB3 batch_size
+# EPOCHS = 10 - Handled by SB3 n_epochs
 GAMMA = 0.99
 GAE_LAMBDA = 0.95
 CLIP_EPS = 0.2
 ENT_COEF = 0.01
 LR = 1e-4
 EPISODES = 5000
+TOTAL_TIMESTEPS = 12000 * EPISODES # Corresponds to old timeout logic
 
 # -----------------------------------------------------------------------------------
 # Astrodynamics Environment
 # -----------------------------------------------------------------------------------
 
-class AstrodynamicsEnv:
+class AstrodynamicsEnv(gym.Env):
     """An orbital rendezvous environment for spacecraft navigation."""
+    metadata = {"render_modes": [], "render_fps": 30}
 
     def __init__(self, training_mode: bool = True):
+        super().__init__()
         # Physical constants
         self.mu = 3.986e14  # Earth's gravitational parameter (m³/s²)
         self.earth_radius = 6.371e6  # Earth radius (m)
@@ -83,7 +90,10 @@ class AstrodynamicsEnv:
         
         self.steps = 0
         self.training_mode = training_mode
-        self.reset()
+        
+        self.action_space = spaces.Discrete(ACTION_SIZE)
+        obs_shape = self._get_obs_dummy().shape
+        self.observation_space = spaces.Box(-np.inf, np.inf, shape=obs_shape, dtype=np.float32)
 
     def _orbital_dynamics(self, pos_global: np.ndarray) -> np.ndarray:
         """Calculate gravitational acceleration at given global position."""
@@ -95,7 +105,8 @@ class AstrodynamicsEnv:
         accel = -self.mu * pos_global / (r**3)
         return accel
 
-    def reset(self):
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
         # Target starts in a circular MEO in the XY plane
         self.target_pos_abs = np.array([self.orbit_radius, 0.0, 0.0])
         self.target_vel_abs = np.array([0.0, self.orbital_velocity, 0.0])
@@ -123,7 +134,7 @@ class AstrodynamicsEnv:
         self.spacecraft_trail.clear()
         self.target_trail.clear()
         self.steps = 0
-        return self._get_obs()
+        return self._get_obs(), {}
 
     def step(self, action: int):
         self.steps += 1
@@ -209,35 +220,37 @@ class AstrodynamicsEnv:
         spacecraft_radius = np.linalg.norm(self.spacecraft_pos_abs)
 
         # First, check for terminal conditions which apply in all phases
-        done = False
         reward = 0.0
+        terminated = False
+        truncated = False
 
         if not self.training_mode:
-            if spacecraft_radius < self.earth_radius: done = True
-            return self._get_obs(), reward, done
+            if spacecraft_radius < self.earth_radius:
+                terminated = True
+            return self._get_obs(), reward, terminated, truncated, {}
 
         # Universal Failure & Success Conditions
         if spacecraft_radius < self.earth_radius:
             print(f"Episode End: Crashed into Earth at step {self.steps}.")
-            reward = -200.0; done = True
+            reward = -200.0; terminated = True
         elif distance > self.max_distance:
             print(f"Episode End: Exceeded max distance at step {self.steps}.")
-            reward = -10.0; done = True
+            reward = -10.0; terminated = True
         elif self.fuel <= 0 and distance > self.docking_threshold:
             print(f"Episode End: Out of fuel at step {self.steps}.")
-            reward = -50.0; done = True
+            reward = -50.0; terminated = True
         elif distance < self.docking_threshold and velocity_mag > self.velocity_threshold:
             print(f"Episode End: Crashed into target at step {self.steps}.")
-            reward = -50.0; done = True
+            reward = -50.0; terminated = True
         elif self.steps > 12000:
             print(f"Episode End: Timeout at step {self.steps}.")
-            reward = -5.0; done = True
+            reward = -5.0; truncated = True
         elif distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
             print(f"Episode End: Successfully docked at step {self.steps}.")
-            reward = 1000.0; done = True
+            reward = 1000.0; terminated = True
         
-        if done:
-            return self._get_obs(), reward, done
+        if terminated or truncated:
+            return self._get_obs(), reward, terminated, truncated, {}
 
         # --- State-Dependent Reward Logic ---
         # The agent MUST be forced to leave LEO immediately.
@@ -307,8 +320,16 @@ class AstrodynamicsEnv:
         # Small universal time penalty
         reward -= 0.1
         
-        return self._get_obs(), reward, done
+        return self._get_obs(), reward, terminated, truncated, {}
 
+    def _get_obs_dummy(self):
+        """Helper to get dummy observation for space definition."""
+        self.relative_pos = np.zeros(3)
+        self.relative_vel = np.zeros(3)
+        self.fuel = self.initial_fuel
+        self.steps = 0
+        return self._get_obs()
+        
     def _get_obs(self):
         """Get observation vector for the agent."""
         distance = np.linalg.norm(self.relative_pos)
@@ -353,47 +374,58 @@ class AstrodynamicsEnv:
         }
 
 # -----------------------------------------------------------------------------------
-# PPO agent (adapted for discrete actions)
+# Callbacks and training setup
 # -----------------------------------------------------------------------------------
 
-class ActorCritic(nn.Module):
-    def __init__(self, obs_size: int, action_size: int):
-        super().__init__()
-        self.shared = nn.Sequential(
-            nn.Linear(obs_size, 512), nn.GELU(),
-            nn.Linear(512, 256), nn.GELU(),
-            nn.Linear(256, 128), nn.GELU()
-        )
-        self.actor_logits = nn.Linear(128, action_size)
-        self.actor_logits.bias.data.fill_(0.0)
-        self.actor_logits.bias.data[0] = -1.0  # Slight bias against action 0 (no thrust)
-        self.critic = nn.Linear(128, 1)
+class WebSocketCallback(BaseCallback):
+    def __init__(self, websocket: WebSocket, verbose=0):
+        super(WebSocketCallback, self).__init__(verbose)
+        self.websocket = websocket
+        self.loop = asyncio.get_event_loop()
 
-    def forward(self, obs: torch.Tensor):
-        h = self.shared(obs)
-        logits = self.actor_logits(h)
-        dist = Categorical(logits=logits)
-        value = self.critic(h)
-        return dist, value
+    def _on_step(self) -> bool:
+        if self.num_timesteps % 1024 == 0:
+            env = self.training_env.envs[0]
+            state = env.get_state_for_viz()
+            
+            reward = self.logger.get_value('rollout/ep_rew_mean')
+            
+            payload = {
+                "type": "train_step",
+                "state": state,
+                "episode": self.num_timesteps, # Use timesteps as a proxy for episodes
+                "reward": reward
+            }
+            asyncio.run_coroutine_threadsafe(
+                self.websocket.send_json(payload), self.loop
+            )
+        return True
 
-
-def _export_model_onnx(model: nn.Module, path: str):
-    dummy_input_dim = model.shared[0].in_features
-    dummy = torch.zeros((1, dummy_input_dim), dtype=torch.float32)
+def _export_model_onnx(model: PPO, path: str):
     class ExportableModel(nn.Module):
-        def __init__(self, actor_critic_model):
+        def __init__(self, policy):
             super().__init__()
-            self.model = actor_critic_model
+            self.policy = policy
+
         def forward(self, obs):
-            dist, _ = self.model(obs)
-            return dist.logits
-    
-    exportable_model = ExportableModel(model)
+            # Replicate the forward pass of the policy to get logits
+            features = self.policy.extract_features(obs)
+            latent_pi, _ = self.policy.mlp_extractor(features)
+            return self.policy.action_net(latent_pi)
+
+    exportable_model = ExportableModel(model.policy)
+    exportable_model.eval()
+
+    dummy_input = torch.randn(1, *model.observation_space.shape)
+
     torch.onnx.export(
-        exportable_model, dummy, path,
-        input_names=["input"], output_names=["output"],
+        exportable_model,
+        dummy_input,
+        path,
+        input_names=["input"],
+        output_names=["output"],
         opset_version=17,
-        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}}
+        dynamic_axes={"input": {0: "batch"}, "output": {0: "batch"}},
     )
 
 # -----------------------------------------------------------------------------------
@@ -404,121 +436,60 @@ async def train_astrodynamics(websocket: WebSocket):
     os.makedirs(POLICIES_DIR, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_uuid = str(uuid.uuid4())[:8]
-    model_filename = f"astrodynamics_policy_{ts}_{session_uuid}.onnx"
-    model_path = os.path.join(POLICIES_DIR, model_filename)
-
-    envs: List[AstrodynamicsEnv] = [AstrodynamicsEnv() for _ in range(32)]
-    OBS_SIZE = envs[0]._get_obs().shape[0]
-
-    model = ActorCritic(OBS_SIZE, ACTION_SIZE)
-    optimizer = optim.Adam(model.parameters(), lr=LR)
-
-    obs = torch.tensor(np.array([e.reset() for e in envs]), dtype=torch.float32)
-    ep_counter = 0
-    step_buffer: list[dict] = []
+    model_filename_base = f"astrodynamics_policy_{ts}_{session_uuid}"
+    model_path = os.path.join(POLICIES_DIR, f"{model_filename_base}.zip")
+    onnx_path = os.path.join(POLICIES_DIR, f"{model_filename_base}.onnx")
     
-    total_steps = 0
+    # Use a vectorized environment for parallel training
+    # Recommended to use 'fork' start method on Linux for performance
+    # 'spawn' is default on macOS and Windows, which is fine.
+    vec_env = make_vec_env(AstrodynamicsEnv, n_envs=32, env_kwargs=dict(training_mode=True))
 
-    while ep_counter < EPISODES: # Increased training episodes
-        with torch.no_grad():
-            dist, value = model(obs)
-            actions = dist.sample()
-            logp = dist.log_prob(actions).unsqueeze(1)
-        
-        actions_np = actions.cpu().numpy()
+    policy_kwargs = dict(
+        net_arch=dict(pi=[512, 256, 128], vf=[512, 256, 128])
+    )
 
-        step_obs, rewards, dones = [], [], []
-        for idx, env in enumerate(envs):
-            nobs, rew, dn = env.step(actions_np[idx])
-            step_obs.append(nobs)
-            rewards.append(rew)
-            dones.append(dn)
-        
-        total_steps += len(envs)
-        next_obs = torch.tensor(np.array(step_obs), dtype=torch.float32)
-        rewards_t = torch.tensor(rewards, dtype=torch.float32).unsqueeze(1)
-        dones_t = torch.tensor(dones, dtype=torch.float32).unsqueeze(1)
-        step_buffer.append({"obs": obs, "actions": actions.unsqueeze(1), "logp": logp, "reward": rewards_t, "done": dones_t, "value": value})
-        obs = next_obs
+    model = PPO(
+        "MlpPolicy",
+        vec_env,
+        verbose=1,
+        gamma=GAMMA,
+        gae_lambda=GAE_LAMBDA,
+        clip_range=CLIP_EPS,
+        ent_coef=ENT_COEF,
+        learning_rate=LR,
+        n_epochs=10,
+        batch_size=512,
+        n_steps=2048,
+        policy_kwargs=policy_kwargs,
+        tensorboard_log=f"./astrodynamics_tensorboard/"
+    )
 
-        if len(step_buffer) % 16 == 0:
-            state = envs[0].get_state_for_viz()
-            await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter + 1})
-            await asyncio.sleep(0.01)
+    callback = WebSocketCallback(websocket)
+    
+    # model.learn is a blocking call, so run it in a thread
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: model.learn(
+            total_timesteps=TOTAL_TIMESTEPS,
+            callback=callback,
+            progress_bar=True
+        )
+    )
 
-        for i, dn in enumerate(dones):
-            if dn:
-                ep_counter += 1
-                obs[i] = torch.tensor(envs[i].reset(), dtype=torch.float32)
+    model.save(model_path)
+    _export_model_onnx(model, onnx_path)
+    
+    await websocket.send_json({
+        "type": "trained",
+        "file_url": f"/policies/{model_filename_base}.zip",
+        "model_filename": f"{model_filename_base}.zip",
+        "onnx_filename": f"{model_filename_base}.onnx",
+        "timestamp": ts,
+        "session_uuid": session_uuid
+    })
 
-        if total_steps >= BATCH_SIZE:
-            with torch.no_grad():
-                _, next_value = model(obs)
-                next_value = next_value.squeeze()
-
-            num_steps = len(step_buffer)
-            num_envs = len(envs)
-            
-            values = torch.cat([b["value"] for b in step_buffer]).view(num_steps, num_envs)
-            rewards = torch.cat([b["reward"] for b in step_buffer]).view(num_steps, num_envs)
-            dones = torch.cat([b["done"] for b in step_buffer]).view(num_steps, num_envs)
-            all_values = torch.cat([values, next_value.unsqueeze(0)], dim=0)
-
-            advantages = torch.zeros(num_steps, num_envs)
-            gae = 0.0
-            for t in reversed(range(num_steps)):
-                delta = rewards[t] + GAMMA * (1.0 - dones[t]) * all_values[t + 1] - all_values[t]
-                gae = delta + GAMMA * GAE_LAMBDA * (1.0 - dones[t]) * gae
-                advantages[t] = gae
-            
-            adv = advantages.flatten().unsqueeze(1)
-            val_cat = values.flatten().unsqueeze(1)
-            returns = adv + val_cat
-            adv = (adv - adv.mean()) / (adv.std() + 1e-8)
-            
-            obs_cat = torch.cat([b["obs"] for b in step_buffer])
-            act_cat = torch.cat([b["actions"] for b in step_buffer])
-            logp_cat = torch.cat([b["logp"] for b in step_buffer])
-
-            for _ in range(EPOCHS):
-                idx = torch.randperm(obs_cat.shape[0])
-                for start in range(0, obs_cat.shape[0], MINI_BATCH):
-                    mb_idx = idx[start:start + MINI_BATCH]
-                    mb_obs, mb_act, mb_logp_old, mb_adv, mb_ret = obs_cat[mb_idx], act_cat[mb_idx], logp_cat[mb_idx], adv[mb_idx], returns[mb_idx]
-
-                    dist, value = model(mb_obs)
-                    logp_new = dist.log_prob(mb_act.squeeze(1)).unsqueeze(1)
-                    entropy_bonus = dist.entropy().mean()
-                    ratio = (logp_new - mb_logp_old).exp()
-                    
-                    policy_loss1 = ratio * mb_adv
-                    policy_loss2 = torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS) * mb_adv
-                    policy_loss = -torch.min(policy_loss1, policy_loss2).mean()
-                    
-                    value_loss = (value - mb_ret).pow(2).mean()
-                    approx_kl = (mb_logp_old - logp_new).mean()
-                    if approx_kl > 0.01:
-                        continue
-                    value_clipped = val_cat[mb_idx] + torch.clamp(value - val_cat[mb_idx], -CLIP_EPS, CLIP_EPS)
-                    value_loss_clipped = (value_clipped - mb_ret).pow(2).mean()
-                    value_loss = 0.5 * torch.max(value_loss, value_loss_clipped)
-
-                    loss = policy_loss + 0.5 * value_loss - ENT_COEF * entropy_bonus
-
-                    optimizer.zero_grad()
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-                    optimizer.step()
-
-            avg_reward = float(torch.cat([b["reward"] for b in step_buffer]).mean().cpu().item())
-            avg_loss = float(loss.detach().cpu().item())
-            step_buffer = []
-            total_steps = 0
-            if ep_counter > 10: # Avoid noisy first updates
-                await websocket.send_json({"type": "progress", "episode": ep_counter + 1, "reward": avg_reward, "loss": avg_loss})
-
-    _export_model_onnx(model, model_path)
-    await websocket.send_json({"type": "trained", "file_url": f"/policies/{model_filename}", "model_filename": model_filename, "timestamp": ts, "session_uuid": session_uuid})
 
 async def run_simulation(websocket: WebSocket):
     """Runs a physics-only simulation and streams state."""
@@ -529,7 +500,8 @@ async def run_simulation(websocket: WebSocket):
     try:
         while websocket.application_state == WebSocketState.CONNECTED:
             # Action 0 is no thrust, simulating orbital mechanics
-            _, _, done = env.step(0)
+            _, _, terminated, truncated, _ = env.step(0)
+            done = terminated or truncated
             state = env.get_state_for_viz()
             await websocket.send_json({"type": "state", "state": state})
             await asyncio.sleep(0.05)  # ~20Hz update rate
@@ -545,15 +517,13 @@ async def run_simulation(websocket: WebSocket):
 # -----------------------------------------------------------------------------------
 
 _ORT_CACHE: dict[str, "onnxruntime.InferenceSession"] = {}
+_SB3_CACHE: dict[str, "PPO"] = {}
 
 def infer_action_astrodynamics(obs: List[float], model_filename: str | None = None) -> int:
-    import onnxruntime as ort
-    
     # If no model filename is provided, try to find the latest one.
     if model_filename is None:
-        files = [f for f in os.listdir(POLICIES_DIR) if f.startswith("astrodynamics_policy_") and f.endswith(".onnx")]
+        files = [f for f in os.listdir(POLICIES_DIR) if f.startswith("astrodynamics_policy_") and f.endswith(".zip")]
         if not files:
-            # If no policy is found, return a default action (e.g., no thrust)
             print("Warning: No astrodynamics policy found. Returning default action 0 (no thrust).")
             return 0
         files.sort(reverse=True)
@@ -561,42 +531,37 @@ def infer_action_astrodynamics(obs: List[float], model_filename: str | None = No
 
     model_path = os.path.join(POLICIES_DIR, model_filename)
 
-    # Check if the specific model file exists
     if not os.path.exists(model_path):
         print(f"Warning: Model file '{model_filename}' not found. Returning default action 0 (no thrust).")
         return 0
-    
-    if model_filename not in _ORT_CACHE:
-        try:
-            sess = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-            _ORT_CACHE[model_filename] = sess
-        except Exception as e:
-            print(f"Error loading ONNX model '{model_filename}': {e}. Returning default action 0.")
-            return 0
 
-    try:
-        inp = np.array([obs], dtype=np.float32)
-        out = _ORT_CACHE[model_filename].run(None, {"input": inp})[0]
-        action = np.argmax(out, axis=1)[0]
-        return int(action)
-    except Exception as e:
-        print(f"Error during inference with model '{model_filename}': {e}. Returning default action 0.")
-        return 0
+    if model_filename not in _SB3_CACHE:
+        try:
+            model = PPO.load(model_path)
+            _SB3_CACHE[model_filename] = model
+        except Exception as e:
+            print(f"Error loading SB3 model '{model_filename}': {e}. Returning default action 0.")
+            return 0
+    
+    model = _SB3_CACHE[model_filename]
+    action, _ = model.predict(np.array(obs), deterministic=True)
+    return int(action)
 
 async def run_astrodynamics(websocket: WebSocket, model_filename: str | None = None):
     env = AstrodynamicsEnv(training_mode=False)
     episode = 0
-    obs = env.reset()
+    obs, _ = env.reset()
     from starlette.websockets import WebSocketState
     while websocket.application_state == WebSocketState.CONNECTED:
         act = infer_action_astrodynamics(list(obs), model_filename)
-        nobs, _, done = env.step(act)
+        nobs, _, terminated, truncated, _ = env.step(act)
+        done = terminated or truncated
         state = env.get_state_for_viz()
         await websocket.send_json({"type": "run_step", "state": state, "episode": episode + 1})
         await asyncio.sleep(0.05)
         if done:
             episode += 1
-            obs = env.reset()
+            obs, _ = env.reset()
         else:
             obs = nobs
         await asyncio.sleep(0) 
