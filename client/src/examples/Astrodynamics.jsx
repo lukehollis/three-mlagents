@@ -9,7 +9,7 @@ import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import 'katex/dist/katex.min.css';
 import EquationPanel from '../components/EquationPanel.jsx';
-import InfoPanel from '../components/InfoPanel.jsx';
+import TensorboardPanel from '../components/TensorboardPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
@@ -360,7 +360,6 @@ export default function AstrodynamicsExample() {
   const [trained, setTrained] = useState(false);
   const [modelInfo, setModelInfo] = useState(null);
   const [logs, setLogs] = useState([]);
-  const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
   const [homeHover, setHomeHover] = useState(false);
   const { isMobile } = useResponsive();
@@ -389,12 +388,7 @@ export default function AstrodynamicsExample() {
       if ((parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state') && parsed.state) {
         setState(parsed.state);
       } else if (parsed.type === 'progress') {
-        addLog(`Episode ${parsed.episode}: Reward=${parsed.reward.toFixed(3)}, Loss=${(parsed.loss ?? 0).toFixed(3)}`);
-        setChartState((prev) => ({
-          labels: [...prev.labels, parsed.episode],
-          rewards: [...prev.rewards, parsed.reward],
-          losses: [...prev.losses, parsed.loss ?? null],
-        }));
+        addLog(`Episode ${parsed.episode}: Reward=${parsed.reward?.toFixed(3) ?? 'N/A'}, Loss=${(parsed.loss ?? 0)?.toFixed(3) ?? 'N/A'}`);
       } else if (parsed.type === 'trained') {
         addLog(`Training complete. Model: ${parsed.model_filename}`);
         setTraining(false);
@@ -434,7 +428,6 @@ export default function AstrodynamicsExample() {
     setTraining(false);
     setTrained(false);
     setModelInfo(null);
-    setChartState({ labels: [], rewards: [], losses: [] });
     setState(null);
   };
 
@@ -511,7 +504,7 @@ export default function AstrodynamicsExample() {
         />
 
         <StatusDisplay state={state} />
-        <InfoPanel logs={logs} chartState={chartState} />
+        <TensorboardPanel logs={logs} />
       </div>
     </div>
   );

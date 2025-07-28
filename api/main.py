@@ -1,8 +1,13 @@
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, HTTPException
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 import json
 import os
 import asyncio
+import subprocess
+import threading
+import time
+import requests
 from fastapi import WebSocket
 from fastapi.staticfiles import StaticFiles
 
@@ -37,6 +42,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="ML-Agents API")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up TensorBoard server on app shutdown."""
+    stop_tensorboard_server()
 
 SMALL_GOAL = 7
 LARGE_GOAL = 17
@@ -91,6 +101,68 @@ def step_basic(req: StepRequest):
 os.makedirs("policies", exist_ok=True)
 app.mount("/policies", StaticFiles(directory="policies"), name="policies")
 
+# TensorBoard server management
+tensorboard_process = None
+TENSORBOARD_PORT = 6006
+
+def start_tensorboard_server():
+    """Start TensorBoard server for astrodynamics logs."""
+    global tensorboard_process
+    if tensorboard_process is not None:
+        return  # Already running
+    
+    log_dir = "./astrodynamics_tensorboard"
+    if not os.path.exists(log_dir):
+        return  # No logs to serve
+    
+    try:
+        tensorboard_process = subprocess.Popen([
+            "tensorboard", 
+            "--logdir", log_dir,
+            "--port", str(TENSORBOARD_PORT),
+            "--host", "0.0.0.0",
+            "--reload_interval", "1"
+        ])
+        print(f"TensorBoard server started on port {TENSORBOARD_PORT}")
+    except Exception as e:
+        print(f"Failed to start TensorBoard server: {e}")
+
+def stop_tensorboard_server():
+    """Stop TensorBoard server."""
+    global tensorboard_process
+    if tensorboard_process is not None:
+        tensorboard_process.terminate()
+        tensorboard_process = None
+        print("TensorBoard server stopped")
+
+@app.get("/tensorboard/astrodynamics")
+async def get_tensorboard():
+    """Redirect to TensorBoard interface for astrodynamics."""
+    start_tensorboard_server()
+    
+    # Wait a moment for server to start
+    for _ in range(10):  # Wait up to 1 second
+        try:
+            response = requests.get(f"http://localhost:{TENSORBOARD_PORT}", timeout=0.1)
+            if response.status_code == 200:
+                break
+        except:
+            time.sleep(0.1)
+    
+    return RedirectResponse(url=f"http://localhost:{TENSORBOARD_PORT}")
+
+@app.get("/tensorboard/status")
+async def tensorboard_status():
+    """Check if TensorBoard server is running."""
+    global tensorboard_process
+    if tensorboard_process is None:
+        return {"running": False}
+    
+    try:
+        response = requests.get(f"http://localhost:{TENSORBOARD_PORT}", timeout=1)
+        return {"running": True, "port": TENSORBOARD_PORT}
+    except:
+        return {"running": False}
 
 # WebSocket endpoint
 

@@ -10,6 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from fastapi import WebSocket
+from starlette.websockets import WebSocketState
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -29,7 +30,7 @@ CLIP_EPS = 0.2
 ENT_COEF = 0.01
 LR = 1e-4
 EPISODES = 5000
-TOTAL_TIMESTEPS = 12000 * EPISODES # Corresponds to old timeout logic
+TOTAL_TIMESTEPS = 60000 * EPISODES # Corresponds to new timeout logic
 
 # -----------------------------------------------------------------------------------
 # Astrodynamics Environment
@@ -57,10 +58,10 @@ class AstrodynamicsEnv(gym.Env):
 
         # Spacecraft parameters
         self.mass = 1000.0  # kg
-        self.max_thrust = 500000.0  # N (powerful, but allows for sustained burn)
+        self.max_thrust = 500000.0  # N (Maneuvering thrusters for the agent)
         self.specific_impulse = 300000.0  # seconds
         self.initial_fuel = 500000.0  # kg (enough for a long burn)
-        self.dt = 50.0  # seconds (more stable timestep)
+        self.dt = 10.0  # seconds (smaller timestep for stability)
         
         # Mission parameters
         self.docking_threshold = 50.0  # meters
@@ -95,6 +96,24 @@ class AstrodynamicsEnv(gym.Env):
         obs_shape = self._get_obs_dummy().shape
         self.observation_space = spaces.Box(-np.inf, np.inf, shape=obs_shape, dtype=np.float32)
 
+    def _get_derivatives(self, state: np.ndarray, thrust_vector: np.ndarray, current_mass: float) -> np.ndarray:
+        """
+        Calculates the derivatives of the state vector (d_pos/dt, d_vel/dt)
+        for use in the RK4 integrator.
+        """
+        pos = state[0:3]
+        vel = state[3:6]
+        
+        grav_accel = self._orbital_dynamics(pos)
+        
+        thrust_accel = np.zeros(3)
+        if self.fuel > 0 and current_mass > 0:
+            thrust_accel = thrust_vector / current_mass
+            
+        total_accel = grav_accel + thrust_accel
+        
+        return np.concatenate([vel, total_accel])
+
     def _orbital_dynamics(self, pos_global: np.ndarray) -> np.ndarray:
         """Calculate gravitational acceleration at given global position."""
         r = np.linalg.norm(pos_global)
@@ -111,20 +130,40 @@ class AstrodynamicsEnv(gym.Env):
         self.target_pos_abs = np.array([self.orbit_radius, 0.0, 0.0])
         self.target_vel_abs = np.array([0.0, self.orbital_velocity, 0.0])
 
-        # Start spacecraft in a random position in LEO in the same plane
-        start_angle = np.random.uniform(0, 2 * np.pi)
-        self.spacecraft_pos_abs = np.array([
-            self.leo_radius * np.cos(start_angle),
-            self.leo_radius * np.sin(start_angle),
-            0.0
-        ])
+        # Randomly choose a starting scenario between LEO and a higher orbit.
+        start_scenario = np.random.choice(['leo', 'outer_orbit'])
+
+        if start_scenario == 'leo':
+            # Start spacecraft in a random position in LEO in the same plane
+            start_angle = np.random.uniform(0, 2 * np.pi)
+            self.spacecraft_pos_abs = np.array([
+                self.leo_radius * np.cos(start_angle),
+                self.leo_radius * np.sin(start_angle),
+                0.0
+            ])
+            
+            # Velocity is tangential to the orbit
+            self.spacecraft_vel_abs = np.array([
+                -self.leo_velocity * np.sin(start_angle),
+                self.leo_velocity * np.cos(start_angle),
+                0.0
+            ])
         
-        # Velocity is tangential to the orbit
-        self.spacecraft_vel_abs = np.array([
-            -self.leo_velocity * np.sin(start_angle),
-            self.leo_velocity * np.cos(start_angle),
-            0.0
-        ])
+        elif start_scenario == 'outer_orbit':
+            # Start in a random higher orbit, further away than the target
+            outer_radius = np.random.uniform(self.orbit_radius * 1.2, self.orbit_radius * 2.5)
+            outer_velocity = np.sqrt(self.mu / outer_radius)
+            start_angle = np.random.uniform(0, 2 * np.pi)
+            self.spacecraft_pos_abs = np.array([
+                outer_radius * np.cos(start_angle),
+                outer_radius * np.sin(start_angle),
+                0.0
+            ])
+            self.spacecraft_vel_abs = np.array([
+                -outer_velocity * np.sin(start_angle),
+                outer_velocity * np.cos(start_angle),
+                0.0
+            ])
         
         # Calculate initial relative state
         self.relative_pos = self.spacecraft_pos_abs - self.target_pos_abs
@@ -186,25 +225,30 @@ class AstrodynamicsEnv(gym.Env):
             if self.fuel <= 0:
                 thrust_vector = np.zeros(3)
 
-        # Calculate gravitational acceleration for both spacecraft and target
-        spacecraft_grav_accel = self._orbital_dynamics(self.spacecraft_pos_abs)
-        target_grav_accel = self._orbital_dynamics(self.target_pos_abs)
-
-        # Total acceleration for spacecraft
-        thrust_accel = np.zeros(3)
+        # --- Integrate motion using Runge-Kutta 4 (RK4) for accuracy ---
         current_mass = self.mass + self.fuel
-        if self.fuel > 0 and current_mass > 0:
-            thrust_accel = thrust_vector / current_mass
-        
-        spacecraft_total_accel = spacecraft_grav_accel + thrust_accel
 
-        # Integrate motion for spacecraft
-        self.spacecraft_vel_abs += spacecraft_total_accel * self.dt
-        self.spacecraft_pos_abs += self.spacecraft_vel_abs * self.dt
+        # State vector for spacecraft
+        state_sc = np.concatenate([self.spacecraft_pos_abs, self.spacecraft_vel_abs])
+
+        # RK4 integration for spacecraft
+        k1_sc = self._get_derivatives(state_sc, thrust_vector, current_mass)
+        k2_sc = self._get_derivatives(state_sc + 0.5 * self.dt * k1_sc, thrust_vector, current_mass)
+        k3_sc = self._get_derivatives(state_sc + 0.5 * self.dt * k2_sc, thrust_vector, current_mass)
+        k4_sc = self._get_derivatives(state_sc + self.dt * k3_sc, thrust_vector, current_mass)
+        self.spacecraft_pos_abs += (self.dt / 6.0) * (k1_sc[0:3] + 2*k2_sc[0:3] + 2*k3_sc[0:3] + k4_sc[0:3])
+        self.spacecraft_vel_abs += (self.dt / 6.0) * (k1_sc[3:6] + 2*k2_sc[3:6] + 2*k3_sc[3:6] + k4_sc[3:6])
+
+        # State vector for target (zero thrust and mass)
+        state_t = np.concatenate([self.target_pos_abs, self.target_vel_abs])
         
-        # Integrate motion for target
-        self.target_vel_abs += target_grav_accel * self.dt
-        self.target_pos_abs += self.target_vel_abs * self.dt
+        # RK4 integration for target
+        k1_t = self._get_derivatives(state_t, np.zeros(3), 0)
+        k2_t = self._get_derivatives(state_t + 0.5 * self.dt * k1_t, np.zeros(3), 0)
+        k3_t = self._get_derivatives(state_t + 0.5 * self.dt * k2_t, np.zeros(3), 0)
+        k4_t = self._get_derivatives(state_t + self.dt * k3_t, np.zeros(3), 0)
+        self.target_pos_abs += (self.dt / 6.0) * (k1_t[0:3] + 2*k2_t[0:3] + 2*k3_t[0:3] + k4_t[0:3])
+        self.target_vel_abs += (self.dt / 6.0) * (k1_t[3:6] + 2*k2_t[3:6] + 2*k3_t[3:6] + k4_t[3:6])
         
         # Update relative state for observations and rewards
         self.relative_pos = self.spacecraft_pos_abs - self.target_pos_abs
@@ -242,7 +286,7 @@ class AstrodynamicsEnv(gym.Env):
         elif distance < self.docking_threshold and velocity_mag > self.velocity_threshold:
             print(f"Episode End: Crashed into target at step {self.steps}.")
             reward = -50.0; terminated = True
-        elif self.steps > 12000:
+        elif self.steps > 60000:
             print(f"Episode End: Timeout at step {self.steps}.")
             reward = -5.0; truncated = True
         elif distance < self.docking_threshold and velocity_mag < self.velocity_threshold:
@@ -253,22 +297,10 @@ class AstrodynamicsEnv(gym.Env):
             return self._get_obs(), reward, terminated, truncated, {}
 
         # --- State-Dependent Reward Logic ---
-        # The agent MUST be forced to leave LEO immediately.
-        LEO_EXIT_THRESHOLD_RADIUS = self.leo_radius * 1.1
-
-        if spacecraft_radius < LEO_EXIT_THRESHOLD_RADIUS:
-            # PHASE 1: LEAVING LEO.
-            # The only goal is to thrust. Any thrust.
-            if action == 0:
-                # Unignorable penalty for inaction.
-                reward = -100.0
-            else:
-                # Positive reward for ANY thrust action.
-                reward = 5.0
-        
-        elif distance > self.docking_approach_threshold:
-            # PHASE 2: ORBITAL RENDEZVOUS.
-            # Now that we've left LEO, we can use more nuanced rewards.
+        # The agent ALWAYS starts in a stable orbit. Its goal is to maneuver to the target.
+        if distance > self.docking_approach_threshold:
+            # PHASE 1: ORBITAL RENDEZVOUS (replaces old Phase 1 & 2).
+            # Guide the agent to match the target's orbital parameters.
             target_radius = self.orbit_radius
             altitude_scale = self.orbit_altitude - self.leo_altitude
             up_dir = self.spacecraft_pos_abs / (spacecraft_radius + 1e-8)
@@ -301,7 +333,7 @@ class AstrodynamicsEnv(gym.Env):
             energy_match_reward = np.exp(-(energy_diff / np.abs(target_energy)) * 2.0) * 35.0
             reward += energy_match_reward
         else:
-            # PHASE 3: DOCKING (Terminal Guidance)
+            # PHASE 2: DOCKING (Terminal Guidance)
             # Once close, focus on killing relative velocity and position.
             reward_gate = (1.0 - (distance / self.docking_approach_threshold))
 
@@ -349,7 +381,7 @@ class AstrodynamicsEnv(gym.Env):
             [distance / self.max_distance],    # Distance to target (1)
             [velocity_mag / 10000.0],          # Speed magnitude (1)
             [self.fuel / self.initial_fuel],   # Fuel ratio (1)
-            [self.steps / 6000.0]              # Time progress (1)
+            [self.steps / 60000.0]             # Time progress (1)
         ])
 
     def get_state_for_viz(self) -> Dict[str, Any]:
@@ -384,6 +416,10 @@ class WebSocketCallback(BaseCallback):
         self.loop = asyncio.get_event_loop()
 
     def _on_step(self) -> bool:
+        if self.websocket.application_state != WebSocketState.CONNECTED:
+            print("WebSocket is disconnected. Stopping training.")
+            return False
+            
         # Send visualization state periodically for a smooth animation.
         if self.num_timesteps % 128 == 0:
             states = self.training_env.env_method("get_state_for_viz", indices=[0])
@@ -401,15 +437,14 @@ class WebSocketCallback(BaseCallback):
         reward = self.logger.name_to_value.get("rollout/ep_rew_mean")
         loss = self.logger.name_to_value.get("train/loss")
 
-        # Only send progress if a reward value is present.
-        if reward is not None:
-            payload = {
-                "type": "progress",
-                "episode": self.num_timesteps,  # Use timesteps for the x-axis
-                "reward": float(reward),
-                "loss": float(loss) if loss is not None else 0.0,
-            }
-            asyncio.run_coroutine_threadsafe(self.websocket.send_json(payload), self.loop)
+        # Always send progress. Frontend will handle nulls for unavailable metrics.
+        payload = {
+            "type": "progress",
+            "episode": self.num_timesteps,  # Use timesteps for the x-axis
+            "reward": float(reward) if reward is not None else None,
+            "loss": float(loss) if loss is not None else None,
+        }
+        asyncio.run_coroutine_threadsafe(self.websocket.send_json(payload), self.loop)
 
 
 def _export_model_onnx(model: PPO, path: str):
@@ -445,6 +480,7 @@ def _export_model_onnx(model: PPO, path: str):
 
 async def train_astrodynamics(websocket: WebSocket):
     os.makedirs(POLICIES_DIR, exist_ok=True)
+    os.makedirs("astrodynamics_tensorboard", exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     session_uuid = str(uuid.uuid4())[:8]
     model_filename_base = f"astrodynamics_policy_{ts}_{session_uuid}"
