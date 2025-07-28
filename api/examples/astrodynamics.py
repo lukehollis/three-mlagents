@@ -384,22 +384,33 @@ class WebSocketCallback(BaseCallback):
         self.loop = asyncio.get_event_loop()
 
     def _on_step(self) -> bool:
-        if self.num_timesteps % 1024 == 0:
-            env = self.training_env.envs[0]
-            state = env.get_state_for_viz()
-            
-            reward = self.logger.get_value('rollout/ep_rew_mean')
-            
-            payload = {
-                "type": "train_step",
-                "state": state,
-                "episode": self.num_timesteps, # Use timesteps as a proxy for episodes
-                "reward": reward
-            }
-            asyncio.run_coroutine_threadsafe(
-                self.websocket.send_json(payload), self.loop
-            )
+        # Send visualization state periodically for a smooth animation.
+        if self.num_timesteps % 128 == 0:
+            states = self.training_env.env_method("get_state_for_viz", indices=[0])
+            if states:
+                state = states[0]
+                payload = {"type": "state", "state": state}
+                asyncio.run_coroutine_threadsafe(self.websocket.send_json(payload), self.loop)
         return True
+
+    def _on_rollout_end(self) -> None:
+        """
+        This event is triggered after collecting a rollout and before updating the policy.
+        The logger has access to the latest rollout metrics here.
+        """
+        reward = self.logger.name_to_value.get("rollout/ep_rew_mean")
+        loss = self.logger.name_to_value.get("train/loss")
+
+        # Only send progress if a reward value is present.
+        if reward is not None:
+            payload = {
+                "type": "progress",
+                "episode": self.num_timesteps,  # Use timesteps for the x-axis
+                "reward": float(reward),
+                "loss": float(loss) if loss is not None else 0.0,
+            }
+            asyncio.run_coroutine_threadsafe(self.websocket.send_json(payload), self.loop)
+
 
 def _export_model_onnx(model: PPO, path: str):
     class ExportableModel(nn.Module):

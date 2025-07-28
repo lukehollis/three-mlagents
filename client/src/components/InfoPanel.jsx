@@ -82,7 +82,7 @@ export default function InfoPanel({ chartState, logs }) {
               x: {
                 ticks: { color: '#aaa' },
                 grid: { color: 'rgba(255,255,255,0.1)' },
-                title: { display: true, text: 'Episode', color: '#aaa' },
+                title: { display: true, text: 'Timestep', color: '#aaa' },
               },
               y: {
                 ticks: { color: '#aaa' },

@@ -86,8 +86,8 @@ export default function LabyrinthExample() {
         if (state && state.grid) {
             const gridWidth = state.grid[0].length;
             const gridHeight = state.grid.length;
-            const availableWidth = window.innerWidth * (isMobile ? 0.9 : 0.5);
-            const availableHeight = window.innerHeight * 0.7;
+            const availableWidth = window.innerWidth * (isMobile ? 0.9 : 0.9);
+            const availableHeight = window.innerHeight * 0.9;
             
             // Approximate character width as 0.6 times font size
             const sizeFromWidth = Math.floor(availableWidth / (gridWidth * 0.6));
