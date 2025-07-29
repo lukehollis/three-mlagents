@@ -12,7 +12,8 @@ import torch.nn as nn
 import onnx
 import onnxruntime
 from fastapi import WebSocket
-from starlette.websockets import WebSocketState
+from starlette.websockets import WebSocketState, WebSocketDisconnect
+from websockets.exceptions import ConnectionClosedError
 
 import gymnasium as gym
 from gymnasium import spaces
@@ -32,7 +33,8 @@ CLIP_EPS = 0.2
 ENT_COEF = 0.01
 LR = 1e-4
 EPISODES = 5000
-TOTAL_TIMESTEPS = 60000 * EPISODES # Corresponds to new timeout logic
+MAX_STEPS_PER_EPISODE = 120000  # Increased episode length
+TOTAL_TIMESTEPS = MAX_STEPS_PER_EPISODE * EPISODES # Corresponds to new timeout logic
 
 # -----------------------------------------------------------------------------------
 # Astrodynamics Environment
@@ -301,7 +303,7 @@ class AstrodynamicsEnv(gym.Env):
             print(f"Episode End: Crashed into target at step {self.steps}.")
             reward = -50.0; terminated = True
             episode_end_reason = "Crashed into target"
-        elif self.steps > 60000:
+        elif self.steps > MAX_STEPS_PER_EPISODE:
             print(f"Episode End: Timeout at step {self.steps}.")
             reward = -5.0; truncated = True
             episode_end_reason = "Timeout"
@@ -411,7 +413,7 @@ class AstrodynamicsEnv(gym.Env):
             [distance / self.max_distance],    # Distance to target (1)
             [velocity_mag / 10000.0],          # Speed magnitude (1)
             [self.fuel / self.initial_fuel],   # Fuel ratio (1)
-            [self.steps / 60000.0]             # Time progress (1)
+            [self.steps / MAX_STEPS_PER_EPISODE]             # Time progress (1)
         ])
 
     def get_state_for_viz(self) -> Dict[str, Any]:
@@ -456,31 +458,31 @@ class WebSocketCallback(BaseCallback):
 
     def _send_message_safely(self, payload: dict) -> bool:
         """Send a message via WebSocket with proper error handling."""
-        if self.websocket.application_state != WebSocketState.CONNECTED:
-            print("WebSocket is not connected. Stopping training.")
-            self.should_stop = True
+        if self.should_stop or self.websocket.application_state != WebSocketState.CONNECTED:
+            if not self.should_stop:
+                print("WebSocket is not connected. Stopping training.")
+                self.should_stop = True
             return False
-            
+
         try:
-            # Schedule the async send and wait for it to complete with timeout
             future = asyncio.run_coroutine_threadsafe(
-                self.websocket.send_json(payload), 
+                send_json_safely(self.websocket, payload),
                 self.loop
             )
-            # Wait for completion with a very short timeout to avoid blocking training
-            future.result(timeout=0.1)
-            self.failed_sends = 0  # Reset counter on success
+            future.result(timeout=1.0)  # Increased timeout for more reliability
             return True
+        except (WebSocketDisconnect, ConnectionClosedError):
+            print("Stopping training due to client disconnect.")
+            self.should_stop = True
+            return False
         except Exception as e:
             self.failed_sends += 1
-            # Only print every 500 failed sends to avoid spam since we're sending every step now
-            if self.failed_sends % 500 == 0:
+            if self.failed_sends % 100 == 0:  # Report errors less frequently
                 print(f"Error sending WebSocket message (attempt {self.failed_sends}): {e}")
             
             if self.failed_sends >= self.max_failed_sends:
                 print(f"Too many failed WebSocket sends ({self.failed_sends}). Stopping training.")
                 self.should_stop = True
-                return False
             return False
 
     def _on_step(self) -> bool:
@@ -511,7 +513,8 @@ class WebSocketCallback(BaseCallback):
                                 "episode": self.episode_count,
                                 "timestep": self.num_timesteps,
                             }
-                            self._send_message_safely(final_state_payload)
+                            if not self._send_message_safely(final_state_payload):
+                                return False
                     except Exception as e:
                         print(f"Error getting final viz state for env {i}: {e}")
                     # ---------------------------------------------------------
@@ -530,8 +533,7 @@ class WebSocketCallback(BaseCallback):
                         "reward": episode_info["total_reward"],
                         "env_idx": i,
                     }
-                    success = self._send_message_safely(payload)
-                    if not success and self.should_stop:
+                    if not self._send_message_safely(payload):
                         return False
         
         # SEND EVERY STEP TO THE FRONTEND - JUST LIKE THE GLIDER
@@ -546,15 +548,14 @@ class WebSocketCallback(BaseCallback):
                     "timestep": self.num_timesteps
                 }
                 
-                success = self._send_message_safely(payload)
-                if not success and self.should_stop:
+                if not self._send_message_safely(payload):
                     return False
                     
         except Exception as e:
             print(f"Error getting environment state for env {self.vis_env_idx}: {e}")
             # Don't stop training for environment state errors
                 
-        return True
+        return not self.should_stop
 
     def _on_rollout_end(self) -> None:
         """Send progress updates after each rollout."""
@@ -576,8 +577,7 @@ class WebSocketCallback(BaseCallback):
             "loss": float(loss) if loss is not None else None,
         }
         
-        success = self._send_message_safely(payload)
-        if not success and self.should_stop:
+        if not self._send_message_safely(payload):
             print("Stopping training due to WebSocket communication failure")
 
     def stop_training(self):
@@ -620,6 +620,21 @@ def _export_model_onnx(model: PPO, path: str):
 # Global variable to track training state
 _training_task = None
 _training_callback = None
+
+
+async def send_json_safely(websocket: WebSocket, payload: dict):
+    """Safely send JSON over a websocket, ignoring connection errors."""
+    if websocket.application_state != WebSocketState.CONNECTED:
+        print("Skipping send, websocket not connected.")
+        return
+    try:
+        await websocket.send_json(payload)
+    except (WebSocketDisconnect, ConnectionClosedError) as e:
+        print(f"Failed to send message: client disconnected. Reason: {e}")
+    except Exception as e:
+        # This can happen if the event loop is shutting down
+        print(f"An unexpected error occurred while sending message: {e}")
+
 
 async def train_astrodynamics(websocket: WebSocket):
     global _training_task, _training_callback
@@ -683,15 +698,12 @@ async def train_astrodynamics(websocket: WebSocket):
             
             print("Starting training loop...")
             # Send initial status to frontend
-            try:
-                initial_payload = {
-                    "type": "training_started",
-                    "message": "Training initialized successfully",
-                    "total_timesteps": TOTAL_TIMESTEPS
-                }
-                websocket_callback._send_message_safely(initial_payload)
-            except Exception as e:
-                print(f"Failed to send initial training message: {e}")
+            initial_payload = {
+                "type": "training_started",
+                "message": "Training initialized successfully",
+                "total_timesteps": TOTAL_TIMESTEPS
+            }
+            websocket_callback._send_message_safely(initial_payload)
             
             # Manually implement the training loop to be more responsive to cancellation.
             total_timesteps, callback = model._setup_learn(
@@ -778,7 +790,7 @@ async def train_astrodynamics(websocket: WebSocket):
         
         if result["success"]:
             print("Sending training completion message...")
-            await websocket.send_json({
+            await send_json_safely(websocket, {
                 "type": "trained",
                 "file_url": f"/policies/{result['model_filename_base']}.zip",
                 "model_filename": f"{result['model_filename_base']}.zip",
@@ -789,7 +801,7 @@ async def train_astrodynamics(websocket: WebSocket):
             print("Training completion message sent")
         else:
             print(f"Training failed: {result.get('reason', 'Unknown error')}")
-            await websocket.send_json({
+            await send_json_safely(websocket, {
                 "type": "training_error",
                 "message": f"Training failed: {result.get('reason', 'Unknown error')}"
             })
@@ -798,7 +810,7 @@ async def train_astrodynamics(websocket: WebSocket):
         print("Training task was cancelled. Signaling stop to the training thread.")
         if _training_callback:
             _training_callback.stop_training()
-        await websocket.send_json({
+        await send_json_safely(websocket, {
             "type": "training_error", 
             "message": "Training was cancelled by the server."
         })
@@ -816,7 +828,7 @@ async def train_astrodynamics(websocket: WebSocket):
         traceback.print_exc()
         if _training_callback:
             _training_callback.stop_training()
-        await websocket.send_json({
+        await send_json_safely(websocket, {
             "type": "training_error",
             "message": f"Training failed: {str(e)}"
         })
@@ -838,7 +850,7 @@ async def run_simulation(websocket: WebSocket):
             _, _, terminated, truncated, _ = env.step(0)
             done = terminated or truncated
             state = env.get_state_for_viz()
-            await websocket.send_json({"type": "state", "state": state})
+            await send_json_safely(websocket, {"type": "state", "state": state})
             await asyncio.sleep(0.05)  # ~20Hz update rate
             
             if done:
@@ -892,7 +904,7 @@ async def run_astrodynamics(websocket: WebSocket, model_filename: str | None = N
         nobs, _, terminated, truncated, _ = env.step(act)
         done = terminated or truncated
         state = env.get_state_for_viz()
-        await websocket.send_json({"type": "run_step", "state": state, "episode": episode + 1})
+        await send_json_safely(websocket, {"type": "run_step", "state": state, "episode": episode + 1})
         await asyncio.sleep(0.03)
         if done:
             episode += 1
