@@ -471,11 +471,22 @@ class WebSocketCallback(BaseCallback):
             )
             future.result(timeout=1.0)  # Increased timeout for more reliability
             return True
-        except (WebSocketDisconnect, ConnectionClosedError):
-            print("Stopping training due to client disconnect.")
+        except (WebSocketDisconnect, ConnectionClosedError) as e:
+            print(f"Stopping training due to client disconnect: {e}")
+            self.should_stop = True
+            return False
+        except asyncio.TimeoutError:
+            print("WebSocket send timed out - likely disconnected. Stopping training.")
             self.should_stop = True
             return False
         except Exception as e:
+            print(f"WebSocket send error: {type(e).__name__}: {e}")
+            # Check if the exception is related to WebSocket disconnection
+            if "disconnect" in str(e).lower() or "closed" in str(e).lower():
+                print("Detected WebSocket disconnection in exception message. Stopping training.")
+                self.should_stop = True
+                return False
+            
             self.failed_sends += 1
             if self.failed_sends % 100 == 0:  # Report errors less frequently
                 print(f"Error sending WebSocket message (attempt {self.failed_sends}): {e}")
@@ -626,18 +637,25 @@ async def send_json_safely(websocket: WebSocket, payload: dict):
     """Safely send JSON over a websocket, ignoring connection errors."""
     if websocket.application_state != WebSocketState.CONNECTED:
         print("Skipping send, websocket not connected.")
-        return
+        # Raise an exception that the callback can catch
+        raise WebSocketDisconnect("Websocket not connected")
     try:
         await websocket.send_json(payload)
     except (WebSocketDisconnect, ConnectionClosedError) as e:
         print(f"Failed to send message: client disconnected. Reason: {e}")
+        # Re-raise the exception so the caller (in the training thread) knows about it
+        raise
     except Exception as e:
         # This can happen if the event loop is shutting down
         print(f"An unexpected error occurred while sending message: {e}")
+        raise
 
 
 async def train_astrodynamics(websocket: WebSocket):
     global _training_task, _training_callback
+    
+    # Import here to avoid circular imports
+    from starlette.websockets import WebSocketState
     
     # Clean up any existing training
     if _training_task and not _training_task.done():
@@ -756,8 +774,12 @@ async def train_astrodynamics(websocket: WebSocket):
             callback.on_training_end()
             print("Training loop completed")
 
-            if not websocket_callback.should_stop:
-                # Only save if training completed successfully
+            print(f"DEBUG: websocket_callback.should_stop = {websocket_callback.should_stop}")
+            print(f"DEBUG: WebSocket state = {websocket.application_state}")
+            
+            # Check both should_stop flag and WebSocket connection state
+            if not websocket_callback.should_stop and websocket.application_state == WebSocketState.CONNECTED:
+                # Only save if training completed successfully and client is still connected
                 print("Saving model...")
                 model.save(model_path)
                 _export_model_onnx(model, onnx_path)
@@ -769,8 +791,13 @@ async def train_astrodynamics(websocket: WebSocket):
                     "session_uuid": session_uuid
                 }
             else:
-                print("Training stopped early - not saving model")
-                return {"success": False, "reason": "Training stopped early"}
+                reason = "Training stopped early"
+                if websocket_callback.should_stop:
+                    reason += " (callback stop signal)"
+                if websocket.application_state != WebSocketState.CONNECTED:
+                    reason += " (WebSocket disconnected)"
+                print(f"Not saving model - {reason}")
+                return {"success": False, "reason": reason}
                 
         except Exception as e:
             print(f"Training error: {e}")
