@@ -469,12 +469,12 @@ class WebSocketCallback(BaseCallback):
                 send_json_safely(self.websocket, payload),
                 self.loop
             )
-            future.result(timeout=1.0)  # Increased timeout for more reliability
+            success = future.result(timeout=1.0)  # Increased timeout for more reliability
+            if not success:
+                print("WebSocket send failed - likely disconnected. Stopping training.")
+                self.should_stop = True
+                return False
             return True
-        except (WebSocketDisconnect, ConnectionClosedError) as e:
-            print(f"Stopping training due to client disconnect: {e}")
-            self.should_stop = True
-            return False
         except asyncio.TimeoutError:
             print("WebSocket send timed out - likely disconnected. Stopping training.")
             self.should_stop = True
@@ -633,22 +633,20 @@ _training_task = None
 _training_callback = None
 
 
-async def send_json_safely(websocket: WebSocket, payload: dict):
-    """Safely send JSON over a websocket, ignoring connection errors."""
+async def send_json_safely(websocket: WebSocket, payload: dict) -> bool:
+    """Safely send JSON over a websocket, returning True on success, False on failure."""
     if websocket.application_state != WebSocketState.CONNECTED:
         print("Skipping send, websocket not connected.")
-        # Raise an exception that the callback can catch
-        raise WebSocketDisconnect("Websocket not connected")
+        return False
     try:
         await websocket.send_json(payload)
+        return True
     except (WebSocketDisconnect, ConnectionClosedError) as e:
         print(f"Failed to send message: client disconnected. Reason: {e}")
-        # Re-raise the exception so the caller (in the training thread) knows about it
-        raise
+        return False
     except Exception as e:
-        # This can happen if the event loop is shutting down
         print(f"An unexpected error occurred while sending message: {e}")
-        raise
+        return False
 
 
 async def train_astrodynamics(websocket: WebSocket):
@@ -817,7 +815,7 @@ async def train_astrodynamics(websocket: WebSocket):
         
         if result["success"]:
             print("Sending training completion message...")
-            await send_json_safely(websocket, {
+            success = await send_json_safely(websocket, {
                 "type": "trained",
                 "file_url": f"/policies/{result['model_filename_base']}.zip",
                 "model_filename": f"{result['model_filename_base']}.zip",
@@ -825,22 +823,29 @@ async def train_astrodynamics(websocket: WebSocket):
                 "timestamp": result["ts"],
                 "session_uuid": result["session_uuid"]
             })
-            print("Training completion message sent")
+            if success:
+                print("Training completion message sent")
+            else:
+                print("Failed to send training completion message - client disconnected")
         else:
             print(f"Training failed: {result.get('reason', 'Unknown error')}")
-            await send_json_safely(websocket, {
+            success = await send_json_safely(websocket, {
                 "type": "training_error",
                 "message": f"Training failed: {result.get('reason', 'Unknown error')}"
             })
+            if not success:
+                print("Failed to send training error message - client disconnected")
             
     except asyncio.CancelledError:
         print("Training task was cancelled. Signaling stop to the training thread.")
         if _training_callback:
             _training_callback.stop_training()
-        await send_json_safely(websocket, {
+        success = await send_json_safely(websocket, {
             "type": "training_error", 
             "message": "Training was cancelled by the server."
         })
+        if not success:
+            print("Failed to send cancellation message - client disconnected")
         # Wait for the thread to finish, but with a timeout
         try:
             await asyncio.wait_for(_training_task, timeout=10.0)
@@ -855,10 +860,12 @@ async def train_astrodynamics(websocket: WebSocket):
         traceback.print_exc()
         if _training_callback:
             _training_callback.stop_training()
-        await send_json_safely(websocket, {
+        success = await send_json_safely(websocket, {
             "type": "training_error",
             "message": f"Training failed: {str(e)}"
         })
+        if not success:
+            print("Failed to send error message - client disconnected")
     finally:
         print("Cleaning up training task...")
         _training_task = None
@@ -877,7 +884,9 @@ async def run_simulation(websocket: WebSocket):
             _, _, terminated, truncated, _ = env.step(0)
             done = terminated or truncated
             state = env.get_state_for_viz()
-            await send_json_safely(websocket, {"type": "state", "state": state})
+            success = await send_json_safely(websocket, {"type": "state", "state": state})
+            if not success:
+                break  # Client disconnected, exit loop
             await asyncio.sleep(0.05)  # ~20Hz update rate
             
             if done:
