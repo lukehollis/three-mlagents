@@ -414,6 +414,7 @@ async def websocket_astrodynamics(websocket: WebSocket):
             active_task.cancel()
 
 
+
 @app.websocket("/ws/labyrinth")
 async def websocket_labyrinth(websocket: WebSocket):
     await websocket.accept()
