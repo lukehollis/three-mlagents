@@ -460,7 +460,7 @@ Recent messages from other agents: {json.dumps(recent_messages)}
 Current building projects needing help:
 {json.dumps([{
     "id": b.id, "type": b.type, "status": b.status, 
-    "progress": b.progress, "resources_needed": {k: v - b.resources_contributed[k] for k, v in b.resources_needed.items() if v > b.resources_contributed[k]},
+    "progress": b.progress, "resources_needed": {{k: v - b.resources_contributed[k] for k, v in b.resources_needed.items() if v > b.resources_contributed[k]}},
     "contributors": len(b.contributors)
 } for b in current_projects[:3]])}
 
@@ -859,66 +859,56 @@ class SimCityEnv(gym.Env):
     def step(self, action: int):
         """Execute one simulation step for a single agent during training"""
         self.step_count += 1
-        
-        # This step is now simplified for a single agent's action
-        agent = self.pedestrians[0] # In training, we focus on one agent at a time
+        agent = self.pedestrians[0]
         action_name = DISCRETE_ACTIONS[action]
 
-        # Simplified action execution for the training agent
-        reward = 0.0
-        # Dummy data for reward calculation
         data = {}
         if action_name == "start_building":
-            data = {"building_type": agent.building_goal}
+            data = {"building_type": agent.building_goal, "reason": "AI policy decision"}
         elif action_name == "contribute_building":
             active_projects = [b for b in self.buildings if b.status in ["planning", "under_construction"]]
             if active_projects:
                 target_building = min(active_projects, key=lambda b: np.linalg.norm(agent.pos - b.pos))
-                data = {"building_id": target_building.id, "resources": {"wood": 1}} # Dummy contribution
-
-        reward = self._get_reward(agent, action_name, data)
-
-        # Action execution for all agents
-        agent_actions = []
-        # The trained agent gets the action from the policy
-        agent_actions.append((agent, (action_name, data)))
-
-        # Other agents get a random action
-        for other_agent in self.pedestrians[1:]:
-            random_action_name = random.choice(DISCRETE_ACTIONS)
-            # Create dummy data for random action if needed
-            random_data = {}
-            if random_action_name == "start_building":
-                random_data = {"building_type": other_agent.building_goal}
+                contribution = {res: min(agent.resources.get(res, 0), needed - target_building.resources_contributed[res])
+                                for res, needed in target_building.resources_needed.items() if agent.resources.get(res, 0) > 0 and target_building.resources_contributed[res] < needed}
+                data = {"building_id": target_building.id, "resources": contribution}
+        elif action_name in ACTION_MAP_MOVE:
+            data = {"target": "explore", "move_vector": ACTION_MAP_MOVE[action_name]}
+        elif action_name == "gather_resources" and self.businesses:
+            nearest_business = min(self.businesses, key=lambda b: np.linalg.norm(agent.pos - b.pos))
+            data = {"business_id": nearest_business.id}
+        elif action_name == "work_at_business" and self.businesses:
+            nearest_business = min(self.businesses, key=lambda b: np.linalg.norm(agent.pos - b.pos))
+            data = {"business_id": nearest_business.id}
+        elif action_name == "communicate":
+            data = {"message": f"I'm planning to build a {agent.building_goal}", "recipient_id": None}
             
-            agent_actions.append((other_agent, (random_action_name, random_data)))
+        reward = self._get_reward(agent, action_name, data)
+        
+        agent_actions = [(action_name, data)]
+        for other_agent in self.pedestrians[1:]:
+            random_action, random_data = other_agent.get_fast_action(None, self.businesses, self.buildings)
+            agent_actions.append((random_action, random_data))
 
-        # Execute all actions
-        for ped, (act, act_data) in agent_actions:
-             if act in ACTION_MAP_MOVE:
-                ped.pos += ACTION_MAP_MOVE[act]
+        self._execute_actions(agent_actions)
 
-        # Update other simulation elements
-        for p in self.pedestrians:
-            p.step(self.businesses, self.buildings, self.traffic_lights)
         for light in self.traffic_lights:
             light.step()
         for business in self.businesses:
             business.generate_resources()
         for building in self.buildings:
             if building.advance_construction():
-                # Handle building completion if necessary
                 pass
-
+        for p in self.pedestrians:
+            p.step(self.businesses, self.buildings, self.traffic_lights)
+            
         terminated = self.step_count >= MAX_STEPS_PER_EPISODE
         truncated = False
-        
         obs = self._get_obs_for_agent(agent)
-        
-        info = {}
-        if terminated or truncated:
+        info = {"is_success": terminated} if terminated or truncated else {}
+        if "episode" not in info:
              info["episode"] = {
-                "r": reward, # This is just the last step reward
+                "r": reward,
                 "l": self.step_count,
             }
 
@@ -1198,8 +1188,6 @@ class SimCityEnv(gym.Env):
         random.shuffle(randomized_order)
 
         for agent, (action, data) in randomized_order:
-            reward = self._get_reward(agent, action, data)
-            
             if action == "move" and data:
                 self._execute_move_action(agent, data)
             elif action == "gather_resources" and data:
@@ -1709,7 +1697,7 @@ async def run_simcity(websocket: WebSocket, env: SimCityEnv):
         env.trained_policy = model
     else:
         logger.warning("No trained model found for SimCity. Actions will be random.")
-        env.trained_policy = None
+        env.trained_geo_policy = None
 
     env.running = True
     step_rewards = []

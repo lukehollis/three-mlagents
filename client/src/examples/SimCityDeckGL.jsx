@@ -11,7 +11,7 @@ import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import MessagePanel from '../components/MessagePanel.jsx';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-const WS_URL = `${config.WS_BASE_URL}/ws/simcity`;
+const WS_URL = `${config.WS_BASE_URL}/ws/simcity_deckgl`;
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 const INITIAL_VIEW_STATE = {
