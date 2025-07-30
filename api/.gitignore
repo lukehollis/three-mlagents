@@ -84,6 +84,12 @@ dmypy.json
 cython_debug/
 
 policies/*.onnx
-# *.log
+policies/*.pkl
+policies/*.pt
+policies/*.pth
+policies/*.zip
+policies/*.pth.tar
+
+*.log
 cache
 *tensorboard*

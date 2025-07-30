@@ -39,6 +39,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 import logging
 from examples.simcity import run_simcity, train_simcity, SimCityEnv
+from examples.simcity_deckgl import run_simcity as run_simcity_deckgl, train_simcity as train_simcity_deckgl, SimCityEnv as SimCityDeckGLEnv
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -631,6 +632,51 @@ async def websocket_endpoint_simcity(websocket: WebSocket):
 
 
 
+@app.websocket("/ws/simcity_deckgl")
+async def websocket_endpoint_simcity_deckgl(websocket: WebSocket):
+    await websocket.accept()
+    env = None
+    run_task = None
+    try:
+        # On first connection, create environment and send initial state
+        env = SimCityDeckGLEnv()
+        state = env.get_state_for_viz()
+        await websocket.send_json({"type": "init", "state": state})
+
+        while True:
+            data = await websocket.receive_json()
+            cmd = data.get("cmd")
+
+            if cmd == "train":
+                await train_simcity_deckgl(websocket, env)
+            elif cmd == "run":
+                 if run_task and not run_task.done():
+                    continue
+                 run_task = asyncio.create_task(run_simcity_deckgl(websocket, env))
+            elif cmd == "stop":
+                if run_task:
+                    run_task.cancel()
+                    run_task = None
+            elif cmd == "reset":
+                if run_task:
+                    run_task.cancel()
+                    run_task = None
+                env = SimCityDeckGLEnv()
+                state = env.get_state_for_viz()
+                await websocket.send_json({"type": "reset", "state": state})
+
+    except WebSocketDisconnect:
+        print("Client disconnected from simcity_deckgl ws")
+        if run_task:
+            run_task.cancel()
+    except Exception as e:
+        logger.error(f"Error in simcity_deckgl websocket: {e}", exc_info=True)
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.send_json({"type": "error", "message": str(e)})
+
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
