@@ -12,6 +12,7 @@
     "deploy": "gh-pages -d dist"
   },
   "dependencies": {
+    "3d-tiles-renderer": "^0.3.1",
     "@fontsource-variable/geist": "^5.2.6",
     "@fontsource/geist": "^5.2.6",
     "@geist-ui/core": "^2.3.8",
@@ -20,18 +21,22 @@
     "@react-three/drei": "^9.88.2",
     "@react-three/fiber": "^8.14.2",
     "@react-three/postprocessing": "^2.15.11",
-    "cesium": "^1.111.0",
-    "3d-tiles-renderer": "^0.3.1",
     "@takram/three-geospatial": "^0.2.0",
+    "cesium": "^1.111.0",
     "chart.js": "^4.4.0",
     "geist-icons": "^1.0.0",
     "katex": "^0.16.22",
+    "kepler.gl": "^3.1.9",
     "onnxruntime-web": "^1.17.0",
     "react": "^18.2.0",
     "react-chartjs-2": "^5.3.0",
     "react-dom": "^18.3.0",
     "react-katex": "^3.1.0",
+    "react-redux": "^9.2.0",
     "react-router-dom": "^6.23.0",
+    "redux": "^5.0.1",
+    "redux-thunk": "^3.1.0",
+    "styled-components": "^6.1.19",
     "three": "^0.161.0"
   },
   "devDependencies": {

@@ -39,6 +39,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 import logging
 from examples.simcity import run_simcity, train_simcity, SimCityEnv
+from examples.simcity_kepler import run_simcity_kepler, train_simcity_kepler, SimCityKeplerEnv
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -626,6 +627,49 @@ async def websocket_endpoint_simcity(websocket: WebSocket):
             run_task.cancel()
     except Exception as e:
         logger.error(f"Error in simcity websocket: {e}", exc_info=True)
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.send_json({"type": "error", "message": str(e)})
+
+
+@app.websocket("/ws/simcity_kepler")
+async def websocket_endpoint_simcity_kepler(websocket: WebSocket):
+    await websocket.accept()
+    env = None
+    run_task = None
+    try:
+        # On first connection, create environment and send initial state
+        env = SimCityKeplerEnv()
+        state = env.get_state_for_viz()
+        await websocket.send_json({"type": "init", "state": state})
+
+        while True:
+            data = await websocket.receive_json()
+            cmd = data.get("cmd")
+
+            if cmd == "train":
+                await train_simcity_kepler(websocket, env)
+            elif cmd == "run":
+                 if run_task and not run_task.done():
+                    continue
+                 run_task = asyncio.create_task(run_simcity_kepler(websocket, env))
+            elif cmd == "stop":
+                if run_task:
+                    run_task.cancel()
+                    run_task = None
+            elif cmd == "reset":
+                if run_task:
+                    run_task.cancel()
+                    run_task = None
+                env = SimCityKeplerEnv()
+                state = env.get_state_for_viz()
+                await websocket.send_json({"type": "reset", "state": state})
+
+    except WebSocketDisconnect:
+        print("Client disconnected from simcity kepler ws")
+        if run_task:
+            run_task.cancel()
+    except Exception as e:
+        logger.error(f"Error in simcity kepler websocket: {e}", exc_info=True)
         if websocket.client_state != WebSocketState.DISCONNECTED:
             await websocket.send_json({"type": "error", "message": str(e)})
 

@@ -16,6 +16,7 @@ import AstrodynamicsExample from './examples/Astrodynamics.jsx';
 import LabyrinthExample from './examples/Labyrinth.jsx';
 import MinecraftExample from './examples/Minecraft.jsx';
 import SimCityExample from './examples/SimCity.jsx';
+import SimCityKeplerExample from './examples/SimCityKepler.jsx';
 import FishExample from './examples/Fish.jsx';
 import IntersectionExample from './examples/Intersection.jsx';
 import SelfDrivingCarExample from './examples/SelfDrivingCar.jsx';
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="/labyrinth" element={<LabyrinthExample />} />
         <Route path="/minecraft" element={<MinecraftExample />} />
         <Route path="/simcity" element={<SimCityExample />} />
+        <Route path="/simcity-kepler" element={<SimCityKeplerExample />} />
         <Route path="/fish" element={<FishExample />} />
         <Route path="/intersection" element={<IntersectionExample />} />
         <Route path="/self-driving-car" element={<SelfDrivingCarExample />} />
