@@ -19,7 +19,7 @@ from gymnasium import spaces
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.torch_layers import NatureCNN
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor, NatureCNN
 
 
 ACTION_SIZE = 4  # 0=up, 1=down, 2=left, 3=right
@@ -32,11 +32,11 @@ GAE_LAMBDA = 0.95
 CLIP_EPS = 0.2
 ENT_COEF = 0.01
 LR = 1e-4
-MAX_STEPS_PER_EPISODE = 2500
+MAX_STEPS_PER_EPISODE = 250  # Reduced for smaller maze
 EPISODES = 5000
 TOTAL_TIMESTEPS = MAX_STEPS_PER_EPISODE * EPISODES
-LABYRINTH_WIDTH = 129
-LABYRINTH_HEIGHT = 65
+LABYRINTH_WIDTH = 21 # Drastically reduced from 129
+LABYRINTH_HEIGHT = 11 # Drastically reduced from 65
 
 # -----------------------------------------------------------------------------------
 # Labyrinth Environment
@@ -114,11 +114,12 @@ class LabyrinthEnv(gym.Env):
         self.theseus_pos = self._get_random_empty_cell()
         
         self.minotaur_pos = self._get_random_empty_cell()
-        while np.linalg.norm(np.array(self.theseus_pos) - np.array(self.minotaur_pos)) < 40:
+        min_dist = (self.width + self.height) / 4 # Quarter of max manhattan distance
+        while abs(self.theseus_pos[0] - self.minotaur_pos[0]) + abs(self.theseus_pos[1] - self.minotaur_pos[1]) < min_dist:
             self.minotaur_pos = self._get_random_empty_cell()
 
         self.exit_pos = self._get_random_empty_cell()
-        while np.linalg.norm(np.array(self.theseus_pos) - np.array(self.exit_pos)) < 40:
+        while abs(self.theseus_pos[0] - self.exit_pos[0]) + abs(self.theseus_pos[1] - self.exit_pos[1]) < min_dist:
             self.exit_pos = self._get_random_empty_cell()
             
         self.grid[self.exit_pos] = 'E'
@@ -141,22 +142,22 @@ class LabyrinthEnv(gym.Env):
 
         # Penalty for hitting a wall
         if self.grid[ny, nx] == '#':
-            reward -= 0.1
+            reward -= 0.5 # Increased wall penalty
         else:
             # Reward for moving closer to the exit
             dist_to_exit_prev = abs(py - self.exit_pos[0]) + abs(px - self.exit_pos[1])
             dist_to_exit_new = abs(ny - self.exit_pos[0]) + abs(nx - self.exit_pos[1])
-            reward += 0.05 * (dist_to_exit_prev - dist_to_exit_new)
+            reward += 0.2 * (dist_to_exit_prev - dist_to_exit_new) # Increased reward
             self.theseus_pos = (ny, nx)
 
         # Penalty for moving closer to the Minotaur
         dist_to_mino_prev = abs(py - self.minotaur_pos[0]) + abs(px - self.minotaur_pos[1])
         dist_to_mino_new = abs(self.theseus_pos[0] - self.minotaur_pos[0]) + abs(self.theseus_pos[1] - self.minotaur_pos[1])
-        reward -= 0.02 * (dist_to_mino_prev - dist_to_mino_new)
+        reward -= 0.1 * (dist_to_mino_prev - dist_to_mino_new) # Increased penalty
 
-        # Move Minotaur every two steps
+        # Move Minotaur every four steps, making it easier for the agent to learn
         self.minotaur_turn_counter += 1
-        if self.minotaur_turn_counter % 2 == 0:
+        if self.minotaur_turn_counter % 4 == 0:
             self._move_minotaur()
 
         terminated = False
@@ -173,7 +174,7 @@ class LabyrinthEnv(gym.Env):
             terminated = True
             episode_end_reason = "Caught by Minotaur"
         elif self.steps >= MAX_STEPS_PER_EPISODE:
-            reward = -20.0
+            reward -= 5.0 # Reduced timeout penalty to be less punishing than getting caught
             truncated = True
             episode_end_reason = "Timeout"
 
@@ -191,6 +192,17 @@ class LabyrinthEnv(gym.Env):
 
     def _move_minotaur(self):
         my, mx = self.minotaur_pos
+
+        # 20% chance of random move
+        if random.random() < 0.2:
+            possible_moves = []
+            for dy, dx in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+                if self.grid[my + dy, mx + dx] != '#':
+                    possible_moves.append((my + dy, mx + dx))
+            if possible_moves:
+                self.minotaur_pos = random.choice(possible_moves)
+            return
+
         ty, tx = self.theseus_pos
         dy, dx = np.sign(ty - my), np.sign(tx - mx)
         
@@ -208,31 +220,62 @@ class LabyrinthEnv(gym.Env):
 
     def _get_obs(self):
         # Observation as uint8 image [0,255] for NatureCNN
-        obs_grid = np.full((self.height, self.width, 1), 51, dtype=np.uint8) # Path ~0.2*255
+        obs_grid = np.full((self.height, self.width), 51, dtype=np.uint8) # Path ~0.2*255
         
         # Walls are 0
         wall_y, wall_x = np.where(self.grid == '#')
-        obs_grid[wall_y, wall_x, 0] = 0
+        obs_grid[wall_y, wall_x] = 0
         
         # Exit is 255
         exit_y, exit_x = self.exit_pos
-        obs_grid[exit_y, exit_x, 0] = 255
+        obs_grid[exit_y, exit_x] = 255
 
         # Theseus is ~204 (0.8*255)
         ty, tx = self.theseus_pos
-        obs_grid[ty, tx, 0] = 204
+        obs_grid[ty, tx] = 204
         
         # Minotaur is ~102 (0.4*255)
         my, mx = self.minotaur_pos
-        obs_grid[my, mx, 0] = 102
+        obs_grid[my, mx] = 102
         
-        return obs_grid
+        return np.expand_dims(obs_grid, axis=-1)
 
     def get_state_for_viz(self) -> Dict[str, Any]:
         grid_viz = self.grid.copy()
         grid_viz[self.theseus_pos] = 'T'
         grid_viz[self.minotaur_pos] = 'M'
         return {"grid": grid_viz.tolist(), "steps": self.steps}
+
+# -----------------------------------------------------------------------------------
+# Custom CNN for smaller input
+# -----------------------------------------------------------------------------------
+
+class CustomCNN(BaseFeaturesExtractor):
+    """
+    Custom CNN for the Labyrinth environment.
+    """
+    def __init__(self, observation_space: spaces.Box, features_dim: int = 256):
+        super().__init__(observation_space, features_dim)
+        n_input_channels = observation_space.shape[0]
+        self.cnn = nn.Sequential(
+            nn.Conv2d(n_input_channels, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Flatten(),
+        )
+
+        # Compute shape by doing one forward pass
+        with torch.no_grad():
+            sample_tensor = torch.as_tensor(observation_space.sample()[None]).float()
+            n_flatten = self.cnn(sample_tensor).shape[1]
+
+        self.linear = nn.Sequential(nn.Linear(n_flatten, features_dim), nn.ReLU())
+
+    def forward(self, observations: torch.Tensor) -> torch.Tensor:
+        return self.linear(self.cnn(observations))
 
 # -----------------------------------------------------------------------------------
 # Callbacks and training setup
@@ -247,10 +290,7 @@ async def send_json_safely(websocket: WebSocket, payload: dict) -> bool:
         await websocket.send_json(payload)
         return True
     except (WebSocketDisconnect, ConnectionClosedError) as e:
-        print(f"Failed to send message: client disconnected. Reason: {e}")
-        return False
-    except Exception as e:
-        print(f"An unexpected error occurred while sending message: {e}")
+        print(f"WebSocket connection closed unexpectedly: {e}")
         return False
 
 class WebSocketCallback(BaseCallback):
@@ -270,22 +310,29 @@ class WebSocketCallback(BaseCallback):
                 self.should_stop = True
             return False
 
-        try:
-            future = asyncio.run_coroutine_threadsafe(
-                send_json_safely(self.websocket, payload), self.loop
-            )
-            return future.result(timeout=1.0)
-        except Exception as e:
-            print(f"WebSocket send error: {e}. Stopping training.")
-            self.should_stop = True
-            return False
+        future = asyncio.run_coroutine_threadsafe(
+            send_json_safely(self.websocket, payload), self.loop
+        )
+        return future.result(timeout=1.0)
 
     def _on_step(self) -> bool:
         if self.should_stop: return False
 
         self.step_counter += 1
-        self.vis_env_idx = self.step_counter % self.training_env.num_envs
+        # Send state of one environment at a lower frequency for visualization
+        if self.step_counter % 20 == 0:
+            self.vis_env_idx = (self.vis_env_idx + 1) % self.training_env.num_envs
+            states = self.training_env.env_method("get_state_for_viz", indices=[self.vis_env_idx])
+            if states and states[0]:
+                payload = {
+                    "type": "train_step",
+                    "state": states[0],
+                    "episode": self.episode_count,
+                    "timestep": self.num_timesteps,
+                }
+                if not self._send_message_safely(payload): return False
 
+        # Log episode info when an episode ends
         for i, done in enumerate(self.locals["dones"]):
             if done:
                 info = self.locals["infos"][i]
@@ -306,29 +353,24 @@ class WebSocketCallback(BaseCallback):
                         "reward": ep_info["total_reward"],
                     }
                     if not self._send_message_safely(payload): return False
-
-        # Send state of one environment at every step for visualization
-        try:
-            states = self.training_env.env_method("get_state_for_viz", indices=[self.vis_env_idx])
-            if states and states[0]:
-                payload = {
-                    "type": "train_step",
-                    "state": states[0],
-                    "episode": self.episode_count,
-                    "timestep": self.num_timesteps,
-                }
-                if not self._send_message_safely(payload): return False
-        except Exception as e:
-            print(f"Error getting env state for viz: {e}")
         
         return not self.should_stop
 
     def _on_rollout_end(self) -> None:
         if self.should_stop: return
         
-        reward = self.logger.name_to_value.get("rollout/ep_rew_mean")
+        # Correctly extract mean reward from the episode info buffer
+        ep_info_buffer = self.locals.get("ep_info_buffer", [])
+        reward = None
+        if ep_info_buffer:
+            reward = np.mean([ep_info["r"] for ep_info in ep_info_buffer])
+        
+        # Loss is not available at rollout_end, it's computed during the training phase
         loss = self.logger.name_to_value.get("train/loss")
-        print(f"Rollout end. Timestep: {self.num_timesteps}, Mean Reward: {reward:.2f}, Loss: {loss:.4f}")
+
+        reward_str = f"{reward:.2f}" if reward is not None else "N/A"
+        loss_str = f"{loss:.4f}" if loss is not None else "N/A"
+        print(f"Rollout end. Timestep: {self.num_timesteps}, Mean Reward: {reward_str}, Loss: {loss_str}")
 
         payload = {
             "type": "progress",
@@ -384,8 +426,7 @@ async def train_labyrinth(websocket: WebSocket):
         print("Stopping existing Labyrinth training...")
         if _training_callback: _training_callback.stop_training()
         _training_task.cancel()
-        try: await _training_task
-        except asyncio.CancelledError: pass
+        await _training_task
 
     print("Starting Labyrinth training...")
     os.makedirs(POLICIES_DIR, exist_ok=True)
@@ -399,107 +440,118 @@ async def train_labyrinth(websocket: WebSocket):
     loop = asyncio.get_running_loop()
 
     def train_model():
+        print("--- [train_model] START ---")
+        print("Setting up vectorized environment for Labyrinth...")
         try:
-            print("Setting up vectorized environment for Labyrinth...")
             vec_env = make_vec_env(LabyrinthEnv, n_envs=16, env_kwargs=dict(training_mode=True))
+            print("--- [train_model] Vectorized environment created ---")
+        except Exception as e:
+            print(f"--- [train_model] ERROR creating vec_env: {e} ---")
+            return {"success": False, "reason": f"Failed to create env: {e}"}
 
-            policy_kwargs = dict(
-                features_extractor_class=NatureCNN,
-                features_extractor_kwargs=dict(features_dim=256),
-                net_arch=dict(pi=[64, 64], vf=[64, 64]),
-            )
+        policy_kwargs = dict(
+            features_extractor_class=CustomCNN,
+            features_extractor_kwargs=dict(features_dim=128),
+            net_arch=dict(pi=[64, 64], vf=[64, 64]),
+        )
 
-            print("Creating PPO model for Labyrinth...")
-            model = PPO(
-                "CnnPolicy",
-                vec_env,
-                verbose=1,
-                gamma=GAMMA,
-                gae_lambda=GAE_LAMBDA,
-                clip_range=CLIP_EPS,
-                ent_coef=ENT_COEF,
-                learning_rate=LR,
-                n_epochs=10,
-                batch_size=256,
-                n_steps=2048,
-                policy_kwargs=policy_kwargs,
-                tensorboard_log="./labyrinth_tensorboard/"
-            )
+        print("--- [train_model] PPO model created ---")
+        model = PPO(
+            "CnnPolicy",
+            vec_env,
+            verbose=1,
+            gamma=GAMMA,
+            gae_lambda=GAE_LAMBDA,
+            clip_range=CLIP_EPS,
+            ent_coef=ENT_COEF,
+            learning_rate=LR,
+            n_epochs=10,
+            batch_size=256,
+            n_steps=2048,
+            policy_kwargs=policy_kwargs,
+            tensorboard_log="./labyrinth_tensorboard/"
+        )
 
-            print("Setting up WebSocket callback for Labyrinth...")
-            websocket_callback = WebSocketCallback(websocket, loop)
-            global _training_callback
-            _training_callback = websocket_callback
-            
-            print("Starting Labyrinth training loop...")
-            initial_payload = {"type": "training_started", "total_timesteps": TOTAL_TIMESTEPS}
-            websocket_callback._send_message_safely(initial_payload)
-            
+        print("Setting up WebSocket callback for Labyrinth...")
+        websocket_callback = WebSocketCallback(websocket, loop)
+        global _training_callback
+        _training_callback = websocket_callback
+        print("--- [train_model] WebSocket callback created ---")
+        
+        print("Starting Labyrinth training loop...")
+        initial_payload = {"type": "training_started", "total_timesteps": TOTAL_TIMESTEPS}
+        
+        print("--- [train_model] Sending 'training_started' message ---")
+        sent = websocket_callback._send_message_safely(initial_payload)
+        print(f"--- [train_model] 'training_started' message sent: {sent} ---")
+        
+        try:
+            print("--- [train_model] Calling model.learn() ---")
             model.learn(
                 total_timesteps=TOTAL_TIMESTEPS,
                 callback=websocket_callback,
                 progress_bar=True
             )
-            print("Training loop finished.")
-
-            if not websocket_callback.should_stop and websocket.application_state == WebSocketState.CONNECTED:
-                print("Saving Labyrinth model...")
-                model.save(model_path)
-                _export_model_onnx(model, onnx_path)
-                print(f"Labyrinth model saved to {model_path} and {onnx_path}")
-                return {"success": True, "model_filename_base": model_filename_base, "ts": ts, "session_uuid": session_uuid}
-            else:
-                reason = "Training stopped early by callback or disconnect."
-                print(f"Not saving Labyrinth model: {reason}")
-                return {"success": False, "reason": reason}
-                
+            print("--- [train_model] model.learn() finished ---")
         except Exception as e:
-            print(f"Labyrinth training error: {e}")
-            import traceback
-            traceback.print_exc()
-            if _training_callback: _training_callback.stop_training()
-            return {"success": False, "reason": str(e)}
+            print(f"--- [train_model] ERROR during model.learn(): {e} ---")
+            return {"success": False, "reason": f"Training failed: {e}"}
+
+        print("Training loop finished.")
+
+        if not websocket_callback.should_stop and websocket.application_state == WebSocketState.CONNECTED:
+            print("Saving Labyrinth model...")
+            model.save(model_path)
+            _export_model_onnx(model, onnx_path)
+            print(f"Labyrinth model saved to {model_path} and {onnx_path}")
+            return {"success": True, "model_filename_base": model_filename_base, "ts": ts, "session_uuid": session_uuid}
+        else:
+            reason = "Training stopped early by callback or disconnect."
+            print(f"Not saving Labyrinth model: {reason}")
+            return {"success": False, "reason": reason}
+        print("--- [train_model] END ---")
     
     _training_task = asyncio.create_task(asyncio.to_thread(train_model))
     
     try:
+        print("--- [train_labyrinth] Awaiting training task ---")
         result = await _training_task
-        print(f"Labyrinth training completed with result: {result}")
+        print(f"--- [train_labyrinth] Training task finished with result: {result} ---")
+    except Exception as e:
+        print(f"--- [train_labyrinth] ERROR awaiting training task: {e} ---")
+        result = {"success": False, "reason": f"Task exception: {e}"}
         
-        if result["success"]:
-            await send_json_safely(websocket, {
-                "type": "trained",
-                "file_url": f"/policies/{result['model_filename_base']}.zip",
-                "model_filename": f"{result['model_filename_base']}.zip",
-                "onnx_filename": f"{result['model_filename_base']}.onnx",
-                "timestamp": result["ts"],
-                "session_uuid": result["session_uuid"]
-            })
-        else:
-            await send_json_safely(websocket, {
-                "type": "training_error",
-                "message": f"Training failed: {result.get('reason', 'Unknown error')}"
-            })
-    except asyncio.CancelledError:
-        print("Labyrinth training task was cancelled.")
-        if _training_callback: _training_callback.stop_training()
-        await send_json_safely(websocket, {"type": "training_error", "message": "Training cancelled."})
-    finally:
-        _training_task = None
-        _training_callback = None
+    print(f"Labyrinth training completed with result: {result}")
+    
+    if result.get("success"):
+        print("--- [train_labyrinth] Sending 'trained' message ---")
+        await send_json_safely(websocket, {
+            "type": "trained",
+            "file_url": f"/policies/{result['model_filename_base']}.zip",
+            "model_filename": f"{result['model_filename_base']}.zip",
+            "onnx_filename": f"{result['model_filename_base']}.onnx",
+            "timestamp": result["ts"],
+            "session_uuid": result["session_uuid"]
+        })
+    else:
+        print("--- [train_labyrinth] Sending 'training_error' message ---")
+        await send_json_safely(websocket, {
+            "type": "training_error",
+            "message": f"Training failed: {result.get('reason', 'Unknown error')}"
+        })
+    
+    _training_task = None
+    _training_callback = None
 
 
 async def run_simulation(websocket: WebSocket):
     env = LabyrinthEnv(training_mode=False)
     env.reset()
-    try:
-        while websocket.application_state == WebSocketState.CONNECTED:
-            state = env.get_state_for_viz()
-            await send_json_safely(websocket, {"type": "state", "state": state})
-            await asyncio.sleep(0.5)
-            env.reset()
-    except WebSocketDisconnect:
-        print("Labyrinth simulation client disconnected.")
+    while websocket.application_state == WebSocketState.CONNECTED:
+        state = env.get_state_for_viz()
+        await send_json_safely(websocket, {"type": "state", "state": state})
+        await asyncio.sleep(0.5)
+        env.reset()
 
 
 # -----------------------------------------------------------------------------------
@@ -524,13 +576,9 @@ def infer_action_labyrinth(obs: np.ndarray, model_filename: str | None = None) -
         return random.randint(0, ACTION_SIZE - 1)
     
     if model_filename not in _SB3_CACHE:
-        try:
-            print(f"Loading Labyrinth SB3 model: {model_filename}")
-            model = PPO.load(model_path)
-            _SB3_CACHE[model_filename] = model
-        except Exception as e:
-            print(f"Error loading SB3 model '{model_filename}': {e}. Returning random action.")
-            return random.randint(0, ACTION_SIZE - 1)
+        print(f"Loading Labyrinth SB3 model: {model_filename}")
+        model = PPO.load(model_path)
+        _SB3_CACHE[model_filename] = model
     
     model = _SB3_CACHE[model_filename]
     action, _ = model.predict(obs, deterministic=True)

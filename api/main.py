@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket, HTTPException
+from starlette.websockets import WebSocketDisconnect
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -445,12 +446,26 @@ async def websocket_labyrinth(websocket: WebSocket):
                 elif cmd == 'run':
                     model_filename = message.get('model_filename')
                     active_task = asyncio.create_task(run_labyrinth(websocket, model_filename))
-
+    
     except WebSocketDisconnect:
-        print("Client disconnected from labyrinth")
-    finally:
-        if active_task and not active_task.done():
+        print("WebSocket client disconnected from labyrinth endpoint")
+        if active_task:
+            print("Cancelling active training/run task due to disconnection")
             active_task.cancel()
+            try:
+                await active_task
+            except asyncio.CancelledError:
+                pass
+    
+    except Exception as e:
+        print(f"Error in labyrinth WebSocket: {e}")
+        if active_task:
+            active_task.cancel()
+            try:
+                await active_task
+            except asyncio.CancelledError:
+                pass
+
 
 
 # WebSocket endpoint for MineCraft

@@ -5,7 +5,6 @@ import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import 'katex/dist/katex.min.css';
 import EquationPanel from '../components/EquationPanel.jsx';
-import InfoPanel from '../components/InfoPanel.jsx';
 import TensorboardPanel from '../components/TensorboardPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
@@ -226,13 +225,6 @@ export default function LabyrinthExample() {
             <Button auto type="success" disabled={!trained} onClick={startRun}>Run</Button>
             {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
           </div>
-          {training && (
-            <Card style={{ marginTop: '10px', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-              <Text p>Training in progress...</Text>
-              <Progress value={trainingProgress} max={100} />
-              <Text small>{`${currentTimestep} / ${totalTimesteps} timesteps`}</Text>
-            </Card>
-          )}
           <ModelInfoPanel modelInfo={modelInfo} onnxAvailable={!!modelInfo?.onnxFilename} />
         </div>
         <EquationPanel
