@@ -223,7 +223,7 @@ export default function LabyrinthExample() {
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
             <Button auto type="success" disabled={!trained} onClick={startRun}>Run</Button>
-            {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
+            {/* {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>} */}
           </div>
           <ModelInfoPanel modelInfo={modelInfo} onnxAvailable={!!modelInfo?.onnxFilename} />
         </div>

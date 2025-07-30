@@ -14,6 +14,15 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.distributions.categorical import Categorical
 
+import gymnasium as gym
+from gymnasium import spaces
+from stable_baselines3 import PPO
+from stable_baselines3.common.callbacks import BaseCallback
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from starlette.websockets import WebSocketState, WebSocketDisconnect
+from websockets.exceptions import ConnectionClosedError
+
 # Set environment variable to avoid tokenizers parallelism warning
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -53,6 +62,17 @@ MAX_LLM_LOGS = 30
 LLM_CALL_FREQUENCY = 15
 USE_LOCAL_OLLAMA = True 
 MAX_STEPS_PER_EPISODE = 2000
+
+# SB3/PPO Training constants
+TOTAL_TIMESTEPS = 200000
+PPO_N_STEPS = 2048
+PPO_BATCH_SIZE = 64
+PPO_N_EPOCHS = 10
+PPO_GAMMA = 0.99
+PPO_GAE_LAMBDA = 0.95
+PPO_CLIP_EPS = 0.2
+PPO_ENT_COEF = 0.01
+PPO_LR = 3e-4
 
 # Resource System
 RESOURCES = {
@@ -105,6 +125,42 @@ ACTION_MAP_MOVE = {
     "move_east": np.array([0, 0.0001]),
     "move_west": np.array([0, -0.0001]),
 }
+
+class SimCityPPOPolicy(BaseFeaturesExtractor):
+    """
+    Custom features extractor for the SimCity environment.
+    It processes the structured observation data into a flat vector.
+    """
+    def __init__(self, observation_space: spaces.Dict, features_dim: int = 256):
+        super().__init__(observation_space, features_dim)
+        
+        # Define the structure of the observation space
+        agent_pos_size = observation_space["agent_pos"].shape[0]
+        resources_size = observation_space["resources"].shape[0]
+        agent_stats_size = observation_space["agent_stats"].shape[0]
+        env_state_size = observation_space["env_state"].shape[0]
+        memory_size = observation_space["memory"].shape[0]
+
+        total_input_size = agent_pos_size + resources_size + agent_stats_size + env_state_size + memory_size
+        
+        self.extractor = nn.Sequential(
+            nn.Linear(total_input_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, features_dim),
+            nn.ReLU(),
+        )
+
+    def forward(self, observations: Dict[str, torch.Tensor]) -> torch.Tensor:
+        # Concatenate all parts of the observation into a single tensor
+        combined_obs = torch.cat([
+            observations["agent_pos"],
+            observations["resources"],
+            observations["agent_stats"],
+            observations["env_state"],
+            observations["memory"],
+        ], dim=1)
+        
+        return self.extractor(combined_obs)
 
 class ActorCritic(nn.Module):
     def __init__(self, obs_size: int, action_size: int):
@@ -326,16 +382,13 @@ class Pedestrian:
                 target_node = node_id
         
         if target_node and self.current_node:
-            try:
-                path = ox.shortest_path(self.graph, self.current_node, target_node, weight='length')
-                if path and len(path) > 1:
-                    self.path = path
-                    self.path_index = 0
-                    self.target_pos = target_pos
-                    self.path_progress = 0.0
-                    return True
-            except Exception:
-                pass
+            path = ox.shortest_path(self.graph, self.current_node, target_node, weight='length')
+            if path and len(path) > 1:
+                self.path = path
+                self.path_index = 0
+                self.target_pos = target_pos
+                self.path_progress = 0.0
+                return True
         
         return False
     
@@ -495,15 +548,12 @@ Respond with valid JSON only, no explanations."""
         log_to_frontend(f"💬 {conversation_text}")
         
         if _current_websocket:
-            try:
-                await _current_websocket.send_json({
-                    "type": "agent_message",
-                    "agent_id": self.id,
-                    "message": conversation_text,
-                    "step": step_count
-                })
-            except Exception as e:
-                print(f"DEBUG: Failed to send conversation message: {e}")
+            await _current_websocket.send_json({
+                "type": "agent_message",
+                "agent_id": self.id,
+                "message": conversation_text,
+                "step": step_count
+            })
         
         self.is_thinking = False
         
@@ -707,8 +757,10 @@ Respond with valid JSON only, no explanations."""
         self.memory_vector = (self.memory_vector * 0.9) + (new_embedding.astype(np.float32) * 0.1)
 
 # --- Environment Class ---
-class SimCityEnv:
-    def __init__(self):
+class SimCityEnv(gym.Env):
+    def __init__(self, training_mode: bool = True):
+        super().__init__()
+        self.training_mode = training_mode
         self.llm_logs: List[Dict] = []
         self.messages: List[Dict] = []
         self.step_count = 0
@@ -719,22 +771,206 @@ class SimCityEnv:
         self.running = False
         self.trained_policy: "ActorCritic" = None
         
+        # Define action and observation spaces for SB3
+        self.action_space = spaces.Discrete(len(DISCRETE_ACTIONS))
+        
+        # Define observation space using a dictionary
+        self.observation_space = spaces.Dict({
+            "agent_pos": spaces.Box(low=-180, high=180, shape=(2,), dtype=np.float32),
+            "resources": spaces.Box(low=0, high=np.inf, shape=(len(RESOURCES),), dtype=np.float32),
+            "agent_stats": spaces.Box(low=0, high=100, shape=(1,), dtype=np.float32), # satisfaction
+            "env_state": spaces.Box(low=0, high=np.inf, shape=(2,), dtype=np.float32), # nearest business dist, active projects
+            "memory": spaces.Box(low=-np.inf, high=np.inf, shape=(50,), dtype=np.float32)
+        })
+
         # Load real city data
         self.location_point = (37.7749, -122.4194)  # Downtown San Francisco
         self.graph = ox.graph_from_point(self.location_point, dist=900, network_type='drive')
         
         # Add elevation data if possible
-        try:
-            google_api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
-            if google_api_key:
-                ox.add_node_elevations_google(self.graph, api_key=google_api_key)
-        except Exception as e:
-            logger.warning(f"Could not get elevation data: {e}")
+        google_api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        if google_api_key:
+            ox.add_node_elevations_google(self.graph, api_key=google_api_key)
         
         self.road_network_for_viz = self._get_road_network_for_viz()
         self._create_businesses()
         self._create_traffic_lights()
         self._create_pedestrians()
+        self.reset()
+
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
+        self.step_count = 0
+        self.llm_logs.clear()
+        self.messages.clear()
+        self.buildings.clear()
+        
+        self._create_businesses()
+        self._create_traffic_lights()
+        self._create_pedestrians()
+        
+        # In training mode, we need to return an observation for a single agent
+        if self.training_mode and self.pedestrians:
+            return self._get_obs_for_agent(self.pedestrians[0]), {}
+        
+        return self._get_dummy_obs(), {} # Return a dummy observation if no pedestrians
+
+    def _get_dummy_obs(self):
+        return {
+            "agent_pos": np.zeros(2, dtype=np.float32),
+            "resources": np.zeros(len(RESOURCES), dtype=np.float32),
+            "agent_stats": np.zeros(1, dtype=np.float32),
+            "env_state": np.zeros(2, dtype=np.float32),
+            "memory": np.zeros(50, dtype=np.float32),
+        }
+
+    def _get_obs_for_agent(self, agent: Pedestrian) -> Dict[str, np.ndarray]:
+        """Create observation dictionary for a single agent"""
+        # Position
+        pos_vector = agent.pos.astype(np.float32)
+        
+        # Resources
+        resource_vector = np.array([agent.resources.get(r, 0) for r in RESOURCES.keys()], dtype=np.float32)
+        
+        # Satisfaction
+        satisfaction_vector = np.array([agent.satisfaction], dtype=np.float32)
+        
+        # Distance to nearest business
+        if self.businesses:
+            nearest_business_dist = min([np.linalg.norm(agent.pos - b.pos) for b in self.businesses])
+        else:
+            nearest_business_dist = 1.0
+            
+        # Number of active building projects
+        active_projects = len([b for b in self.buildings if b.status in ["planning", "under_construction"]])
+        env_state_vector = np.array([nearest_business_dist, active_projects], dtype=np.float32)
+        
+        # Memory vector
+        memory_vector = agent.memory_vector[:50].astype(np.float32)
+        
+        return {
+            "agent_pos": pos_vector,
+            "resources": resource_vector,
+            "agent_stats": satisfaction_vector,
+            "env_state": env_state_vector,
+            "memory": memory_vector,
+        }
+
+    def step(self, action: int):
+        """Execute one simulation step for a single agent during training"""
+        self.step_count += 1
+        
+        # This step is now simplified for a single agent's action
+        agent = self.pedestrians[0] # In training, we focus on one agent at a time
+        action_name = DISCRETE_ACTIONS[action]
+
+        # Simplified action execution for the training agent
+        reward = 0.0
+        # Dummy data for reward calculation
+        data = {}
+        if action_name == "start_building":
+            data = {"building_type": agent.building_goal}
+        elif action_name == "contribute_building":
+            active_projects = [b for b in self.buildings if b.status in ["planning", "under_construction"]]
+            if active_projects:
+                target_building = min(active_projects, key=lambda b: np.linalg.norm(agent.pos - b.pos))
+                data = {"building_id": target_building.id, "resources": {"wood": 1}} # Dummy contribution
+
+        reward = self._get_reward(agent, action_name, data)
+
+        # Action execution for all agents
+        agent_actions = []
+        # The trained agent gets the action from the policy
+        agent_actions.append((agent, (action_name, data)))
+
+        # Other agents get a random action
+        for other_agent in self.pedestrians[1:]:
+            random_action_name = random.choice(DISCRETE_ACTIONS)
+            # Create dummy data for random action if needed
+            random_data = {}
+            if random_action_name == "start_building":
+                random_data = {"building_type": other_agent.building_goal}
+            
+            agent_actions.append((other_agent, (random_action_name, random_data)))
+
+        # Execute all actions
+        for ped, (act, act_data) in agent_actions:
+             if act in ACTION_MAP_MOVE:
+                ped.pos += ACTION_MAP_MOVE[act]
+
+        # Update other simulation elements
+        for p in self.pedestrians:
+            p.step(self.businesses, self.buildings, self.traffic_lights)
+        for light in self.traffic_lights:
+            light.step()
+        for business in self.businesses:
+            business.generate_resources()
+        for building in self.buildings:
+            if building.advance_construction():
+                # Handle building completion if necessary
+                pass
+
+        terminated = self.step_count >= MAX_STEPS_PER_EPISODE
+        truncated = False
+        
+        obs = self._get_obs_for_agent(agent)
+        
+        info = {}
+        if terminated or truncated:
+             info["episode"] = {
+                "r": reward, # This is just the last step reward
+                "l": self.step_count,
+            }
+
+        return obs, reward, terminated, truncated, info
+
+    def get_state_for_viz(self) -> Dict[str, Any]:
+        """Get current state for visualization"""
+        return {
+            "pedestrians": [{
+                "id": p.id,
+                "pos": p.pos.tolist(),
+                "color": p.color,
+                "state": p.state,
+                "satisfaction": p.satisfaction,
+                "resources": p.resources,
+                "memory_stream": p.memory_stream,
+                "building_goal": p.building_goal,
+                "current_building_project": p.current_building_project
+            } for p in self.pedestrians],
+            "businesses": [{
+                "id": b.id,
+                "pos": b.pos.tolist(),
+                "type": b.type,
+                "inventory": b.inventory,
+                "customers_served": b.customers_served,
+                "revenue": b.revenue
+            } for b in self.businesses],
+            "buildings": [{
+                "id": b.id,
+                "pos": b.pos.tolist(),
+                "type": b.type,
+                "height": b.height,
+                "status": b.status,
+                "progress": b.progress,
+                "build_time": b.build_time,
+                "resources_needed": b.resources_needed,
+                "resources_contributed": b.resources_contributed,
+                "contributors": b.contributors,
+                "base_value": b.base_value,
+                "daily_income": b.daily_income
+            } for b in self.buildings],
+            "traffic_lights": [{
+                "id": l.id,
+                "pos": l.pos.tolist(),
+                "state": l.state
+            } for l in self.traffic_lights],
+            "road_network": self.road_network_for_viz,
+            "messages": self.messages,
+            "llm_logs": self.llm_logs,
+            "resources": RESOURCES,
+            "building_recipes": BUILDING_RECIPES
+        }
 
     def _get_road_network_for_viz(self):
         """Convert road network to visualization format"""
@@ -1300,54 +1536,6 @@ class SimCityEnv:
         for pedestrian in self.pedestrians:
             pedestrian.step(self.businesses, self.buildings, self.traffic_lights)
 
-    def get_state_for_viz(self) -> Dict[str, Any]:
-        """Get current state for visualization"""
-        return {
-            "pedestrians": [{
-                "id": p.id,
-                "pos": p.pos.tolist(),
-                "color": p.color,
-                "state": p.state,
-                "satisfaction": p.satisfaction,
-                "resources": p.resources,
-                "memory_stream": p.memory_stream,
-                "building_goal": p.building_goal,
-                "current_building_project": p.current_building_project
-            } for p in self.pedestrians],
-            "businesses": [{
-                "id": b.id,
-                "pos": b.pos.tolist(),
-                "type": b.type,
-                "inventory": b.inventory,
-                "customers_served": b.customers_served,
-                "revenue": b.revenue
-            } for b in self.businesses],
-            "buildings": [{
-                "id": b.id,
-                "pos": b.pos.tolist(),
-                "type": b.type,
-                "height": b.height,
-                "status": b.status,
-                "progress": b.progress,
-                "build_time": b.build_time,
-                "resources_needed": b.resources_needed,
-                "resources_contributed": b.resources_contributed,
-                "contributors": b.contributors,
-                "base_value": b.base_value,
-                "daily_income": b.daily_income
-            } for b in self.buildings],
-            "traffic_lights": [{
-                "id": l.id,
-                "pos": l.pos.tolist(),
-                "state": l.state
-            } for l in self.traffic_lights],
-            "road_network": self.road_network_for_viz,
-            "messages": self.messages,
-            "llm_logs": self.llm_logs,
-            "resources": RESOURCES,
-            "building_recipes": BUILDING_RECIPES
-        }
-
 def get_agent_state_vector(agent: Pedestrian, businesses: List[Business], buildings: List[Building]) -> np.ndarray:
     """Create state vector for RL policy"""
     return agent._get_state_vector(businesses, buildings)
@@ -1389,264 +1577,124 @@ def get_valid_actions_mask(agent: Pedestrian, businesses: List[Business], buildi
     
     return mask
 
-# PPO Training constants
-BATCH_SIZE = 1024
-MINI_BATCH = 128
-EPOCHS = 4
-GAMMA = 0.99
-GAE_LAMBDA = 0.95
-CLIP_EPS = 0.2
-ENT_COEF = 0.01
-LR = 3e-4
+class WebSocketCallback(BaseCallback):
+    def __init__(self, websocket: WebSocket, loop: asyncio.AbstractEventLoop, verbose=0):
+        super(WebSocketCallback, self).__init__(verbose)
+        self.websocket = websocket
+        self.loop = loop
+        self.should_stop = False
+        self.episode_count = 0
+
+    def _send_message_safely(self, payload: dict) -> bool:
+        if self.should_stop or self.websocket.application_state != WebSocketState.CONNECTED:
+            if not self.should_stop:
+                print("WebSocket is not connected. Stopping training.")
+                self.should_stop = True
+            return False
+
+        future = asyncio.run_coroutine_threadsafe(
+            self.websocket.send_json(payload), self.loop
+        )
+        try:
+            return future.result(timeout=2.0)
+        except Exception as e:
+            print(f"Error sending message: {e}")
+            self.should_stop = True
+            return False
+
+    def _on_step(self) -> bool:
+        if self.should_stop:
+            return False
+
+        # Log episode info when an episode ends
+        for i, done in enumerate(self.locals["dones"]):
+            if done:
+                self.episode_count += 1
+                info = self.locals["infos"][i]
+                if "episode" in info:
+                    ep_info = info["episode"]
+                    payload = {
+                        "type": "progress",
+                        "episode": self.episode_count,
+                        "reward": ep_info["r"],
+                        "loss": self.logger.name_to_value.get("train/loss"),
+                        "buildings_total": len(self.training_env.get_attr("buildings")[i]),
+                        "buildings_completed": len([b for b in self.training_env.get_attr("buildings")[i] if b.status == "completed"]),
+                    }
+                    if not self._send_message_safely(payload):
+                        return False
+
+        # Send visualization state periodically
+        if self.num_timesteps % 100 == 0:
+            state = self.training_env.env_method("get_state_for_viz")[0]
+            total_buildings = len(state.get("buildings", []))
+            completed_buildings = len([b for b in state.get("buildings", []) if b.get("status") == "completed"])
+
+            payload = {
+                "type": "train_step", 
+                "state": state, 
+                "episode": self.episode_count,
+                "buildings_total": total_buildings,
+                "buildings_completed": completed_buildings
+            }
+            if not self._send_message_safely(payload):
+                return False
+
+        return not self.should_stop
+
+    def stop_training(self):
+        self.should_stop = True
 
 async def train_simcity(websocket: WebSocket, env: SimCityEnv):
     """Train the SimCity agents using PPO for collaborative building"""
     global _current_websocket
     _current_websocket = websocket
     
-    try:
-        await websocket.send_json({"type": "debug", "message": "Starting SimCity RL training..."})
+    loop = asyncio.get_running_loop()
+
+    def train_in_thread():
+        vec_env = make_vec_env(lambda: SimCityEnv(training_mode=True), n_envs=4)
+
+        policy_kwargs = dict(
+            features_extractor_class=SimCityPPOPolicy,
+            features_extractor_kwargs=dict(features_dim=128),
+        )
+
+        model = PPO(
+            "MultiInputPolicy",
+            vec_env,
+            verbose=1,
+            gamma=PPO_GAMMA,
+            gae_lambda=PPO_GAE_LAMBDA,
+            clip_range=PPO_CLIP_EPS,
+            ent_coef=PPO_ENT_COEF,
+            learning_rate=PPO_LR,
+            n_epochs=PPO_N_EPOCHS,
+            batch_size=PPO_BATCH_SIZE,
+            n_steps=PPO_N_STEPS,
+            policy_kwargs=policy_kwargs,
+            tensorboard_log="./simcity_tensorboard/"
+        )
+
+        callback = WebSocketCallback(websocket, loop)
         
-        # Initialize RL model
-        dummy_agent = env.pedestrians[0]
-        dummy_obs = get_agent_state_vector(dummy_agent, env.businesses, env.buildings)
-        obs_size = dummy_obs.shape[0]
-        action_size = len(DISCRETE_ACTIONS)
-
-        model = ActorCritic(obs_size, action_size)
-        optimizer = optim.Adam(model.parameters(), lr=LR)
-        env.trained_policy = model
-
-        step_buffer: list[dict] = []
-        ep_counter = 0
-        total_steps = 0
-        current_loss = None
-
-        while ep_counter < 3000:  # Training episodes
-            if env.step_count % 20 == 0:
-                await websocket.send_json({"type": "debug", "message": f"Training step {env.step_count}, episode {ep_counter}"})
-            
-            # Collect experience from all agents
-            agent_states = [get_agent_state_vector(agent, env.businesses, env.buildings) for agent in env.pedestrians]
-            obs_t = torch.tensor(np.array(agent_states), dtype=torch.float32)
-            
-            # Generate valid action masks
-            valid_masks = np.array([get_valid_actions_mask(agent, env.businesses, env.buildings) for agent in env.pedestrians])
-            masks_t = torch.from_numpy(valid_masks).bool()
-
-            with torch.no_grad():
-                dist, value = model(obs_t, valid_actions_mask=masks_t)
-                actions_t = dist.sample()
-                logp_t = dist.log_prob(actions_t)
-                
-            actions_np = actions_t.cpu().numpy()
-            
-            # Execute RL actions and collect rewards
-            rewards = []
-            dones = []
-            
-            agent_actions_for_env = []
-            for i, agent in enumerate(env.pedestrians):
-                action_name = DISCRETE_ACTIONS[actions_np[i]]
-                
-                if action_name in ACTION_MAP_MOVE:
-                    move_vector = ACTION_MAP_MOVE[action_name]
-                    agent_actions_for_env.append(("move", {"target": "explore", "move_vector": move_vector}))
-                elif action_name == "gather_resources":
-                    if env.businesses:
-                        nearest_business = min(env.businesses, key=lambda b: np.linalg.norm(agent.pos - b.pos))
-                        agent_actions_for_env.append(("gather_resources", {"business_id": nearest_business.id}))
-                    else:
-                        move_vector = random.choice(list(ACTION_MAP_MOVE.values()))
-                        agent_actions_for_env.append(("move", {"target": "explore", "move_vector": move_vector}))
-                elif action_name == "work_at_business":
-                    if env.businesses:
-                        nearest_business = min(env.businesses, key=lambda b: np.linalg.norm(agent.pos - b.pos))
-                        agent_actions_for_env.append(("work_at_business", {"business_id": nearest_business.id}))
-                    else:
-                        move_vector = random.choice(list(ACTION_MAP_MOVE.values()))
-                        agent_actions_for_env.append(("move", {"target": "explore", "move_vector": move_vector}))
-                elif action_name == "start_building":
-                    agent_actions_for_env.append(("start_building", {"building_type": agent.building_goal, "reason": "RL policy decision"}))
-                elif action_name == "contribute_building":
-                    active_projects = [b for b in env.buildings if b.status in ["planning", "under_construction"]]
-                    if active_projects:
-                        target_building = min(active_projects, key=lambda b: np.linalg.norm(agent.pos - b.pos))
-                        contribution = {}
-                        for resource, needed in target_building.resources_needed.items():
-                            available = agent.resources.get(resource, 0)
-                            if available > 0 and target_building.resources_contributed[resource] < needed:
-                                contribution[resource] = min(available, needed - target_building.resources_contributed[resource])
-                        agent_actions_for_env.append(("contribute_building", {"building_id": target_building.id, "resources": contribution}))
-                    else:
-                        move_vector = random.choice(list(ACTION_MAP_MOVE.values()))
-                        agent_actions_for_env.append(("move", {"target": "explore", "move_vector": move_vector}))
-                elif action_name == "communicate":
-                    messages = [
-                        f"I want to build a {agent.building_goal}",
-                        f"Anyone need help with construction?",
-                        f"I have resources to share",
-                        f"Let's collaborate on a building project!"
-                    ]
-                    agent_actions_for_env.append(("communicate", {"message": random.choice(messages), "recipient_id": None}))
-                else:
-                    move_vector = random.choice(list(ACTION_MAP_MOVE.values()))
-                    agent_actions_for_env.append(("move", {"target": "explore", "move_vector": move_vector}))
-
-                # Calculate reward
-                reward = env._get_reward(agent, agent_actions_for_env[-1][0], agent_actions_for_env[-1][1])
-                
-                # Add collaboration bonus
-                if agent_actions_for_env[-1][0] == "contribute_building":
-                    reward += 10.0  # Extra reward for collaboration
-                elif agent_actions_for_env[-1][0] == "start_building":
-                    reward += 15.0  # Extra reward for initiative
-                
-                rewards.append(reward)
-                dones.append(False)
-
-            # Store experience
-            step_buffer.append({
-                "obs": obs_t, 
-                "actions": actions_t, 
-                "logp": logp_t, 
-                "reward": torch.tensor(rewards, dtype=torch.float32), 
-                "done": torch.tensor(dones, dtype=torch.float32), 
-                "value": value.flatten(),
-                "mask": masks_t
-            })
-            
-            # Execute actions in environment
-            env._execute_actions(agent_actions_for_env)
-            
-            # Update buildings and businesses
-            for business in env.businesses:
-                business.generate_resources()
-            
-            for building in env.buildings:
-                building.advance_construction()
-            
-            env.step_count += 1
-            total_steps += len(env.pedestrians)
-            ep_counter += len(env.pedestrians)
-
-            # Send progress updates
-            if env.step_count % 12 == 0:
-                current_reward = float(torch.stack([b["reward"] for b in step_buffer]).mean().cpu().item())
-                total_buildings = len(env.buildings)
-                completed_buildings = len([b for b in env.buildings if b.status == "completed"])
-                
-                await websocket.send_json({
-                    "type": "progress", 
-                    "episode": ep_counter, 
-                    "reward": current_reward, 
-                    "loss": current_loss,
-                    "buildings_total": total_buildings,
-                    "buildings_completed": completed_buildings
-                })
-
-            # Visualize state periodically
-            if env.step_count % 8 == 0:
-                state = env.get_state_for_viz()
-                await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
-                await asyncio.sleep(0.01)
-
-            # PPO Update
-            if total_steps >= BATCH_SIZE:
-                with torch.no_grad():
-                    next_agent_states = [get_agent_state_vector(agent, env.businesses, env.buildings) for agent in env.pedestrians]
-                    next_obs_t = torch.tensor(np.array(next_agent_states), dtype=torch.float32)
-                    _, next_value = model(next_obs_t)
-                    next_value = next_value.squeeze()
-
-                # Calculate advantages using GAE
-                num_steps = len(step_buffer)
-                values = torch.stack([b["value"] for b in step_buffer])
-                rewards = torch.stack([b["reward"] for b in step_buffer])
-                dones = torch.stack([b["done"] for b in step_buffer])
-                
-                advantages = torch.zeros_like(rewards)
-                gae = 0.0
-                for t in reversed(range(num_steps)):
-                    delta = rewards[t] + GAMMA * next_value - values[t]
-                    gae = delta + GAMMA * GAE_LAMBDA * gae
-                    advantages[t] = gae
-                    next_value = values[t]
-                
-                returns = advantages + values
-                
-                # Flatten for training
-                b_obs = torch.cat([b["obs"] for b in step_buffer])
-                b_actions = torch.cat([b["actions"] for b in step_buffer])
-                b_logp = torch.cat([b["logp"] for b in step_buffer])
-                b_adv = advantages.flatten()
-                b_returns = returns.flatten()
-                b_masks = torch.cat([b["mask"] for b in step_buffer])
-                
-                # Normalize advantages
-                b_adv = (b_adv - b_adv.mean()) / (b_adv.std() + 1e-8)
-
-                # Training epochs
-                for _ in range(EPOCHS):
-                    idxs = torch.randperm(b_obs.shape[0])
-                    for start in range(0, b_obs.shape[0], MINI_BATCH):
-                        mb_idxs = idxs[start : start + MINI_BATCH]
-                        
-                        mb_obs = b_obs[mb_idxs]
-                        mb_actions = b_actions[mb_idxs]
-                        mb_logp_old = b_logp[mb_idxs]
-                        mb_adv = b_adv[mb_idxs]
-                        mb_returns = b_returns[mb_idxs]
-                        mb_masks = b_masks[mb_idxs]
-
-                        dist, value = model(mb_obs, valid_actions_mask=mb_masks)
-                        logp_new = dist.log_prob(mb_actions)
-                        entropy_bonus = dist.entropy().mean()
-                        
-                        ratio = (logp_new - mb_logp_old).exp()
-                        
-                        # Policy loss
-                        pg_loss1 = -mb_adv * ratio
-                        pg_loss2 = -mb_adv * torch.clamp(ratio, 1 - CLIP_EPS, 1 + CLIP_EPS)
-                        pg_loss = torch.max(pg_loss1, pg_loss2).mean()
-                        
-                        # Value loss
-                        v_loss = 0.5 * ((value.flatten() - mb_returns).pow(2)).mean()
-                        
-                        loss = pg_loss - ENT_COEF * entropy_bonus + v_loss
-
-                        optimizer.zero_grad()
-                        loss.backward()
-                        optimizer.step()
-
-                # Clear buffer
-                avg_reward = float(torch.stack([b["reward"] for b in step_buffer]).mean().cpu().item())
-                current_loss = loss.item()
-                
-                step_buffer = []
-                total_steps = 0
-                
-                await websocket.send_json({"type": "debug", "message": f"PPO update completed. Avg reward: {avg_reward:.2f}, Loss: {current_loss:.4f}"})
-
-        # Training complete
-        total_buildings = len(env.buildings)
-        completed_buildings = len([b for b in env.buildings if b.status == "completed"])
+        model.learn(total_timesteps=TOTAL_TIMESTEPS, callback=callback)
         
-        await websocket.send_json({
-            "type": "trained", 
-            "model_info": {
-                "episodes": ep_counter, 
-                "loss": current_loss,
-                "total_buildings": total_buildings,
-                "completed_buildings": completed_buildings,
-                "collaboration_rate": completed_buildings / max(1, total_buildings)
-            }
-        })
-        await websocket.send_json({"type": "debug", "message": "SimCity RL training complete!"})
+        # Save the trained model
+        model_path = "policies/simcity_ppo_model.zip"
+        model.save(model_path)
         
-    except Exception as e:
-        logger.error(f"Error during SimCity training: {e}", exc_info=True)
-        await websocket.send_json({"type": "error", "message": f"Training failed: {e}"})
+        # Send completion message
+        asyncio.run_coroutine_threadsafe(
+            websocket.send_json({
+                "type": "trained",
+                "model_info": {"path": model_path}
+            }),
+            loop
+        )
+
+    training_task = asyncio.to_thread(train_in_thread)
+    await training_task
 
 # --- Websocket handlers ---
 async def run_simcity(websocket: WebSocket, env: SimCityEnv):
@@ -1654,43 +1702,99 @@ async def run_simcity(websocket: WebSocket, env: SimCityEnv):
     global _current_websocket
     _current_websocket = websocket
     
+    # Load the trained model
+    model_path = "policies/simcity_ppo_model.zip"
+    if os.path.exists(model_path):
+        model = PPO.load(model_path)
+        env.trained_policy = model
+    else:
+        logger.warning("No trained model found for SimCity. Actions will be random.")
+        env.trained_policy = None
+
     env.running = True
     step_rewards = []
 
-    try:
-        while env.running:
-            await env.step()
+    while env.running:
+        # For run mode, we step the entire environment at once.
+        # We can get actions for all agents from the policy.
+        
+        if env.trained_policy:
+            # In a multi-agent env, you'd typically get an action for each agent
+            # Here, for simplicity, we'll get an action for the first agent
+            # and have others act randomly or with a simpler logic.
+            obs = env._get_obs_for_agent(env.pedestrians[0])
+            action, _ = env.trained_policy.predict(obs, deterministic=True)
+            action_name = DISCRETE_ACTIONS[action]
             
-            # Send state update
-            state = env.get_state_for_viz()
-            await websocket.send_json({"type": "run_step", "state": state})
-            
-            # Calculate metrics for charts
-            total_reward = env._calculate_reward()
-            avg_satisfaction = np.mean([p.satisfaction for p in env.pedestrians])
-            total_buildings = len(env.buildings)
-            completed_buildings = len([b for b in env.buildings if b.status == "completed"])
-            
-            step_rewards.append(total_reward)
-            
-            await websocket.send_json({
-                "type": "progress",
-                "episode": env.step_count,
-                "reward": total_reward,
-                "satisfaction": avg_satisfaction,
-                "buildings_total": total_buildings,
-                "buildings_completed": completed_buildings,
-                "loss": None
-            })
-            
-            await asyncio.sleep(0.15)  # Control simulation speed
-            
-    except asyncio.CancelledError:
-        logger.info("SimCity simulation cancelled")
-    except Exception as e:
-        logger.error(f"Error in SimCity simulation: {e}", exc_info=True)
-        await websocket.send_json({"type": "error", "message": f"Simulation failed: {e}"})
-    finally:
-        env.running = False
+            # Create dummy data for the action
+            data = {}
+            if action_name == "start_building":
+                data = {"building_type": env.pedestrians[0].building_goal}
 
+            # We need to manually call the execution logic for the agents
+            env._execute_move_action(env.pedestrians[0], {"move_vector": ACTION_MAP_MOVE.get(action_name)})
 
+        # The full step logic is now more complex than the gym step
+        # We'll use the original async step method from the class
+        await env_step_full(env)
+
+        # Send state update
+        state = env.get_state_for_viz()
+        await websocket.send_json({"type": "run_step", "state": state})
+        
+        # Calculate metrics for charts
+        total_reward = env._calculate_reward()
+        avg_satisfaction = np.mean([p.satisfaction for p in env.pedestrians])
+        total_buildings = len(env.buildings)
+        completed_buildings = len([b for b in env.buildings if b.status == "completed"])
+        
+        step_rewards.append(total_reward)
+        
+        await websocket.send_json({
+            "type": "progress",
+            "episode": env.step_count,
+            "reward": total_reward,
+            "satisfaction": avg_satisfaction,
+            "buildings_total": total_buildings,
+            "buildings_completed": completed_buildings,
+            "loss": None
+        })
+        
+        await asyncio.sleep(0.15)  # Control simulation speed
+            
+
+async def env_step_full(env: SimCityEnv):
+    """The original, comprehensive step function for the environment."""
+    env.step_count += 1
+    # This function would contain the logic from the original `step` method
+    # before it was adapted for the gym interface.
+    # For now, we'll just call the individual components.
+
+    # 1. Get actions for all agents (simplified for this example)
+    agent_actions = []
+    for agent in env.pedestrians:
+        if env.trained_policy and agent.id == 0:
+             obs = env._get_obs_for_agent(agent)
+             action, _ = env.trained_policy.predict(obs, deterministic=True)
+             action_name = DISCRETE_ACTIONS[action]
+             data = {} # dummy data
+        else:
+            action_name = random.choice(DISCRETE_ACTIONS)
+            data = {} # dummy data
+        agent_actions.append((action_name, data))
+    
+    # 2. Execute actions
+    env._execute_actions(agent_actions)
+
+    # 3. Update world state
+    for light in env.traffic_lights:
+        light.step()
+    for business in env.businesses:
+        business.generate_resources()
+    for building in env.buildings:
+        if building.advance_construction():
+            log_to_frontend(f"🏗️ Building {building.id} ({building.type}) completed!")
+    
+    # 4. Update pedestrians
+    for pedestrian in env.pedestrians:
+        pedestrian.step(env.businesses, env.buildings, env.traffic_lights)
