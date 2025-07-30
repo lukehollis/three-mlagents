@@ -49,8 +49,7 @@ Select demos are here.
 
 ### Fish
 
-![fish_example](https://github.com/user-attachments/assets/df5e947f-cbe1-401a-a491-180159515acc)
-
+![fish_example](https://github.com/user-attachments/assets/2b45d7c0-7eac-4cc1-a383-9a92740d78e1)
 
 [Live demo](https://lukehollis.github.io/three-mlagents/fish)
 
