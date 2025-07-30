@@ -65,7 +65,6 @@ export default function ExamplesIndex() {
                 <Link to="/glider" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -114,7 +113,6 @@ export default function ExamplesIndex() {
                 <Link to="/minecraft" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -163,7 +161,6 @@ export default function ExamplesIndex() {
                 <Link to="/self-driving-car" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -212,7 +209,6 @@ export default function ExamplesIndex() {
                 <Link to="/simcity" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -234,11 +230,11 @@ export default function ExamplesIndex() {
               }}
             >
               <Card.Content style={{ padding: 0 }}>
-                <Link to="/simcity-kepler" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <Link to="/simcity-deckgl" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
                       src="/three-mlagents/simcity_example.jpg" 
-                      alt="SimCity Kepler Example"
+                      alt="SimCity Deck.gl Example"
                       style={{
                         width: '100%',
                         height: '200px',
@@ -250,18 +246,17 @@ export default function ExamplesIndex() {
                 </Link>
               </Card.Content>
               <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/simcity-kepler" style={{ textDecoration: 'none', color: 'inherit' }}>
+                <Link to="/simcity-deckgl" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    SimCity Kepler
+                    SimCity (Deck.gl)
                   </Text>
                 </Link>
                 <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Collaborative city building simulation with Kepler.gl map visualization and intelligent agents.
+                  A Deck.gl-based visualization for the SimCity environment.
                 </Text>
-                <Link to="/simcity-kepler" style={{ textDecoration: 'none' }}>
+                <Link to="/simcity-deckgl" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -310,7 +305,6 @@ export default function ExamplesIndex() {
                 <Link to="/fish" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -359,7 +353,6 @@ export default function ExamplesIndex() {
                 <Link to="/astrodynamics" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -408,7 +401,6 @@ export default function ExamplesIndex() {
                 <Link to="/brickbreak" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -457,7 +449,6 @@ export default function ExamplesIndex() {
                 <Link to="/intersection" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -506,7 +497,6 @@ export default function ExamplesIndex() {
                 <Link to="/bicycle" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -555,7 +545,6 @@ export default function ExamplesIndex() {
                 <Link to="/labyrinth" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -604,7 +593,6 @@ export default function ExamplesIndex() {
                 <Link to="/foodcollector" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -653,7 +641,6 @@ export default function ExamplesIndex() {
                 <Link to="/basic" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -702,7 +689,6 @@ export default function ExamplesIndex() {
                 <Link to="/ball3d" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -751,7 +737,6 @@ export default function ExamplesIndex() {
                 <Link to="/gridworld" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -800,7 +785,6 @@ export default function ExamplesIndex() {
                 <Link to="/push" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -849,7 +833,6 @@ export default function ExamplesIndex() {
                 <Link to="/walljump" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -898,7 +881,6 @@ export default function ExamplesIndex() {
                 <Link to="/crawler" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example
@@ -947,7 +929,6 @@ export default function ExamplesIndex() {
                 <Link to="/worm" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
-                    icon={<Play />} 
                     auto
                   >
                     Launch Example

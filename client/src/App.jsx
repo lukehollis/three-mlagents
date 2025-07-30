@@ -16,7 +16,7 @@ import AstrodynamicsExample from './examples/Astrodynamics.jsx';
 import LabyrinthExample from './examples/Labyrinth.jsx';
 import MinecraftExample from './examples/Minecraft.jsx';
 import SimCityExample from './examples/SimCity.jsx';
-import SimCityKeplerExample from './examples/SimCityKepler.jsx';
+import SimCityDeckGLExample from './examples/SimCityDeckGL.jsx';
 import FishExample from './examples/Fish.jsx';
 import IntersectionExample from './examples/Intersection.jsx';
 import SelfDrivingCarExample from './examples/SelfDrivingCar.jsx';
@@ -28,6 +28,23 @@ export default function App() {
       <style>{`
       .katex-display{ text-align:left !important; }
       .katex-display > .katex{ text-align:left !important; }
+
+      /* Fix button icon colors and positioning */
+      .geist-button svg {
+          color: inherit !important;
+          fill: currentColor !important;
+      }
+      
+      /* Ensure button text and icons stay properly colored */
+      .geist-button, .geist-button * {
+          color: inherit !important;
+      }
+      
+      /* Reset any mapbox interference with buttons */
+      button[class*="geist"] {
+          background: var(--geist-background) !important;
+          border: var(--geist-border) !important;
+      }
       `}</style>
       <Routes>
         <Route path="/" element={<ExamplesIndex />} />
@@ -46,7 +63,7 @@ export default function App() {
         <Route path="/labyrinth" element={<LabyrinthExample />} />
         <Route path="/minecraft" element={<MinecraftExample />} />
         <Route path="/simcity" element={<SimCityExample />} />
-        <Route path="/simcity-kepler" element={<SimCityKeplerExample />} />
+        <Route path="/simcity-deckgl" element={<SimCityDeckGLExample />} />
         <Route path="/fish" element={<FishExample />} />
         <Route path="/intersection" element={<IntersectionExample />} />
         <Route path="/self-driving-car" element={<SelfDrivingCarExample />} />

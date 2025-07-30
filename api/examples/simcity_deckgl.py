@@ -6,6 +6,9 @@ from typing import List, Dict, Any, Tuple
 import numpy as np
 from fastapi import WebSocket
 import logging
+import osmnx as ox
+import geopandas as gpd
+from shapely.geometry import Point
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -117,23 +120,15 @@ DISCRETE_ACTIONS = [
 ]
 
 ACTION_MAP_MOVE = {
-    "move_north": np.array([0.001, 0]),
-    "move_south": np.array([-0.001, 0]),
-    "move_east": np.array([0, 0.001]),
-    "move_west": np.array([0, -0.001]),
+    "move_north": np.array([0.0001, 0]),
+    "move_south": np.array([-0.0001, 0]),
+    "move_east": np.array([0, 0.0001]),
+    "move_west": np.array([0, -0.0001]),
 }
 
-# Kepler.gl City Bounds - San Francisco area
-CITY_BOUNDS = {
-    "lat_min": 37.7549,
-    "lat_max": 37.7949,
-    "lng_min": -122.4394,
-    "lng_max": -122.3994
-}
-
-class SimCityKeplerPPOPolicy(BaseFeaturesExtractor):
+class SimCityPPOPolicy(BaseFeaturesExtractor):
     """
-    Custom features extractor for the SimCity Kepler environment.
+    Custom features extractor for the SimCity environment.
     It processes the structured observation data into a flat vector.
     """
     def __init__(self, observation_space: spaces.Dict, features_dim: int = 256):
@@ -322,18 +317,10 @@ class Business:
         wage = random.uniform(50, 100)
         return wage
 
-class Road:
-    def __init__(self, road_id: int, start_pos: np.ndarray, end_pos: np.ndarray, road_type: str = "street"):
-        self.id = road_id
-        self.start_pos = start_pos
-        self.end_pos = end_pos
-        self.type = road_type
-        self.width = 0.0002  # Road width in degrees
-
 class Pedestrian:
-    def __init__(self, ped_id: int, start_pos: np.ndarray, road_network: List[Road]):
+    def __init__(self, ped_id: int, start_pos: np.ndarray, graph: 'networkx.MultiDiGraph'):
         self.id = ped_id
-        self.road_network = road_network
+        self.graph = graph
         self.pos = start_pos.copy()
         self.speed = random.uniform(0.5, 1.5)
         self.color = random.choice(RETRO_SCIFI_COLORS)
@@ -366,11 +353,44 @@ class Pedestrian:
         self.last_llm_step = -20
         self.memory_vector = np.zeros(384, dtype=np.float32)
         self.memory_stream = []
+        
+        # Find nearest nodes for pathfinding
+        self._find_nearest_nodes()
+        
+    def _find_nearest_nodes(self):
+        """Find the nearest graph nodes to current position"""
+        min_dist = float('inf')
+        self.current_node = None
+        
+        for node_id, node_data in self.graph.nodes(data=True):
+            node_pos = np.array([node_data['y'], node_data['x']])
+            dist = np.linalg.norm(self.pos - node_pos)
+            if dist < min_dist:
+                min_dist = dist
+                self.current_node = node_id
     
     def set_destination(self, target_pos: np.ndarray):
-        """Set a destination for the agent"""
-        self.target_pos = target_pos
-        return True
+        """Set a destination and find path"""
+        min_dist = float('inf')
+        target_node = None
+        
+        for node_id, node_data in self.graph.nodes(data=True):
+            node_pos = np.array([node_data['y'], node_data['x']])
+            dist = np.linalg.norm(target_pos - node_pos)
+            if dist < min_dist:
+                min_dist = dist
+                target_node = node_id
+        
+        if target_node and self.current_node:
+            path = ox.shortest_path(self.graph, self.current_node, target_node, weight='length')
+            if path and len(path) > 1:
+                self.path = path
+                self.path_index = 0
+                self.target_pos = target_pos
+                self.path_progress = 0.0
+                return True
+        
+        return False
     
     async def decide_action_llm(self, businesses: List[Business], buildings: List[Building], 
                                other_agents: List['Pedestrian'], messages: List[Dict], 
@@ -380,7 +400,7 @@ class Pedestrian:
         self.is_thinking = True
 
         # Gather context about current situation
-        nearby_buildings = [b for b in buildings if np.linalg.norm(self.pos - b.pos) < 0.002]
+        nearby_buildings = [b for b in buildings if np.linalg.norm(self.pos - b.pos) < 0.001]
         available_building_types = list(BUILDING_RECIPES.keys())
         current_projects = [b for b in buildings if b.status in ["planning", "under_construction"]]
         
@@ -431,7 +451,7 @@ Recent memories: {' | '.join(self.memory_stream[-3:]) if self.memory_stream else
 Environment:
 - Available building types: {available_building_types}
 - Current building projects: {len(current_projects)} active
-- Nearby businesses: {len([b for b in businesses if np.linalg.norm(self.pos - b.pos) < 0.002])}
+- Nearby businesses: {len([b for b in businesses if np.linalg.norm(self.pos - b.pos) < 0.001])}
 
 Building Recipes: {json.dumps(BUILDING_RECIPES)}
 
@@ -474,7 +494,7 @@ Respond with valid JSON only, no explanations."""
                     prompt=prompt,
                     model="gemma3n:latest",
                     response_schema=action_schema,
-                    schema_name="simcity_kepler_agent_decision",
+                    schema_name="simcity_agent_decision",
                     should_use_ollama=True
                 ),
                 timeout=25.0
@@ -486,7 +506,7 @@ Respond with valid JSON only, no explanations."""
                     prompt=prompt,
                     model="anthropic/claude-sonnet-4",
                     response_schema=action_schema,
-                    schema_name="simcity_kepler_agent_decision"
+                    schema_name="simcity_agent_decision"
                 ),
                 timeout=15.0
             )
@@ -611,7 +631,7 @@ Respond with valid JSON only, no explanations."""
     def _get_state_vector(self, businesses: List[Business], buildings: List[Building]) -> np.ndarray:
         """Create state vector for RL policy"""
         # Position (normalized)
-        pos_vector = self.pos
+        pos_vector = self.pos / 100.0  # Normalize to roughly 0-1 range
         
         # Resources (normalized by typical max values)
         resource_vector = np.array([self.resources.get(r, 0) / 100.0 for r in RESOURCES.keys()])
@@ -669,19 +689,38 @@ Respond with valid JSON only, no explanations."""
             self.state = 'wandering'
             self.state_timer = 0
 
-        # Simple movement towards target
-        if self.target_pos is not None:
-            direction = self.target_pos - self.pos
-            distance = np.linalg.norm(direction)
-            if distance > 0.0001:  # Still moving towards target
-                direction_norm = direction / distance
-                movement = direction_norm * self.speed * 0.0001
-                self.pos += movement
-            else:
-                self.target_pos = None
+        # Movement
+        if hasattr(self, 'path') and hasattr(self, 'path_index'):
+            self._move_along_path()
             
         # Update satisfaction based on progress towards goals
         self._update_satisfaction(buildings)
+    
+    def _move_along_path(self):
+        """Move along the current path"""
+        if not hasattr(self, 'path') or self.path_index >= len(self.path) - 1:
+            return
+            
+        p1 = self.graph.nodes[self.path[self.path_index]]
+        p2 = self.graph.nodes[self.path[self.path_index + 1]]
+        
+        start_pos = np.array([p1['y'], p1['x']])
+        end_pos = np.array([p2['y'], p2['x']])
+        
+        direction = end_pos - start_pos
+        distance = np.linalg.norm(direction)
+        
+        if distance > 0:
+            direction_norm = direction / distance
+            movement = direction_norm * self.speed * 0.00001
+            self.pos += movement
+            
+            if np.linalg.norm(self.pos - end_pos) < 0.00001:
+                self.path_index += 1
+                self.current_node = self.path[self.path_index]
+                
+                if self.path_index >= len(self.path) - 1:
+                    self.target_pos = None
     
     def _update_satisfaction(self, buildings: List[Building]):
         """Update satisfaction based on building progress and personal needs"""
@@ -718,7 +757,7 @@ Respond with valid JSON only, no explanations."""
         self.memory_vector = (self.memory_vector * 0.9) + (new_embedding.astype(np.float32) * 0.1)
 
 # --- Environment Class ---
-class SimCityKeplerEnv(gym.Env):
+class SimCityEnv(gym.Env):
     def __init__(self, training_mode: bool = True):
         super().__init__()
         self.training_mode = training_mode
@@ -729,7 +768,6 @@ class SimCityKeplerEnv(gym.Env):
         self.businesses: List[Business] = []
         self.buildings: List[Building] = []
         self.traffic_lights: List[TrafficLight] = []
-        self.roads: List[Road] = []
         self.running = False
         self.trained_policy: "ActorCritic" = None
         
@@ -745,52 +783,20 @@ class SimCityKeplerEnv(gym.Env):
             "memory": spaces.Box(low=-np.inf, high=np.inf, shape=(50,), dtype=np.float32)
         })
 
-        # Generate synthetic road network for Kepler.gl
-        self._generate_road_network()
+        # Load real city data
+        self.location_point = (37.7749, -122.4194)  # Downtown San Francisco
+        self.graph = ox.graph_from_point(self.location_point, dist=900, network_type='drive')
+        
+        # Add elevation data if possible
+        google_api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+        if google_api_key:
+            ox.add_node_elevations_google(self.graph, api_key=google_api_key)
+        
+        self.road_network_for_viz = self._get_road_network_for_viz()
         self._create_businesses()
         self._create_traffic_lights()
         self._create_pedestrians()
         self.reset()
-
-    def _generate_road_network(self):
-        """Generate a synthetic road network for Kepler.gl visualization"""
-        self.roads = []
-        road_id = 0
-        
-        # Create a grid-like road network
-        num_horizontal = 8
-        num_vertical = 8
-        
-        lat_step = (CITY_BOUNDS["lat_max"] - CITY_BOUNDS["lat_min"]) / (num_horizontal - 1)
-        lng_step = (CITY_BOUNDS["lng_max"] - CITY_BOUNDS["lng_min"]) / (num_vertical - 1)
-        
-        # Horizontal roads
-        for i in range(num_horizontal):
-            lat = CITY_BOUNDS["lat_min"] + i * lat_step
-            start_pos = np.array([lat, CITY_BOUNDS["lng_min"]])
-            end_pos = np.array([lat, CITY_BOUNDS["lng_max"]])
-            self.roads.append(Road(road_id, start_pos, end_pos, "street"))
-            road_id += 1
-        
-        # Vertical roads
-        for j in range(num_vertical):
-            lng = CITY_BOUNDS["lng_min"] + j * lng_step
-            start_pos = np.array([CITY_BOUNDS["lat_min"], lng])
-            end_pos = np.array([CITY_BOUNDS["lat_max"], lng])
-            self.roads.append(Road(road_id, start_pos, end_pos, "avenue"))
-            road_id += 1
-        
-        # Add some diagonal roads for variety
-        for _ in range(3):
-            start_lat = random.uniform(CITY_BOUNDS["lat_min"], CITY_BOUNDS["lat_max"])
-            start_lng = random.uniform(CITY_BOUNDS["lng_min"], CITY_BOUNDS["lng_max"])
-            end_lat = random.uniform(CITY_BOUNDS["lat_min"], CITY_BOUNDS["lat_max"])
-            end_lng = random.uniform(CITY_BOUNDS["lng_min"], CITY_BOUNDS["lng_max"])
-            
-            start_pos = np.array([start_lat, start_lng])
-            end_pos = np.array([end_lat, end_lng])
-            self.roads.append(Road(road_id, start_pos, end_pos, "boulevard"))
-            road_id += 1
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -919,12 +925,11 @@ class SimCityKeplerEnv(gym.Env):
         return obs, reward, terminated, truncated, info
 
     def get_state_for_viz(self) -> Dict[str, Any]:
-        """Get current state for Kepler.gl visualization"""
+        """Get current state for visualization"""
         return {
             "pedestrians": [{
                 "id": p.id,
-                "lat": p.pos[0],
-                "lng": p.pos[1],
+                "pos": p.pos.tolist(),
                 "color": p.color,
                 "state": p.state,
                 "satisfaction": p.satisfaction,
@@ -935,8 +940,7 @@ class SimCityKeplerEnv(gym.Env):
             } for p in self.pedestrians],
             "businesses": [{
                 "id": b.id,
-                "lat": b.pos[0],
-                "lng": b.pos[1],
+                "pos": b.pos.tolist(),
                 "type": b.type,
                 "inventory": b.inventory,
                 "customers_served": b.customers_served,
@@ -944,8 +948,7 @@ class SimCityKeplerEnv(gym.Env):
             } for b in self.businesses],
             "buildings": [{
                 "id": b.id,
-                "lat": b.pos[0],
-                "lng": b.pos[1],
+                "pos": b.pos.tolist(),
                 "type": b.type,
                 "height": b.height,
                 "status": b.status,
@@ -959,52 +962,63 @@ class SimCityKeplerEnv(gym.Env):
             } for b in self.buildings],
             "traffic_lights": [{
                 "id": l.id,
-                "lat": l.pos[0],
-                "lng": l.pos[1],
+                "pos": l.pos.tolist(),
                 "state": l.state
             } for l in self.traffic_lights],
-            "roads": [{
-                "id": r.id,
-                "start_lat": r.start_pos[0],
-                "start_lng": r.start_pos[1],
-                "end_lat": r.end_pos[0],
-                "end_lng": r.end_pos[1],
-                "type": r.type
-            } for r in self.roads],
+            "road_network": self.road_network_for_viz,
             "messages": self.messages,
             "llm_logs": self.llm_logs,
             "resources": RESOURCES,
-            "building_recipes": BUILDING_RECIPES,
-            "city_bounds": CITY_BOUNDS
+            "building_recipes": BUILDING_RECIPES
         }
 
+    def _get_road_network_for_viz(self):
+        """Convert road network to visualization format"""
+        lines = []
+        for u, v, data in self.graph.edges(data=True):
+            if 'geometry' in data:
+                xs, ys = data['geometry'].xy
+                lines.append([[ys[i], xs[i]] for i in range(len(xs))])
+        return lines
+
     def _create_businesses(self):
-        """Create businesses at random locations within city bounds"""
-        self.businesses = []
-        for i in range(NUM_BUSINESSES):
-            lat = random.uniform(CITY_BOUNDS["lat_min"], CITY_BOUNDS["lat_max"])
-            lng = random.uniform(CITY_BOUNDS["lng_min"], CITY_BOUNDS["lng_max"])
-            business_pos = np.array([lat, lng])
+        """Create businesses at strategic locations"""
+        high_degree_nodes = [node for node, degree in self.graph.degree() if degree >= 3]
+        business_nodes = random.sample(high_degree_nodes, min(NUM_BUSINESSES, len(high_degree_nodes)))
+        
+        for i, node_id in enumerate(business_nodes):
+            node_data = self.graph.nodes[node_id]
+            business_pos = np.array([node_data['y'], node_data['x']])
             business_type = random.choice(BUSINESS_TYPES)
+            
+            offset = np.array([random.uniform(-0.0001, 0.0001), random.uniform(-0.0001, 0.0001)])
+            business_pos += offset
+            
             self.businesses.append(Business(i, business_pos, business_type))
 
     def _create_traffic_lights(self):
-        """Create traffic lights at random intersections"""
-        self.traffic_lights = []
-        for i in range(6):  # Create 6 traffic lights
-            lat = random.uniform(CITY_BOUNDS["lat_min"], CITY_BOUNDS["lat_max"])
-            lng = random.uniform(CITY_BOUNDS["lng_min"], CITY_BOUNDS["lng_max"])
-            light_pos = np.array([lat, lng])
+        """Create traffic lights at major intersections"""
+        intersections = [node for node, degree in self.graph.degree() if degree > 3]
+        selected_intersections = random.sample(intersections, min(8, len(intersections)))
+        
+        for i, node_id in enumerate(selected_intersections):
+            node_data = self.graph.nodes[node_id]
+            light_pos = np.array([node_data['y'], node_data['x']])
             self.traffic_lights.append(TrafficLight(i, light_pos))
 
     def _create_pedestrians(self):
         """Create pedestrians at random locations"""
-        self.pedestrians = []
+        all_nodes = list(self.graph.nodes())
+        
         for i in range(NUM_PEDESTRIANS):
-            lat = random.uniform(CITY_BOUNDS["lat_min"], CITY_BOUNDS["lat_max"])
-            lng = random.uniform(CITY_BOUNDS["lng_min"], CITY_BOUNDS["lng_max"])
-            start_pos = np.array([lat, lng])
-            pedestrian = Pedestrian(i, start_pos, self.roads)
+            start_node = random.choice(all_nodes)
+            node_data = self.graph.nodes[start_node]
+            start_pos = np.array([node_data['y'], node_data['x']])
+            
+            offset = np.array([random.uniform(-0.0001, 0.0001), random.uniform(-0.0001, 0.0001)])
+            start_pos += offset
+            
+            pedestrian = Pedestrian(i, start_pos, self.graph)
             self.pedestrians.append(pedestrian)
 
     def add_message(self, ped_id: int, message: str):
@@ -1019,39 +1033,56 @@ class SimCityKeplerEnv(gym.Env):
         })
 
     def _find_valid_building_spot(self, agent_pos: np.ndarray, max_tries=50) -> np.ndarray | None:
-        """Find a valid spot for a new building within city bounds."""
+        """Find a valid spot for a new building, not on a road and not too close to others."""
         for _ in range(max_tries):
-            # Propose a candidate position near the agent
-            lat_offset = random.uniform(-0.002, 0.002)
-            lng_offset = random.uniform(-0.002, 0.002)
-            candidate_pos = agent_pos + np.array([lat_offset, lng_offset])
+            # Propose a candidate position near the agent, but with a minimum distance
+            angle = random.uniform(0, 2 * np.pi)
+            # Corresponds to ~40-80 meters, to ensure we're not right on top of the agent
+            distance = random.uniform(0.0004, 0.0008) 
+            offset = np.array([distance * np.cos(angle), distance * np.sin(angle)])
+            candidate_pos = agent_pos + offset
             
-            # Ensure within city bounds
-            if (candidate_pos[0] < CITY_BOUNDS["lat_min"] or candidate_pos[0] > CITY_BOUNDS["lat_max"] or
-                candidate_pos[1] < CITY_BOUNDS["lng_min"] or candidate_pos[1] > CITY_BOUNDS["lng_max"]):
+            # Check 1: Not too close to a road
+            is_on_road = False
+            min_road_dist = 0.002 # ~200 meters, to account for building size
+            
+            try:
+                # Use osmnx to find the distance to the nearest road edge
+                _, _, _, dist_to_road = ox.distance.nearest_edges(self.graph, X=candidate_pos[1], Y=candidate_pos[0], return_dist=True)
+                if dist_to_road < min_road_dist:
+                    is_on_road = True
+            except Exception:
+                # Fallback if nearest_edges fails, check manually
+                candidate_point = Point(candidate_pos[1], candidate_pos[0])
+                for u, v, data in self.graph.edges(data=True):
+                    if 'geometry' in data and candidate_point.distance(data['geometry']) < min_road_dist:
+                        is_on_road = True
+                        break
+            
+            if is_on_road:
                 continue
-            
-            # Check if too close to existing buildings or businesses
+
+            # Check 2: Not too close to another building or business
             is_too_close = False
-            min_distance = 0.001  # Minimum distance between buildings
+            min_building_dist = 0.0006 # ~60 meters, to ensure better spacing
             
             for building in self.buildings:
-                if np.linalg.norm(candidate_pos - building.pos) < min_distance:
+                dist = np.linalg.norm(candidate_pos - building.pos)
+                if dist < min_building_dist:
                     is_too_close = True
                     break
-            
             if is_too_close:
                 continue
             
             for business in self.businesses:
-                if np.linalg.norm(candidate_pos - business.pos) < min_distance:
+                 dist = np.linalg.norm(candidate_pos - business.pos)
+                 if dist < min_building_dist:
                     is_too_close = True
                     break
-            
             if is_too_close:
                 continue
 
-            # Valid spot found
+            # All checks passed, this is a valid spot
             return candidate_pos
 
         log_to_frontend("Could not find a valid building spot after many tries.")
@@ -1187,13 +1218,7 @@ class SimCityKeplerEnv(gym.Env):
         if "move_vector" in data:
             # Direct movement from RL policy
             move_vector = np.array(data["move_vector"])
-            new_pos = agent.pos + move_vector
-            
-            # Ensure agent stays within city bounds
-            new_pos[0] = np.clip(new_pos[0], CITY_BOUNDS["lat_min"], CITY_BOUNDS["lat_max"])
-            new_pos[1] = np.clip(new_pos[1], CITY_BOUNDS["lng_min"], CITY_BOUNDS["lng_max"])
-            
-            agent.pos = new_pos
+            agent.pos += move_vector
             agent.add_to_memory_stream(f"Moved by vector {move_vector.tolist()}", self.step_count)
         elif data.get("target") == "business" and "specific_id" in data:
             # Move towards specific business
@@ -1210,19 +1235,21 @@ class SimCityKeplerEnv(gym.Env):
                 agent.set_destination(building.pos)
                 agent.add_to_memory_stream(f"Moving towards building {building_id}", self.step_count)
         else:
-            # Random exploration within bounds
-            lat = random.uniform(CITY_BOUNDS["lat_min"], CITY_BOUNDS["lat_max"])
-            lng = random.uniform(CITY_BOUNDS["lng_min"], CITY_BOUNDS["lng_max"])
-            random_pos = np.array([lat, lng])
-            agent.set_destination(random_pos)
-            agent.add_to_memory_stream("Exploring randomly", self.step_count)
+            # Random exploration
+            all_nodes = list(self.graph.nodes())
+            if all_nodes:
+                random_node = random.choice(all_nodes)
+                node_data = self.graph.nodes[random_node]
+                random_pos = np.array([node_data['y'], node_data['x']])
+                agent.set_destination(random_pos)
+                agent.add_to_memory_stream("Exploring randomly", self.step_count)
 
     def _execute_gather_action(self, agent: Pedestrian, data: Dict):
         """Execute resource gathering action"""
         business_id = data.get("business_id")
         business = next((b for b in self.businesses if b.id == business_id), None)
         
-        if business and np.linalg.norm(agent.pos - business.pos) < 0.001:
+        if business and np.linalg.norm(agent.pos - business.pos) < 0.0005:
             # Agent is close enough to business
             resources_needed = {r: random.randint(1, 5) for r in random.sample(list(RESOURCES.keys()), 2)}
             provided, cost = business.serve_customer(resources_needed)
@@ -1247,7 +1274,7 @@ class SimCityKeplerEnv(gym.Env):
         business_id = data.get("business_id")
         business = next((b for b in self.businesses if b.id == business_id), None)
         
-        if business and np.linalg.norm(agent.pos - business.pos) < 0.001:
+        if business and np.linalg.norm(agent.pos - business.pos) < 0.0005:
             wage = business.hire_worker(agent.id)
             agent.resources["money"] += wage
             business.revenue -= wage
@@ -1618,18 +1645,18 @@ class WebSocketCallback(BaseCallback):
     def stop_training(self):
         self.should_stop = True
 
-async def train_simcity_kepler(websocket: WebSocket, env: SimCityKeplerEnv):
-    """Train the SimCity Kepler agents using PPO for collaborative building"""
+async def train_simcity(websocket: WebSocket, env: SimCityEnv):
+    """Train the SimCity agents using PPO for collaborative building"""
     global _current_websocket
     _current_websocket = websocket
     
     loop = asyncio.get_running_loop()
 
     def train_in_thread():
-        vec_env = make_vec_env(lambda: SimCityKeplerEnv(training_mode=True), n_envs=4)
+        vec_env = make_vec_env(lambda: SimCityEnv(training_mode=True), n_envs=4)
 
         policy_kwargs = dict(
-            features_extractor_class=SimCityKeplerPPOPolicy,
+            features_extractor_class=SimCityPPOPolicy,
             features_extractor_kwargs=dict(features_dim=128),
         )
 
@@ -1646,7 +1673,7 @@ async def train_simcity_kepler(websocket: WebSocket, env: SimCityKeplerEnv):
             batch_size=PPO_BATCH_SIZE,
             n_steps=PPO_N_STEPS,
             policy_kwargs=policy_kwargs,
-            tensorboard_log="./simcity_kepler_tensorboard/"
+            tensorboard_log="./simcity_tensorboard/"
         )
 
         callback = WebSocketCallback(websocket, loop)
@@ -1654,7 +1681,7 @@ async def train_simcity_kepler(websocket: WebSocket, env: SimCityKeplerEnv):
         model.learn(total_timesteps=TOTAL_TIMESTEPS, callback=callback)
         
         # Save the trained model
-        model_path = "policies/simcity_kepler_ppo_model.zip"
+        model_path = "policies/simcity_ppo_model.zip"
         model.save(model_path)
         
         # Send completion message
@@ -1670,26 +1697,46 @@ async def train_simcity_kepler(websocket: WebSocket, env: SimCityKeplerEnv):
     await training_task
 
 # --- Websocket handlers ---
-async def run_simcity_kepler(websocket: WebSocket, env: SimCityKeplerEnv):
+async def run_simcity(websocket: WebSocket, env: SimCityEnv):
     """Run the simulation"""
     global _current_websocket
     _current_websocket = websocket
     
     # Load the trained model
-    model_path = "policies/simcity_kepler_ppo_model.zip"
+    model_path = "policies/simcity_ppo_model.zip"
     if os.path.exists(model_path):
         model = PPO.load(model_path)
         env.trained_policy = model
     else:
-        logger.warning("No trained model found for SimCity Kepler. Actions will be random.")
+        logger.warning("No trained model found for SimCity. Actions will be random.")
         env.trained_policy = None
 
     env.running = True
     step_rewards = []
 
     while env.running:
-        # Execute full simulation step
-        await env.step()
+        # For run mode, we step the entire environment at once.
+        # We can get actions for all agents from the policy.
+        
+        if env.trained_policy:
+            # In a multi-agent env, you'd typically get an action for each agent
+            # Here, for simplicity, we'll get an action for the first agent
+            # and have others act randomly or with a simpler logic.
+            obs = env._get_obs_for_agent(env.pedestrians[0])
+            action, _ = env.trained_policy.predict(obs, deterministic=True)
+            action_name = DISCRETE_ACTIONS[action]
+            
+            # Create dummy data for the action
+            data = {}
+            if action_name == "start_building":
+                data = {"building_type": env.pedestrians[0].building_goal}
+
+            # We need to manually call the execution logic for the agents
+            env._execute_move_action(env.pedestrians[0], {"move_vector": ACTION_MAP_MOVE.get(action_name)})
+
+        # The full step logic is now more complex than the gym step
+        # We'll use the original async step method from the class
+        await env_step_full(env)
 
         # Send state update
         state = env.get_state_for_viz()
@@ -1713,4 +1760,41 @@ async def run_simcity_kepler(websocket: WebSocket, env: SimCityKeplerEnv):
             "loss": None
         })
         
-        await asyncio.sleep(0.15)  # Control simulation speed 
+        await asyncio.sleep(0.15)  # Control simulation speed
+            
+
+async def env_step_full(env: SimCityEnv):
+    """The original, comprehensive step function for the environment."""
+    env.step_count += 1
+    # This function would contain the logic from the original `step` method
+    # before it was adapted for the gym interface.
+    # For now, we'll just call the individual components.
+
+    # 1. Get actions for all agents (simplified for this example)
+    agent_actions = []
+    for agent in env.pedestrians:
+        if env.trained_policy and agent.id == 0:
+             obs = env._get_obs_for_agent(agent)
+             action, _ = env.trained_policy.predict(obs, deterministic=True)
+             action_name = DISCRETE_ACTIONS[action]
+             data = {} # dummy data
+        else:
+            action_name = random.choice(DISCRETE_ACTIONS)
+            data = {} # dummy data
+        agent_actions.append((action_name, data))
+    
+    # 2. Execute actions
+    env._execute_actions(agent_actions)
+
+    # 3. Update world state
+    for light in env.traffic_lights:
+        light.step()
+    for business in env.businesses:
+        business.generate_resources()
+    for building in env.buildings:
+        if building.advance_construction():
+            log_to_frontend(f"🏗️ Building {building.id} ({building.type}) completed!")
+    
+    # 4. Update pedestrians
+    for pedestrian in env.pedestrians:
+        pedestrian.step(env.businesses, env.buildings, env.traffic_lights)
