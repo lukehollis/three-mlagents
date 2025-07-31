@@ -182,6 +182,54 @@ export default function ExamplesIndex() {
               }}
             >
               <Card.Content style={{ padding: 0 }}>
+                <Link to="/astrodynamics" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/astrodynamics_example.jpg" 
+                      alt="Astrodynamics Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/astrodynamics" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    Astrodynamics
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  Learn orbital rendezvous and docking with a space station using realistic orbital mechanics and Hill's equations.
+                </Text>
+                <Link to="/astrodynamics" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
                 <Link to="/simcity" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
@@ -207,54 +255,6 @@ export default function ExamplesIndex() {
                   Use RL+LLM to play a SimCity-like simulation on a map with intelligent agents.
                 </Text>
                 <Link to="/simcity" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
-                <Link to="/simcity-deckgl" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/simcity_example.jpg" 
-                      alt="SimCity Deck.gl Example"
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/simcity-deckgl" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    SimCity (Deck.gl)
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  A Deck.gl-based visualization for the SimCity environment.
-                </Text>
-                <Link to="/simcity-deckgl" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
                     auto
@@ -326,54 +326,6 @@ export default function ExamplesIndex() {
               }}
             >
               <Card.Content style={{ padding: 0 }}>
-                <Link to="/astrodynamics" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <div style={{ cursor: 'pointer' }}>
-                    <img 
-                      src="/three-mlagents/astrodynamics_example.jpg" 
-                      alt="Astrodynamics Example"
-                      style={{
-                        width: '100%',
-                        height: '200px',
-                        objectFit: 'cover',
-                        display: 'block'
-                      }}
-                    />
-                  </div>
-                </Link>
-              </Card.Content>
-              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-                <Link to="/astrodynamics" style={{ textDecoration: 'none', color: 'inherit' }}>
-                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
-                    Astrodynamics
-                  </Text>
-                </Link>
-                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
-                  Learn orbital rendezvous and docking with a space station using realistic orbital mechanics and Hill's equations.
-                </Text>
-                <Link to="/astrodynamics" style={{ textDecoration: 'none' }}>
-                  <Button 
-                    type="success" 
-                    auto
-                  >
-                    Launch Example
-                  </Button>
-                </Link>
-              </Card.Footer>
-            </Card>
-          </Grid>
-          <Grid xs={24} sm={16} md={12} lg={8}>
-            <Card 
-              hoverable 
-              style={{ 
-                width: '100%',
-                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
-                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
-                transition: 'all 0.3s ease',
-                overflow: 'hidden'
-              }}
-            >
-              <Card.Content style={{ padding: 0 }}>
                 <Link to="/brickbreak" style={{ textDecoration: 'none', color: 'inherit' }}>
                   <div style={{ cursor: 'pointer' }}>
                     <img 
@@ -399,6 +351,54 @@ export default function ExamplesIndex() {
                   Destroy all the bricks with a ball and paddle.
                 </Text>
                 <Link to="/brickbreak" style={{ textDecoration: 'none' }}>
+                  <Button 
+                    type="success" 
+                    auto
+                  >
+                    Launch Example
+                  </Button>
+                </Link>
+              </Card.Footer>
+            </Card>
+          </Grid>
+          <Grid xs={24} sm={16} md={12} lg={8}>
+            <Card 
+              hoverable 
+              style={{ 
+                width: '100%',
+                backgroundColor: 'rgba(17, 17, 17, 0.8)', 
+                boxShadow: '0 0 20px rgba(0, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
+                transition: 'all 0.3s ease',
+                overflow: 'hidden'
+              }}
+            >
+              <Card.Content style={{ padding: 0 }}>
+                <Link to="/simcity-deckgl" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <div style={{ cursor: 'pointer' }}>
+                    <img 
+                      src="/three-mlagents/simcity_deckgl_example.jpg" 
+                      alt="SimCity Deck.gl Example"
+                      style={{
+                        width: '100%',
+                        height: '200px',
+                        objectFit: 'cover',
+                        display: 'block'
+                      }}
+                    />
+                  </div>
+                </Link>
+              </Card.Content>
+              <Card.Footer style={{ backgroundColor: 'rgba(17, 17, 17, 0.9)', padding: isXs ? '12px' : '16px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+                <Link to="/simcity-deckgl" style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Text h4 style={{ color: '#fff', margin: '0 0 8px 0', cursor: 'pointer', fontSize: isXs ? '1.1rem' : '1.25rem' }}>
+                    SimCity (Deck.gl)
+                  </Text>
+                </Link>
+                <Text p style={{ color: '#888', margin: '0 0 16px 0', lineHeight: '1.5', fontSize: isXs ? '0.875rem' : '1rem' }}>
+                  A Deck.gl-based visualization for the SimCity environment.
+                </Text>
+                <Link to="/simcity-deckgl" style={{ textDecoration: 'none' }}>
                   <Button 
                     type="success" 
                     auto

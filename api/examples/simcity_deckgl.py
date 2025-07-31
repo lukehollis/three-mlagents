@@ -1629,7 +1629,8 @@ async def train_simcity(websocket: WebSocket, env: SimCityEnv):
     _current_websocket = websocket
     
     try:
-        await websocket.send_json({"type": "debug", "message": "Starting SimCity RL training..."})
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.send_json({"type": "debug", "message": "Starting SimCity RL training..."})
         
         # Initialize RL model
         dummy_agent = env.pedestrians[0]
@@ -1648,7 +1649,8 @@ async def train_simcity(websocket: WebSocket, env: SimCityEnv):
 
         while ep_counter < 3000:  # Training episodes
             if env.step_count % 20 == 0:
-                await websocket.send_json({"type": "debug", "message": f"Training step {env.step_count}, episode {ep_counter}"})
+                if websocket.client_state != WebSocketState.DISCONNECTED:
+                    await websocket.send_json({"type": "debug", "message": f"Training step {env.step_count}, episode {ep_counter}"})
             
             # Collect experience from all agents
             agent_states = [get_agent_state_vector(agent, env.businesses, env.buildings) for agent in env.pedestrians]
@@ -1760,19 +1762,21 @@ async def train_simcity(websocket: WebSocket, env: SimCityEnv):
                 total_buildings = len(env.buildings)
                 completed_buildings = len([b for b in env.buildings if b.status == "completed"])
                 
-                await websocket.send_json({
-                    "type": "progress", 
-                    "episode": ep_counter, 
-                    "reward": current_reward, 
-                    "loss": current_loss,
-                    "buildings_total": total_buildings,
-                    "buildings_completed": completed_buildings
-                })
+                if websocket.client_state != WebSocketState.DISCONNECTED:
+                    await websocket.send_json({
+                        "type": "progress", 
+                        "episode": ep_counter, 
+                        "reward": current_reward, 
+                        "loss": current_loss,
+                        "buildings_total": total_buildings,
+                        "buildings_completed": completed_buildings
+                    })
 
             # Visualize state periodically
             if env.step_count % 8 == 0:
                 state = env.get_state_for_viz()
-                await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
+                if websocket.client_state != WebSocketState.DISCONNECTED:
+                    await websocket.send_json({"type": "train_step", "state": state, "episode": ep_counter})
                 await asyncio.sleep(0.01)
 
             # PPO Update
@@ -1843,6 +1847,8 @@ async def train_simcity(websocket: WebSocket, env: SimCityEnv):
                         loss.backward()
                         optimizer.step()
 
+                    await asyncio.sleep(0) # yield after each epoch
+
                 # Clear buffer
                 avg_reward = float(torch.stack([b["reward"] for b in step_buffer]).mean().cpu().item())
                 current_loss = loss.item()
@@ -1850,7 +1856,8 @@ async def train_simcity(websocket: WebSocket, env: SimCityEnv):
                 step_buffer = []
                 total_steps = 0
                 
-                await websocket.send_json({"type": "debug", "message": f"PPO update completed. Avg reward: {avg_reward:.2f}, Loss: {current_loss:.4f}"})
+                if websocket.client_state != WebSocketState.DISCONNECTED:
+                    await websocket.send_json({"type": "debug", "message": f"PPO update completed. Avg reward: {avg_reward:.2f}, Loss: {current_loss:.4f}"})
 
         # Training complete
         # Save the trained model
@@ -1861,22 +1868,25 @@ async def train_simcity(websocket: WebSocket, env: SimCityEnv):
         total_buildings = len(env.buildings)
         completed_buildings = len([b for b in env.buildings if b.status == "completed"])
         
-        await websocket.send_json({
-            "type": "trained", 
-            "model_info": {
-                "path": model_path,
-                "episodes": ep_counter, 
-                "loss": current_loss,
-                "total_buildings": total_buildings,
-                "completed_buildings": completed_buildings,
-                "collaboration_rate": completed_buildings / max(1, total_buildings)
-            }
-        })
-        await websocket.send_json({"type": "debug", "message": "SimCity RL training complete!"})
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.send_json({
+                "type": "trained", 
+                "model_info": {
+                    "path": model_path,
+                    "episodes": ep_counter, 
+                    "loss": current_loss,
+                    "total_buildings": total_buildings,
+                    "completed_buildings": completed_buildings,
+                    "collaboration_rate": completed_buildings / max(1, total_buildings)
+                }
+            })
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.send_json({"type": "debug", "message": "SimCity RL training complete!"})
         
     except Exception as e:
         logger.error(f"Error during SimCity training: {e}", exc_info=True)
-        await websocket.send_json({"type": "error", "message": f"Training failed: {e}"})
+        if websocket.client_state != WebSocketState.DISCONNECTED:
+            await websocket.send_json({"type": "error", "message": f"Training failed: {e}"})
 
 async def run_simcity(websocket: WebSocket, env: SimCityEnv):
     """Run the simulation"""
@@ -1896,10 +1906,12 @@ async def run_simcity(websocket: WebSocket, env: SimCityEnv):
             model.load_state_dict(torch.load(model_path))
             model.eval()
             env.set_trained_policy(model)
-            await websocket.send_json({"type": "debug", "message": f"Loaded trained model from {model_path}"})
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.send_json({"type": "debug", "message": f"Loaded trained model from {model_path}"})
         except Exception as e:
             logger.warning(f"Failed to load trained model: {e}")
-            await websocket.send_json({"type": "debug", "message": f"Failed to load model: {e}, using random actions"})
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.send_json({"type": "debug", "message": f"Failed to load model: {e}, using random actions"})
 
     env.running = True
     step_rewards = []
@@ -1910,7 +1922,8 @@ async def run_simcity(websocket: WebSocket, env: SimCityEnv):
             
             # Send state update
             state = env.get_state_for_viz()
-            await websocket.send_json({"type": "run_step", "state": state})
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.send_json({"type": "run_step", "state": state})
             
             # Calculate metrics for charts
             total_reward = env._calculate_reward()
@@ -1920,15 +1933,16 @@ async def run_simcity(websocket: WebSocket, env: SimCityEnv):
             
             step_rewards.append(total_reward)
             
-            await websocket.send_json({
-                "type": "progress",
-                "episode": env.step_count,
-                "reward": total_reward,
-                "satisfaction": avg_satisfaction,
-                "buildings_total": total_buildings,
-                "buildings_completed": completed_buildings,
-                "loss": None
-            })
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.send_json({
+                    "type": "progress",
+                    "episode": env.step_count,
+                    "reward": total_reward,
+                    "satisfaction": avg_satisfaction,
+                    "buildings_total": total_buildings,
+                    "buildings_completed": completed_buildings,
+                    "loss": None
+                })
             
             await asyncio.sleep(0.15)  # Control simulation speed
     except WebSocketDisconnect:
