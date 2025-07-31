@@ -79,13 +79,14 @@ def log_to_frontend(message: str):
             }))
 
 # --- Constants ---
-NUM_PEDESTRIANS = 12
-NUM_BUSINESSES = 8
-MAX_MESSAGES = 20
-MAX_LLM_LOGS = 30
-LLM_CALL_FREQUENCY = 15
+NUM_PEDESTRIANS = 64
+NUM_BUSINESSES = 32
+NUM_TRAFFIC_LIGHTS = 12
+MAX_MESSAGES = 32
+MAX_LLM_LOGS = 32
+LLM_CALL_FREQUENCY = 16
 USE_LOCAL_OLLAMA = True 
-MAX_STEPS_PER_EPISODE = 2000
+MAX_STEPS_PER_EPISODE = 4096
 
 # Resource System
 RESOURCES = {
@@ -756,9 +757,11 @@ class SimCityEnv:
         self.location_point = (37.7749, -122.4194)  # Downtown San Francisco
         
         # --- Caching Logic ---
+        dist = 4500
         bounds = {
             "north": self.location_point[0] + 0.01, "south": self.location_point[0] - 0.01,
             "east": self.location_point[1] + 0.01, "west": self.location_point[1] - 0.01,
+            "dist": dist
         }
         cache_key = _generate_cache_key(bounds)
         
@@ -776,7 +779,7 @@ class SimCityEnv:
             self.graph = cached_graph
         else:
             logger.info("Cache MISS. Fetching graph from OSMnx.")
-            self.graph = ox.graph_from_point(self.location_point, dist=900, network_type='drive')
+            self.graph = ox.graph_from_point(self.location_point, dist=dist, network_type='drive')
             if redis_client:
                 try:
                     redis_client.set(cache_key, pickle.dumps(self.graph), ex=CACHE_EXPIRY_SECONDS)
@@ -1015,8 +1018,9 @@ class SimCityEnv:
 
     def _create_businesses(self):
         """Create businesses at strategic locations"""
-        high_degree_nodes = [node for node, degree in self.graph.degree() if degree >= 3]
-        business_nodes = random.sample(high_degree_nodes, min(NUM_BUSINESSES, len(high_degree_nodes)))
+        # Use a larger sample of nodes across the entire graph for businesses
+        all_nodes = list(self.graph.nodes())
+        business_nodes = random.sample(all_nodes, min(NUM_BUSINESSES, len(all_nodes)))
         
         for i, node_id in enumerate(business_nodes):
             node_data = self.graph.nodes[node_id]
@@ -1031,7 +1035,7 @@ class SimCityEnv:
     def _create_traffic_lights(self):
         """Create traffic lights at major intersections"""
         intersections = [node for node, degree in self.graph.degree() if degree > 3]
-        selected_intersections = random.sample(intersections, min(8, len(intersections)))
+        selected_intersections = random.sample(intersections, min(NUM_TRAFFIC_LIGHTS, len(intersections)))
         
         for i, node_id in enumerate(selected_intersections):
             node_data = self.graph.nodes[node_id]
