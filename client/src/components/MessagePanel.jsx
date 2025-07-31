@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Card, Text } from '@geist-ui/core';
+import { Text } from '@geist-ui/core';
 
 const MessagePanel = ({ 
   messages, 
@@ -30,11 +30,13 @@ const MessagePanel = ({
     background: 'rgba(0,0,0,0.6)',
     color: '#fff',
     border: '1px solid #444',
+    padding: '16px',
+    borderRadius: '5px',
     ...style
   };
 
   return (
-    <Card ref={containerRef} style={defaultStyle}>
+    <div ref={containerRef} style={defaultStyle}>
       {title && (
         <Text h5 style={{ margin: '0 0 8px 0', color: '#37F5EB' }}>
           {title}
@@ -77,8 +79,8 @@ const MessagePanel = ({
           </div>
         );
       })}
-    </Card>
+    </div>
   );
 };
 
-export default MessagePanel; 
+export default MessagePanel;
