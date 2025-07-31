@@ -4,6 +4,7 @@ import json
 import os
 from typing import List, Dict, Any, Tuple
 import numpy as np
+import networkx
 from fastapi import WebSocket
 import logging
 import osmnx as ox
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 # Global websocket reference for logging to frontend
 _current_websocket = None
+_main_event_loop = None
 
 RETRO_SCIFI_COLORS = [
     [0.0, 1.0, 1.0],  # Cyan
@@ -46,13 +48,14 @@ RETRO_SCIFI_COLORS = [
 
 def log_to_frontend(message: str):
     """Send log message to frontend InfoPanel if websocket is available"""
-    if _current_websocket:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(_current_websocket.send_json({
+    if _current_websocket and _main_event_loop and _main_event_loop.is_running():
+        asyncio.run_coroutine_threadsafe(
+            _current_websocket.send_json({
                 "type": "debug", 
                 "message": message
-            }))
+            }), 
+            _main_event_loop
+        )
 
 # --- Constants ---
 NUM_PEDESTRIANS = 12
@@ -60,7 +63,7 @@ NUM_BUSINESSES = 8
 MAX_MESSAGES = 20
 MAX_LLM_LOGS = 30
 LLM_CALL_FREQUENCY = 15
-USE_LOCAL_OLLAMA = True 
+USE_LOCAL_OLLAMA = False 
 MAX_STEPS_PER_EPISODE = 2000
 
 # SB3/PPO Training constants
@@ -1417,16 +1420,19 @@ class SimCityEnv(gym.Env):
             agent.add_to_memory_stream(f"Broadcast message: '{message}'", self.step_count)
         
         # Send to frontend
-        if _current_websocket:
-            asyncio.create_task(_current_websocket.send_json({
-                "type": "agent_message",
-                "agent_id": agent.id,
-                "message": message,
-                "step": self.step_count,
-                "recipient_id": recipient_id
-            }))
+        if _current_websocket and _main_event_loop:
+            asyncio.run_coroutine_threadsafe(
+                _current_websocket.send_json({
+                    "type": "agent_message",
+                    "agent_id": agent.id,
+                    "message": message,
+                    "step": self.step_count,
+                    "recipient_id": recipient_id
+                }),
+                _main_event_loop
+            )
 
-    async def step(self):
+    async def async_step(self):
         """Execute one simulation step"""
         self.step_count += 1
         
@@ -1635,10 +1641,11 @@ class WebSocketCallback(BaseCallback):
 
 async def train_simcity(websocket: WebSocket, env: SimCityEnv):
     """Train the SimCity agents using PPO for collaborative building"""
-    global _current_websocket
+    global _current_websocket, _main_event_loop
     _current_websocket = websocket
     
     loop = asyncio.get_running_loop()
+    _main_event_loop = loop
 
     def train_in_thread():
         vec_env = make_vec_env(lambda: SimCityEnv(training_mode=True), n_envs=4)
@@ -1687,8 +1694,9 @@ async def train_simcity(websocket: WebSocket, env: SimCityEnv):
 # --- Websocket handlers ---
 async def run_simcity(websocket: WebSocket, env: SimCityEnv):
     """Run the simulation"""
-    global _current_websocket
+    global _current_websocket, _main_event_loop
     _current_websocket = websocket
+    _main_event_loop = asyncio.get_running_loop()
     
     # Load the trained model
     model_path = "policies/simcity_ppo_model.zip"
@@ -1724,7 +1732,7 @@ async def run_simcity(websocket: WebSocket, env: SimCityEnv):
 
         # The full step logic is now more complex than the gym step
         # We'll use the original async step method from the class
-        await env_step_full(env)
+        await env.async_step()
 
         # Send state update
         state = env.get_state_for_viz()
@@ -1751,38 +1759,3 @@ async def run_simcity(websocket: WebSocket, env: SimCityEnv):
         await asyncio.sleep(0.15)  # Control simulation speed
             
 
-async def env_step_full(env: SimCityEnv):
-    """The original, comprehensive step function for the environment."""
-    env.step_count += 1
-    # This function would contain the logic from the original `step` method
-    # before it was adapted for the gym interface.
-    # For now, we'll just call the individual components.
-
-    # 1. Get actions for all agents (simplified for this example)
-    agent_actions = []
-    for agent in env.pedestrians:
-        if env.trained_policy and agent.id == 0:
-             obs = env._get_obs_for_agent(agent)
-             action, _ = env.trained_policy.predict(obs, deterministic=True)
-             action_name = DISCRETE_ACTIONS[action]
-             data = {} # dummy data
-        else:
-            action_name = random.choice(DISCRETE_ACTIONS)
-            data = {} # dummy data
-        agent_actions.append((action_name, data))
-    
-    # 2. Execute actions
-    env._execute_actions(agent_actions)
-
-    # 3. Update world state
-    for light in env.traffic_lights:
-        light.step()
-    for business in env.businesses:
-        business.generate_resources()
-    for building in env.buildings:
-        if building.advance_construction():
-            log_to_frontend(f"🏗️ Building {building.id} ({building.type}) completed!")
-    
-    # 4. Update pedestrians
-    for pedestrian in env.pedestrians:
-        pedestrian.step(env.businesses, env.buildings, env.traffic_lights)
