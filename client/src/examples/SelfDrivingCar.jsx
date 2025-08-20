@@ -506,7 +506,10 @@ const SceneContent = ({
             <Map onMapLoaded={(transformer) => {
                 setMapLoaded(true);
                 setCoordinateTransformer(transformer);
-            }} />
+            }}
+            initialLatitude={40.758896}
+            initialLongitude={-73.985130}
+            />
 
             {state && coordinateTransformer && <Roads roadNetwork={state.road_network} coordinateTransformer={coordinateTransformer} />}
             {state && coordinateTransformer && state.agents.map(agent => <Agent key={agent.id} agent={agent} coordinateTransformer={coordinateTransformer} onCamerasCreated={handleCamerasCreated} training={training} />)}

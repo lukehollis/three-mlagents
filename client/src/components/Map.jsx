@@ -18,14 +18,14 @@ const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 const dracoLoader = new DRACOLoader();
 dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
 
-const Globe = ({ onMapLoaded }) => {
+const Globe = ({ onMapLoaded, initialLatitude, initialLongitude }) => {
   const [tiles, setTiles] = useState(null);
   const [controls, setControls] = useState(null);
   const { scene, camera, gl } = useThree();
 
   const setInitialCameraPosition = (camera) => {
-    const longitude = -122.4194;
-    const latitude = 37.7749;
+    const longitude = initialLongitude !== undefined ? initialLongitude : -122.4194;
+    const latitude = initialLatitude !== undefined ? initialLatitude : 37.7749;
     const altitude = 2500;
     const heading = 0;
     const pitch = -55;
@@ -152,8 +152,8 @@ const Globe = ({ onMapLoaded }) => {
   return null;
 };
 
-const Map = ({ onMapLoaded }) => {
-    return <Globe onMapLoaded={onMapLoaded} />;
+const Map = ({ onMapLoaded, initialLatitude, initialLongitude }) => {
+    return <Globe onMapLoaded={onMapLoaded} initialLatitude={initialLatitude} initialLongitude={initialLongitude} />;
 }
 
 export default Map; 
