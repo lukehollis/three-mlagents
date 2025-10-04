@@ -40,6 +40,7 @@ from starlette.websockets import WebSocketState
 import logging
 from examples.simcity import run_simcity, train_simcity, SimCityEnv
 from examples.simcity_deckgl import run_simcity as run_simcity_deckgl, train_simcity as train_simcity_deckgl, SimCityEnv as SimCityDeckGLEnv
+from examples.pirate_ship import train_pirate_ship, run_pirate_ship, PirateShipEnv
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -675,8 +676,23 @@ async def websocket_endpoint_simcity_deckgl(websocket: WebSocket):
             await websocket.send_json({"type": "error", "message": str(e)})
 
 
+@app.websocket("/ws/pirate-ship")
+async def websocket_pirate_ship(websocket: WebSocket):
+    await websocket.accept()
+    preview_env = PirateShipEnv()
+    preview_state = preview_env.get_state_for_viz()
+    await websocket.send_json({"type": "init", "state": preview_state})
+    try:
+        while True:
+            data = await websocket.receive_json()
+            if data['cmd'] == 'train':
+                await train_pirate_ship(websocket)
+            elif data['cmd'] == 'run':
+                await run_pirate_ship(websocket)
+    except Exception as e:
+        print(f"Pirate Ship websocket disconnected: {e}")
+
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
