@@ -73,37 +73,100 @@ const Kraken = ({ position, health }) => {
   );
 };
 
+const generateTentacleGeometry = (pathPoints) => {
+  const segments = 20;
+  const radialSegments = 8;
+  const baseRadius = 1;
+  const tipRadius = 0.1;
+
+  const positions = [];
+  const normals = [];
+  const uvs = [];
+  const indices = [];
+
+  const path = new THREE.CatmullRomCurve3(pathPoints.map(p => new THREE.Vector3(...p)));
+
+  const frames = path.computeFrenetFrames(segments, false);
+
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const radius = baseRadius * (1 - t) + tipRadius * t;
+    const normal = frames.normals[i];
+    const binormal = frames.binormals[i];
+    const position = path.getPointAt(t);
+
+    for (let j = 0; j < radialSegments; j++) {
+      const theta = j / radialSegments * Math.PI * 2;
+      const sin = Math.sin(theta);
+      const cos = -Math.cos(theta);
+
+      const x = normal.x * cos + binormal.x * sin;
+      const y = normal.y * cos + binormal.y * sin;
+      const z = normal.z * cos + binormal.z * sin;
+
+      positions.push(position.x + x * radius, position.y + y * radius, position.z + z * radius);
+      normals.push(x, y, z);
+      uvs.push(t, j / radialSegments);
+    }
+  }
+
+  for (let i = 0; i < segments; i++) {
+    for (let j = 0; j < radialSegments; j++) {
+      const a = i * radialSegments + j;
+      const b = (i + 1) * radialSegments + j;
+      const c = (i + 1) * radialSegments + (j + 1) % radialSegments;
+      const d = i * radialSegments + (j + 1) % radialSegments;
+
+      indices.push(a, b, d);
+      indices.push(b, c, d);
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+
+  return geometry;
+};
+
 // Tentacle component - PURPLE tentacles emerging from water and reaching UP!
 const Tentacle = ({ start, end }) => {
-  // Safety check for undefined end position
   if (!end || !Array.isArray(end) || end.length < 2) {
     return null;
   }
-  
-  // Start at water surface (y = 0)
-  const startAdj = [end[0] - GRID_SIZE/2, 0, end[1] - GRID_SIZE/2];
-  // End point high in the air (y = 15)
-  const endAdj = [end[0] - GRID_SIZE/2, 15, end[1] - GRID_SIZE/2];
-  // Mid-point for nice curve
-  const midRef = useRef([startAdj[0], 8, startAdj[2]]);
-  const lineRef = useRef();
-  
+
+  const base = [start[0] - GRID_SIZE/2, 0, start[1] - GRID_SIZE/2];
+  const tip = [end[0] - GRID_SIZE/2, 15, end[1] - GRID_SIZE/2];
+  const mid1Ref = useRef([base[0], 5, base[2]]);
+  const mid2Ref = useRef([base[0], 10, base[2]]);
+  const meshRef = useRef();
+
   useFrame(({ clock }) => {
     const time = clock.getElapsedTime();
     const wave = Math.sin(time * 2 + (start[0] + start[1])) * 2;
-    const sway = Math.cos(time * 1.5 + (start[0] + start[1])) * 1.5;
-    // Animate mid-point for writhing effect
-    midRef.current[1] = 8 + wave;
-    midRef.current[0] = startAdj[0] + sway;
-    midRef.current[2] = startAdj[2] + sway * 0.7;
-    if (lineRef.current) {
-      lineRef.current.points = [startAdj, midRef.current, endAdj];
-      lineRef.current.geometry.setPositions(lineRef.current.points.flat());
-    }
+    const sway = Math.cos(time * 1.5 + (start[0] + start[1])) * 3;
+
+    mid1Ref.current[0] = base[0] + sway * 0.5;
+    mid1Ref.current[2] = base[2] + sway * 0.3;
+    mid1Ref.current[1] = 5 + wave;
+
+    mid2Ref.current[0] = base[0] + sway;
+    mid2Ref.current[2] = base[2] + sway * 0.7;
+    mid2Ref.current[1] = 10 + wave * 0.5;
+
+    const pathPoints = [base, mid1Ref.current, mid2Ref.current, tip];
+    const geom = generateTentacleGeometry(pathPoints);
+    if (meshRef.current.geometry) meshRef.current.geometry.dispose();
+    meshRef.current.geometry = geom;
   });
 
-  const points = [startAdj, midRef.current, endAdj];
-  return <Line ref={lineRef} points={points} color="purple" lineWidth={5} />;
+  return (
+    <mesh ref={meshRef}>
+      <meshStandardMaterial color="purple" />
+    </mesh>
+  );
 };
 
 const StatusPanel = ({ ships, kraken }) => {
@@ -222,10 +285,12 @@ export default function KrakenGame() {
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
         <Link to="/">Home</Link>
-        <Text h1>Pirate Ship vs Kraken</Text>
-        <Button type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-        <Button type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
-        {trained && <Button type="error" onClick={resetTraining}>Reset</Button>}
+        <Text h1>The Kraken</Text>
+        <div style={{ display: "flex", gap: "4px" }}>
+          <Button type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
+          <Button type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
+          {trained && <Button type="error" onClick={resetTraining}>Reset</Button>}
+        </div>
       </div>
       <InfoPanel logs={logs} chartState={chartState} />
       

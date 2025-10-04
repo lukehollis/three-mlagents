@@ -682,15 +682,12 @@ async def websocket_kraken(websocket: WebSocket):
     preview_env = PirateShipEnv()
     preview_state = preview_env.get_state_for_viz()
     await websocket.send_json({"type": "init", "state": preview_state})
-    try:
-        while True:
-            data = await websocket.receive_json()
-            if data['cmd'] == 'train':
-                await train_pirate_ship(websocket)
-            elif data['cmd'] == 'run':
-                await run_pirate_ship(websocket)
-    except Exception as e:
-        print(f"Kraken websocket disconnected: {e}")
+    while True:
+        data = await websocket.receive_json()
+        if data['cmd'] == 'train':
+            await train_pirate_ship(websocket)
+        elif data['cmd'] == 'run':
+            await run_pirate_ship(websocket)
 
 
 if __name__ == "__main__":

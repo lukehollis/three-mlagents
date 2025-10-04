@@ -33,7 +33,7 @@ class PirateShipEnv(gym.Env):
     def __init__(self, training_mode=True):
         super().__init__()
         self.training_mode = training_mode
-        self.action_space = spaces.Discrete(5)  # 0: no move, 1: forward, 2: left, 3: right, 4: shoot
+        self.action_space = spaces.MultiDiscrete([5] * NUM_SHIPS)  # 0: no move, 1: forward, 2: left, 3: right, 4: shoot
         self.observation_space = spaces.Box(low=-GRID_SIZE, high=GRID_SIZE, shape=(NUM_SHIPS * 4 + 3,), dtype=np.float32)  # Positions, healths, kraken pos/health
         self.reset()
 
@@ -43,7 +43,11 @@ class PirateShipEnv(gym.Env):
         self.ship_healths = np.full(NUM_SHIPS, SHIP_HEALTH)
         self.kraken_position = np.array([GRID_SIZE / 2, GRID_SIZE / 2])
         self.kraken_health = KRAKEN_HEALTH
-        self.tentacle_offsets = np.random.uniform(-10, 10, (NUM_TENTACLES, 2))
+        self.tentacle_offsets = np.zeros((NUM_TENTACLES, 2))
+        for i in range(NUM_TENTACLES):
+            angle = np.random.uniform(0, 2 * np.pi)
+            dist = np.random.uniform(0, 5)
+            self.tentacle_offsets[i] = [dist * np.cos(angle), dist * np.sin(angle)]
         self.tentacle_positions = self.kraken_position[None, :] + self.tentacle_offsets
         return self._get_obs(), {}
 
@@ -137,12 +141,11 @@ class WebSocketCallback(BaseCallback):
             state = self.training_env.get_attr("get_state_for_viz")[0]()
             asyncio.run(self.websocket.send_json({"type": "train_step", "state": state}))
 
-        # Collect rewards
-        done = self.locals['dones'][0]
-        reward = self.locals['rewards'][0]
-        if done:
-            self.episode_rewards.append(self.locals['infos'][0].get('episode', {}).get('r', 0))
-            self.episode_lengths.append(self.locals['infos'][0].get('episode', {}).get('l', 0))
+        # Collect rewards from all envs
+        for i in range(self.training_env.num_envs):
+            if self.locals['dones'][i]:
+                self.episode_rewards.append(self.locals['infos'][i].get('episode', {}).get('r', 0))
+                self.episode_lengths.append(self.locals['infos'][i].get('episode', {}).get('l', 0))
         return True
 
     def _on_rollout_end(self):
