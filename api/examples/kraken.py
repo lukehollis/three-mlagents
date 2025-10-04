@@ -34,7 +34,7 @@ class PirateShipEnv(gym.Env):
         super().__init__()
         self.training_mode = training_mode
         self.action_space = spaces.Discrete(5)  # 0: no move, 1: forward, 2: left, 3: right, 4: shoot
-        self.observation_space = spaces.Box(low=-GRID_SIZE, high=GRID_SIZE, shape=(NUM_SHIPS * 4 + 7,), dtype=np.float32)  # Positions, healths, kraken pos/health
+        self.observation_space = spaces.Box(low=-GRID_SIZE, high=GRID_SIZE, shape=(NUM_SHIPS * 4 + 3,), dtype=np.float32)  # Positions, healths, kraken pos/health
         self.reset()
 
     def reset(self, seed=None, options=None):
@@ -56,6 +56,14 @@ class PirateShipEnv(gym.Env):
         return np.array(obs, dtype=np.float32)
 
     def step(self, actions):
+        print(f"[DEBUG] step() called with actions: {actions}, type: {type(actions)}")
+        if hasattr(actions, 'shape'):
+            print(f"[DEBUG] actions shape: {actions.shape}")
+        if hasattr(actions, '__iter__'):
+            print(f"[DEBUG] actions is iterable")
+        else:
+            print(f"[DEBUG] actions is NOT iterable - converting to list")
+            
         reward = 0
         done = False
         self.steps += 1
@@ -159,12 +167,22 @@ async def train_pirate_ship(websocket: WebSocket):
     await websocket.send_json({"type": "trained"})
 
 async def run_pirate_ship(websocket: WebSocket):
+    print("[DEBUG] Starting run_pirate_ship")
     model = PPO.load("pirate_ship_policy")
+    print("[DEBUG] Model loaded")
     env = PirateShipEnv(training_mode=False)
     obs, _ = env.reset()
+    print(f"[DEBUG] Environment reset, obs shape: {obs.shape}, obs type: {type(obs)}")
     done = False
+    step_count = 0
     while not done:
+        print(f"\n[DEBUG] Step {step_count}")
+        print(f"[DEBUG] Before predict - obs shape: {obs.shape}, type: {type(obs)}")
         action, _ = model.predict(obs)
+        print(f"[DEBUG] After predict - action: {action}, type: {type(action)}, shape: {getattr(action, 'shape', 'no shape')}")
+        print(f"[DEBUG] Calling env.step with action: {action}")
         obs, _, done, _, _ = env.step(action)
+        print(f"[DEBUG] After step - done: {done}")
         await websocket.send_json({"type": "run_step", "state": env.get_state_for_viz()})
         await asyncio.sleep(0.05)
+        step_count += 1
