@@ -18,6 +18,9 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 GRID_SIZE = 200  # Water grid size
 NUM_SHIPS = 4  # Number of pirate ships (agents)
 NUM_TENTACLES = 10  # Kraken tentacles
+TENTACLE_SPEED = 0.8
+TENTACLE_RADIUS_MIN = 5.0
+TENTACLE_RADIUS_MAX = 25.0
 REWARD_DAMAGE_KRAKEN = 50.0
 REWARD_SURVIVE = 1.0
 PENALTY_DAMAGE = -20.0
@@ -33,8 +36,8 @@ class PirateShipEnv(gym.Env):
     def __init__(self, training_mode=True):
         super().__init__()
         self.training_mode = training_mode
-        self.action_space = spaces.MultiDiscrete([5] * NUM_SHIPS)  # 0: no move, 1: forward, 2: left, 3: right, 4: shoot
-        self.observation_space = spaces.Box(low=-GRID_SIZE, high=GRID_SIZE, shape=(NUM_SHIPS * 4 + 3,), dtype=np.float32)  # Positions, healths, kraken pos/health
+        self.action_space = spaces.MultiDiscrete([6] * NUM_SHIPS)  # 0: no move, 1: up, 2: down, 3: left, 4: right, 5: shoot
+        self.observation_space = spaces.Box(low=-GRID_SIZE, high=GRID_SIZE, shape=(NUM_SHIPS * 6 + 3,), dtype=np.float32)
         self.reset()
 
     def reset(self, seed=None, options=None):
@@ -46,7 +49,7 @@ class PirateShipEnv(gym.Env):
         self.tentacle_offsets = np.zeros((NUM_TENTACLES, 2))
         for i in range(NUM_TENTACLES):
             angle = np.random.uniform(0, 2 * np.pi)
-            dist = np.random.uniform(0, 1)
+            dist = np.random.uniform(TENTACLE_RADIUS_MIN, TENTACLE_RADIUS_MAX)
             self.tentacle_offsets[i] = [dist * np.cos(angle), dist * np.sin(angle)]
         self.tentacle_positions = self.kraken_position[None, :] + self.tentacle_offsets
         return self._get_obs(), {}
@@ -55,7 +58,12 @@ class PirateShipEnv(gym.Env):
         obs = []
         for i in range(NUM_SHIPS):
             rel_pos = self.kraken_position - self.ship_positions[i]
-            obs.extend([rel_pos[0], rel_pos[1], self.ship_healths[i], np.linalg.norm(rel_pos)])
+            obs.extend([
+                self.ship_positions[i][0], self.ship_positions[i][1],
+                rel_pos[0], rel_pos[1],
+                self.ship_healths[i],
+                np.linalg.norm(rel_pos)
+            ])
         obs.extend([self.kraken_position[0], self.kraken_position[1], self.kraken_health])
         return np.array(obs, dtype=np.float32)
 
@@ -76,33 +84,43 @@ class PirateShipEnv(gym.Env):
         for i, action in enumerate(actions):
             if self.ship_healths[i] <= 0:
                 continue
-            if action == 1:  # forward
+            if action == 1:  # up
                 self.ship_positions[i][1] += SHIP_SPEED
-            elif action == 2:  # left
+            elif action == 2:  # down
+                self.ship_positions[i][1] -= SHIP_SPEED
+            elif action == 3:  # left
                 self.ship_positions[i][0] -= SHIP_SPEED
-            elif action == 3:  # right
+            elif action == 4:  # right
                 self.ship_positions[i][0] += SHIP_SPEED
-            elif action == 4:  # shoot
+            elif action == 5:  # shoot
                 dist = np.linalg.norm(self.kraken_position - self.ship_positions[i])
                 if dist < SHOOT_RANGE:
                     self.kraken_health -= 10
                     reward += REWARD_DAMAGE_KRAKEN
 
-            # Bound positions
             self.ship_positions[i] = np.clip(self.ship_positions[i], 0, GRID_SIZE)
+            reward += REWARD_SURVIVE
 
-            reward += REWARD_SURVIVE if self.ship_healths[i] > 0 else 0
+        # Tentacle movement and attacks
+        if np.any(self.ship_healths > 0):
+            alive_ships = self.ship_positions[self.ship_healths > 0]
+            for j, tentacle in enumerate(self.tentacle_positions):
+                # Move tentacle towards the nearest ship
+                distances = np.linalg.norm(alive_ships - tentacle, axis=1)
+                nearest_ship_idx = np.argmin(distances)
+                direction = alive_ships[nearest_ship_idx] - tentacle
+                direction /= (np.linalg.norm(direction) + 1e-8)
+                self.tentacle_positions[j] += direction * TENTACLE_SPEED
 
-        # Kraken attacks
-        for tentacle in self.tentacle_positions:
-            for i in range(NUM_SHIPS):
-                if self.ship_healths[i] > 0:
-                    dist = np.linalg.norm(tentacle - self.ship_positions[i])
-                    if dist < 5.0:
-                        self.ship_healths[i] -= 10
-                        reward += PENALTY_DAMAGE
-                        if self.ship_healths[i] <= 0:
-                            reward += PENALTY_SUNK
+                # Attack ships
+                for i in range(NUM_SHIPS):
+                    if self.ship_healths[i] > 0:
+                        dist = np.linalg.norm(self.tentacle_positions[j] - self.ship_positions[i])
+                        if dist < 5.0:
+                            self.ship_healths[i] -= 10
+                            reward += PENALTY_DAMAGE
+                            if self.ship_healths[i] <= 0:
+                                reward += PENALTY_SUNK
 
         # Move kraken towards average ship position
         if np.any(self.ship_healths > 0):
