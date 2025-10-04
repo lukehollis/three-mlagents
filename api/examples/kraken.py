@@ -43,7 +43,8 @@ class PirateShipEnv(gym.Env):
         self.ship_healths = np.full(NUM_SHIPS, SHIP_HEALTH)
         self.kraken_position = np.array([GRID_SIZE / 2, GRID_SIZE / 2])
         self.kraken_health = KRAKEN_HEALTH
-        self.tentacle_positions = np.random.uniform(0, GRID_SIZE, (NUM_TENTACLES, 2))
+        self.tentacle_offsets = np.random.uniform(-10, 10, (NUM_TENTACLES, 2))
+        self.tentacle_positions = self.kraken_position[None, :] + self.tentacle_offsets
         return self._get_obs(), {}
 
     def _get_obs(self):
@@ -98,6 +99,7 @@ class PirateShipEnv(gym.Env):
             direction /= (np.linalg.norm(direction) + 1e-8)
             self.kraken_position += direction * KRAKEN_SPEED
             self.kraken_position = np.clip(self.kraken_position, 0, GRID_SIZE)
+            self.tentacle_positions = self.kraken_position[None, :] + self.tentacle_offsets
 
         # Check done
         if self.kraken_health <= 0 or np.all(self.ship_healths <= 0) or self.steps >= MAX_STEPS:
@@ -118,13 +120,35 @@ class WebSocketCallback(BaseCallback):
     def __init__(self, websocket, verbose=0):
         super().__init__(verbose)
         self.websocket = websocket
+        self.episode_rewards = []
+        self.episode_lengths = []
 
     def _on_step(self):
         # Send state every few steps
         if self.n_calls % 10 == 0:
             state = self.training_env.get_attr("get_state_for_viz")[0]()
             asyncio.run(self.websocket.send_json({"type": "train_step", "state": state}))
+
+        # Collect rewards
+        done = self.locals['dones'][0]
+        reward = self.locals['rewards'][0]
+        if done:
+            self.episode_rewards.append(self.locals['infos'][0].get('episode', {}).get('r', 0))
+            self.episode_lengths.append(self.locals['infos'][0].get('episode', {}).get('l', 0))
         return True
+
+    def _on_rollout_end(self):
+        if self.episode_rewards:
+            avg_reward = np.mean(self.episode_rewards)
+            avg_length = np.mean(self.episode_lengths)
+            asyncio.run(self.websocket.send_json({
+                "type": "progress",
+                "episode": self.num_timesteps // 1000,  # Approximate episode count
+                "reward": float(avg_reward),
+                "loss": 0.0  # Placeholder, as SB3 doesn't directly provide loss here; can be extended if needed
+            }))
+            self.episode_rewards = []
+            self.episode_lengths = []
 
 async def train_pirate_ship(websocket: WebSocket):
     env = make_vec_env(PirateShipEnv, n_envs=8)

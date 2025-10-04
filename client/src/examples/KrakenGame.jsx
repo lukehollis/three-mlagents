@@ -3,12 +3,14 @@ import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Text as DreiText, Stars, Line } from '@react-three/drei';
 import { Button, Text, Card } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
+import InfoPanel from '../components/InfoPanel.jsx';
 import * as THREE from 'three';
 import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 
-const WS_URL = `${config.WS_BASE_URL}/ws/pirate-ship`;
+const WS_URL = `${config.WS_BASE_URL}/ws/kraken`;
+const GRID_SIZE = 200;
 
 // Water surface component (adapted from example)
 const WaterSurface = ({ waterSize }) => {
@@ -71,14 +73,37 @@ const Kraken = ({ position, health }) => {
   );
 };
 
-// Tentacle component
-const Tentacle = ({ position }) => {
-  return (
-    <mesh position={[position[0] - GRID_SIZE/2, 1, position[1] - GRID_SIZE/2]}>
-      <cylinderGeometry args={[0.5, 0.5, 3]} />
-      <meshStandardMaterial color="darkgreen" />
-    </mesh>
-  );
+// Tentacle component - PURPLE tentacles emerging from water and reaching UP!
+const Tentacle = ({ start, end }) => {
+  // Safety check for undefined end position
+  if (!end || !Array.isArray(end) || end.length < 2) {
+    return null;
+  }
+  
+  // Start at water surface (y = 0)
+  const startAdj = [end[0] - GRID_SIZE/2, 0, end[1] - GRID_SIZE/2];
+  // End point high in the air (y = 15)
+  const endAdj = [end[0] - GRID_SIZE/2, 15, end[1] - GRID_SIZE/2];
+  // Mid-point for nice curve
+  const midRef = useRef([startAdj[0], 8, startAdj[2]]);
+  const lineRef = useRef();
+  
+  useFrame(({ clock }) => {
+    const time = clock.getElapsedTime();
+    const wave = Math.sin(time * 2 + (start[0] + start[1])) * 2;
+    const sway = Math.cos(time * 1.5 + (start[0] + start[1])) * 1.5;
+    // Animate mid-point for writhing effect
+    midRef.current[1] = 8 + wave;
+    midRef.current[0] = startAdj[0] + sway;
+    midRef.current[2] = startAdj[2] + sway * 0.7;
+    if (lineRef.current) {
+      lineRef.current.points = [startAdj, midRef.current, endAdj];
+      lineRef.current.geometry.setPositions(lineRef.current.points.flat());
+    }
+  });
+
+  const points = [startAdj, midRef.current, endAdj];
+  return <Line ref={lineRef} points={points} color="purple" lineWidth={5} />;
 };
 
 const StatusPanel = ({ ships, kraken }) => {
@@ -91,26 +116,63 @@ const StatusPanel = ({ ships, kraken }) => {
   );
 };
 
-export default function PirateShip() {
-  const [state, setState] = useState(null);
+export default function KrakenGame() {
+  const initialState = {
+    ships: Array(4).fill().map(() => ({ pos: [Math.random() * 200, Math.random() * 200], health: 100 })),
+    kraken: { pos: [100, 100], health: 500 },
+    tentacles: Array(6).fill().map(() => [Math.random() * 200, Math.random() * 200]),
+    grid_size: 200
+  };
+  const [state, setState] = useState(initialState);
   const [running, setRunning] = useState(false);
   const [training, setTraining] = useState(false);
   const [trained, setTrained] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
   const { isMobile } = useResponsive();
+
+  const addLog = (txt) => {
+    setLogs((l) => {
+      const upd = [...l, txt];
+      return upd.length > 200 ? upd.slice(upd.length - 200) : upd;
+    });
+  };
+
+  const resetTraining = () => {
+    setTraining(false);
+    setTrained(false);
+    setChartState({ labels: [], rewards: [], losses: [] });
+    setState(initialState);
+    addLog('Training has been reset.');
+  };
 
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
+    ws.onopen = () => addLog('WS opened');
     ws.onmessage = (ev) => {
-      const parsed = JSON.parse(ev.data);
+      addLog(ev.data);
+      let parsed;
+      try {
+        parsed = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
       if (parsed.type === 'train_step' || parsed.type === 'run_step') {
         setState(parsed.state);
+      } else if (parsed.type === 'progress') {
+        setChartState((prev) => ({
+          labels: [...prev.labels, parsed.episode],
+          rewards: [...prev.rewards, parsed.reward],
+          losses: [...prev.losses, parsed.loss ?? null],
+        }));
       } else if (parsed.type === 'trained') {
         setTraining(false);
         setTrained(true);
       }
     };
+    ws.onclose = () => addLog('WS closed');
     return () => ws.close();
   }, []);
 
@@ -121,11 +183,14 @@ export default function PirateShip() {
   };
 
   const startTraining = () => {
+    if (training || trained) return;
     setTraining(true);
+    addLog('Starting training...');
     send({ cmd: 'train' });
   };
 
   const startRun = () => {
+    if (!trained) return;
     setRunning(true);
     send({ cmd: 'run' });
   };
@@ -146,7 +211,7 @@ export default function PirateShip() {
         {state && <Kraken position={state.kraken.pos} health={state.kraken.health} />}
         
         {state && state.tentacles.map((tentacle, i) => (
-          <Tentacle key={i} position={tentacle} />
+          <Tentacle key={i} start={state.kraken.pos} end={tentacle} />
         ))}
 
         <EffectComposer>
@@ -160,7 +225,9 @@ export default function PirateShip() {
         <Text h1>Pirate Ship vs Kraken</Text>
         <Button type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
         <Button type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
+        {trained && <Button type="error" onClick={resetTraining}>Reset</Button>}
       </div>
+      <InfoPanel logs={logs} chartState={chartState} />
       
       {state && (
         <div style={{ position: 'absolute', top: 10, right: 10, zIndex: 1 }}>

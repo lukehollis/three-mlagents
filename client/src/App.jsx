@@ -20,7 +20,7 @@ import SimCityDeckGLExample from './examples/SimCityDeckGL.jsx';
 import FishExample from './examples/Fish.jsx';
 import IntersectionExample from './examples/Intersection.jsx';
 import SelfDrivingCarExample from './examples/SelfDrivingCar.jsx';
-import PirateShip from './examples/PirateShip.jsx';
+import KrakenGame from './examples/KrakenGame.jsx';
 
 export default function App() {
   return (
@@ -68,7 +68,7 @@ export default function App() {
         <Route path="/fish" element={<FishExample />} />
         <Route path="/intersection" element={<IntersectionExample />} />
         <Route path="/self-driving-car" element={<SelfDrivingCarExample />} />
-        <Route path="/pirate-ship" element={<PirateShip />} />
+        <Route path="/kraken" element={<KrakenGame />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
