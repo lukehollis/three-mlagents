@@ -17,7 +17,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 # Constants
 GRID_SIZE = 200  # Water grid size
 NUM_SHIPS = 4  # Number of pirate ships (agents)
-NUM_TENTACLES = 6  # Kraken tentacles
+NUM_TENTACLES = 10  # Kraken tentacles
 REWARD_DAMAGE_KRAKEN = 50.0
 REWARD_SURVIVE = 1.0
 PENALTY_DAMAGE = -20.0
@@ -46,7 +46,7 @@ class PirateShipEnv(gym.Env):
         self.tentacle_offsets = np.zeros((NUM_TENTACLES, 2))
         for i in range(NUM_TENTACLES):
             angle = np.random.uniform(0, 2 * np.pi)
-            dist = np.random.uniform(0, 5)
+            dist = np.random.uniform(0, 1)
             self.tentacle_offsets[i] = [dist * np.cos(angle), dist * np.sin(angle)]
         self.tentacle_positions = self.kraken_position[None, :] + self.tentacle_offsets
         return self._get_obs(), {}
@@ -129,9 +129,10 @@ class PirateShipEnv(gym.Env):
         }
 
 class WebSocketCallback(BaseCallback):
-    def __init__(self, websocket, verbose=0):
+    def __init__(self, websocket, loop, verbose=0):
         super().__init__(verbose)
         self.websocket = websocket
+        self.loop = loop
         self.episode_rewards = []
         self.episode_lengths = []
 
@@ -139,7 +140,9 @@ class WebSocketCallback(BaseCallback):
         # Send state every few steps
         if self.n_calls % 10 == 0:
             state = self.training_env.get_attr("get_state_for_viz")[0]()
-            asyncio.run(self.websocket.send_json({"type": "train_step", "state": state}))
+            asyncio.run_coroutine_threadsafe(
+                self.websocket.send_json({"type": "train_step", "state": state}), self.loop
+            )
 
         # Collect rewards from all envs
         for i in range(self.training_env.num_envs):
@@ -152,20 +155,23 @@ class WebSocketCallback(BaseCallback):
         if self.episode_rewards:
             avg_reward = np.mean(self.episode_rewards)
             avg_length = np.mean(self.episode_lengths)
-            asyncio.run(self.websocket.send_json({
+            asyncio.run_coroutine_threadsafe(self.websocket.send_json({
                 "type": "progress",
                 "episode": self.num_timesteps // 1000,  # Approximate episode count
                 "reward": float(avg_reward),
                 "loss": 0.0  # Placeholder, as SB3 doesn't directly provide loss here; can be extended if needed
-            }))
+            }), self.loop)
             self.episode_rewards = []
             self.episode_lengths = []
 
 async def train_pirate_ship(websocket: WebSocket):
+    loop = asyncio.get_running_loop()
     env = make_vec_env(PirateShipEnv, n_envs=8)
     model = PPO("MlpPolicy", env, verbose=1)
-    callback = WebSocketCallback(websocket)
-    model.learn(total_timesteps=100000, callback=callback)
+    callback = WebSocketCallback(websocket, loop)
+    await loop.run_in_executor(
+        None, lambda: model.learn(total_timesteps=100000, callback=callback)
+    )
     model.save("pirate_ship_policy")
     await websocket.send_json({"type": "trained"})
 

@@ -67,7 +67,7 @@ const Kraken = ({ position, health }) => {
       <sphereGeometry args={[5, 32, 32]} />
       <meshStandardMaterial color="purple" />
       <DreiText position={[0, 6, 0]} fontSize={1} color="white">
-        Kraken Health: {health}
+        Kraken: {health}
       </DreiText>
     </mesh>
   );
@@ -131,16 +131,18 @@ const generateTentacleGeometry = (pathPoints) => {
   return geometry;
 };
 
-// Tentacle component - PURPLE tentacles emerging from water and reaching UP!
+// Tentacle component - Tentacles that come DOWN from the kraken and then UP out of the water!
 const Tentacle = ({ start, end }) => {
   if (!end || !Array.isArray(end) || end.length < 2) {
     return null;
   }
 
-  const base = [start[0] - GRID_SIZE/2, 0, start[1] - GRID_SIZE/2];
-  const tip = [end[0] - GRID_SIZE/2, 15, end[1] - GRID_SIZE/2];
-  const mid1Ref = useRef([base[0], 5, base[2]]);
-  const mid2Ref = useRef([base[0], 10, base[2]]);
+  const base = [start[0] - GRID_SIZE/2, 1, start[1] - GRID_SIZE/2]; // Start at Kraken body
+  const tip = [end[0] - GRID_SIZE/2, 5, end[1] - GRID_SIZE/2]; // Emerge from water at target
+  
+  const mid1Ref = useRef([base[0], -5, base[2]]); // Control point deep under kraken
+  const mid2Ref = useRef([tip[0], -5, tip[2]]);   // Control point deep under target
+  
   const meshRef = useRef();
 
   useFrame(({ clock }) => {
@@ -148,13 +150,14 @@ const Tentacle = ({ start, end }) => {
     const wave = Math.sin(time * 2 + (start[0] + start[1])) * 2;
     const sway = Math.cos(time * 1.5 + (start[0] + start[1])) * 3;
 
+    // Animate control points for writhing motion
     mid1Ref.current[0] = base[0] + sway * 0.5;
     mid1Ref.current[2] = base[2] + sway * 0.3;
-    mid1Ref.current[1] = 5 + wave;
+    mid1Ref.current[1] = -5 + wave;
 
-    mid2Ref.current[0] = base[0] + sway;
-    mid2Ref.current[2] = base[2] + sway * 0.7;
-    mid2Ref.current[1] = 10 + wave * 0.5;
+    mid2Ref.current[0] = tip[0] - sway;
+    mid2Ref.current[2] = tip[2] - sway * 0.7;
+    mid2Ref.current[1] = -5 + wave * 0.5;
 
     const pathPoints = [base, mid1Ref.current, mid2Ref.current, tip];
     const geom = generateTentacleGeometry(pathPoints);

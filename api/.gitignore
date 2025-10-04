@@ -93,3 +93,4 @@ policies/*.pth.tar
 *.log
 cache
 *tensorboard*
+*.zip
