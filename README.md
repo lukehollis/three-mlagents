@@ -12,7 +12,8 @@
 
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples. Test out the [Live Demos](https://lukehollis.github.io/three-mlagents/).
 
-![threejs_mlagents_overview](https://github.com/user-attachments/assets/933f8214-552d-4241-a726-f40ce4d765ff)
+
+![three_mlagents](https://github.com/user-attachments/assets/0589bada-85b7-4580-946a-99469e2b9b8e)
 
 
 
