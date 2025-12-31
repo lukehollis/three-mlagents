@@ -34,12 +34,13 @@ export default function EquationPanel({ equation, description, collapsed }) {
         width: isMobile ? 'calc(100vw - 54px)' : '45%',
         background: 'rgba(0,0,0,0.95)',
         color: '#fff',
-        padding: '12px 16px',
+        padding: '12px 16px 12px 16px',
         fontSize: isMobile ? 12 : 14,
-        borderRadius: '8px',
-        border: '1px solid rgba(255,255,255,0.2)',
+        borderRadius: 0,
+        border: '1px solid #333',
         zIndex: 10,
         overflow: 'hidden',
+        fontFamily: 'monospace'
       }}
     >
       <Button

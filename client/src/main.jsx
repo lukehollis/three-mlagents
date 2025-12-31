@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { GeistProvider, CssBaseline } from '@geist-ui/core';
 import { Provider } from 'react-redux';
@@ -9,7 +8,7 @@ import store from './store.js';
 const container = document.getElementById('root');
 createRoot(container).render(
   <Provider store={store}>
-    <GeistProvider>
+    <GeistProvider themeType="dark">
       <CssBaseline />
       <App />
     </GeistProvider>

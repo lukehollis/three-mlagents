@@ -36,10 +36,10 @@ export default function InfoPanel({ chartState, logs }) {
       <div
         style={{
           height: '180px',
-          background: 'rgba(0,0,0,0.6)',
+          background: 'rgba(0,0,0,0.8)',
           padding: 4,
-          borderRadius: '8px',
-          border: '1px solid rgba(255,255,255,0.2)',
+          borderRadius: 0,
+          border: '1px solid #333',
           position: 'relative',
         }}
       >

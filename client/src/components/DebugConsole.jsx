@@ -24,7 +24,7 @@ export default function DebugConsole({ logs }) {
         fontFamily: 'monospace',
         fontSize: isMobile ? 8 : 10,
         padding: '8px',
-        borderRadius: '8px',
+        borderRadius: '0',
         border: '1px solid rgba(255,255,255,0.2)',
       }}
     >
