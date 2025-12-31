@@ -153,7 +153,7 @@ export default function ExamplesIndex() {
             fontWeight: 700,
             textTransform: 'uppercase',
             fontFamily: '"Orbitron", "Roboto Mono", monospace'
-          }}>Three ML-Agents Examples</Text>
+          }}>Three ML-Agents</Text>
           <Text p style={{ color: '#aaa', maxWidth: '600px', margin: 'auto', fontFamily: '"Roboto Mono", monospace', fontSize: '0.9rem' }}>
             Interactive reinforcement learning environments in the browser. Learn more about the project and fork on <a href="https://github.com/lukehollis/three-mlagents" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'underline' }}>GitHub</a>. Built by <a href="https://github.com/lukehollis" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'underline' }}>Luke Hollis</a>.
           </Text>
