@@ -62,7 +62,7 @@ Select demos are here.
 [Live demo](https://lukehollis.github.io/three-mlagents/self-driving-car)
 
 
-### Labyrinth
+### Labyrinth (NetHack)
 
 ![labyrinth_example](https://github.com/user-attachments/assets/39a2fe92-d279-4d23-a816-9c2a76e538b6)
 
@@ -83,21 +83,41 @@ Select demos are here.
 | Bicycle                        | [Live Demo](https://lukehollis.github.io/three-mlagents/bicycle)   |
 | Intersection                   | [Live Demo](https://lukehollis.github.io/three-mlagents/intersection) |
 
+
+## Three ML-Agents 
+
+The library in Python+threejs should migrate easily matching from the previous ML-Agents if you're familiar with those examples.
+
+| Feature | Status | Notes |
+| :--- | :--- | :--- |
+| **Vector Observations** | ✅ Stable | Standard numeric observations supported. |
+| **Visual Observations** | ✅ Beta | `CameraSensor` implemented. Warning: Uses Base64/JSON (Prototype efficiency). |
+| **Ray Perception** | ✅ Stable | `RayPerceptionSensor` simulates Lidar/Raycasts including tag detection. |
+| **Side Channels** | ✅ Stable | Support for `EngineConfiguration` (timescale), `Stats` (logging), and `EnvironmentParameters`. |
+| **Decision Requester** | ✅ Stable | Agents can request decisions at customized intervals (skip-frames). |
+
+**Architecture Note**:
+The migration uses bridge from Python to Javascript:
+*   **Python**: `api/mlagents_bridge` (Standalone env compatible with `mlagents-envs`).
+*   **JavaScript**: `client/src/libs/ml-agents` (Modular Agent/Academy/Sensor architecture).
+
+---
+
 ## Project layout
 
 ```
 three-mlagents/
 │
 ├─ client/         ← Vite + React + Three.js front-end (examples live here)
-│   └─ src/examples
-│       ├─ Index.jsx  ← landing page listing all examples
-│       └─ Basic.jsx  ← 1-D "move-to-goal" environment matching Unity Basic
+│   ├─ src/examples
+│   │   ├─ Index.jsx  ← landing page listing all examples
+│   │   └─ Basic.jsx  ← 1-D "move-to-goal" environment matching Unity Basic
+│   └─ src/libs/ml-agents  ← New JS Client SDK (Academy, Agent, Sensors)
 │
 ├─ api/            ← FastAPI micro-service (Python ≥3.9)
+│   ├─ mlagents_bridge/    ← New Python Environment Bridge
 │   ├─ main.py      ← gym-style REST API for each environment
 │   └─ requirements.txt
-│
-└─ ml-agents/      ← Upstream Unity project kept for reference only (no build step)
 ```
 
 You only need **client** and **api** to run the demos. The `ml-agents` directory remains untouched so you can cross-reference the original C#/Unity code (see `Examples/Basic/Scripts/BasicController.cs` for this particular demo).

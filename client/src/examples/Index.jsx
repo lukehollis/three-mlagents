@@ -67,7 +67,7 @@ const examples = [
     link: "/bicycle"
   },
   {
-    title: "Labyrinth",
+    title: "Labyrinth (NetHack)",
     description: "Theseus must escape the labyrinth before the Minotaur finds him.",
     image: "/three-mlagents/labyrinth_example.jpg",
     link: "/labyrinth"
