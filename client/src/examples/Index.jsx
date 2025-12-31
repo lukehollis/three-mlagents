@@ -43,6 +43,12 @@ const examples = [
     link: "/fish"
   },
   {
+    title: "Simulants",
+    description: "Build simulated worlds with intelligent agents, animals, and other characters.",
+    image: "/three-mlagents/simulants_dev.jpg",
+    link: "https://simulants.dev"
+  },
+  {
     title: "BrickBreak",
     description: "Destroy all the bricks with a ball and paddle.",
     image: "/three-mlagents/brick_break_example.jpg",
@@ -130,16 +136,16 @@ export default function ExamplesIndex() {
       <TronBackground />
 
       <Layout>
-        <div style={{ 
-          backgroundColor: 'transparent', 
-          position: 'relative', 
-          zIndex: 1, 
-          padding: isXs ? '1.5rem 0 1rem' : '3rem 1rem 1rem', 
-          textAlign: 'center' 
+        <div style={{
+          backgroundColor: 'transparent',
+          position: 'relative',
+          zIndex: 1,
+          padding: isXs ? '1.5rem 0 1rem' : '3rem 1rem 1rem',
+          textAlign: 'center'
         }}>
-          <Text h1 style={{ 
-            color: '#fff', 
-            marginBottom: '1rem', 
+          <Text h1 style={{
+            color: '#fff',
+            marginBottom: '1rem',
             textShadow: '0 0 20px rgba(255, 255, 255, 0.2)',
             fontSize: isXs ? '1.8rem' : '2.5rem',
             lineHeight: isXs ? '2.4rem' : '3rem',
@@ -152,7 +158,7 @@ export default function ExamplesIndex() {
             Interactive reinforcement learning environments in the browser. Learn more about the project and fork on <a href="https://github.com/lukehollis/three-mlagents" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'underline' }}>GitHub</a>. Built by <a href="https://github.com/lukehollis" target="_blank" rel="noopener noreferrer" style={{ color: '#fff', textDecoration: 'underline' }}>Luke Hollis</a>.
           </Text>
         </div>
-        
+
         <div style={{ backgroundColor: 'transparent', position: 'relative', zIndex: 1 }}>
           <Grid.Container gap={isXs ? 1.5 : 2} justify="center">
             {examples.map((example) => (
