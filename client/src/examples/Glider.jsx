@@ -453,7 +453,6 @@ export default function GliderExample() {
             color: '#fff',
             textShadow: '0 0 4px #000',
             zIndex: 1,
-            zIndex: 1,
           }}
         >
           <HomeButton />
