@@ -43,7 +43,8 @@
     "redux": "^4.2.1",
     "redux-thunk": "^2.4.2",
     "styled-components": "^5.3.11",
-    "three": "^0.161.0"
+    "three": "^0.161.0",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.0",

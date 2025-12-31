@@ -1,0 +1,19 @@
+[project]
+name = "api"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.128.0",
+    "numpy>=2.4.0",
+    "onnx>=1.20.0",
+    "onnxruntime>=1.23.2",
+    "python-multipart>=0.0.21",
+    "shimmy[gym-v21]>=2.0.0",
+    "stable-baselines3[extra]>=2.7.1",
+    "tensorboard>=2.20.0",
+    "torch>=2.9.1",
+    "uvicorn>=0.40.0",
+    "websockets>=15.0.1",
+]
