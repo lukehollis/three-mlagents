@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid, Capsule } from '@react-three/drei';
+import { OrbitControls, Grid, Capsule, Stars } from '@react-three/drei';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { Button, Text } from '@geist-ui/core';
-import { Link } from 'react-router-dom';
+import HomeButton from '../components/HomeButton.jsx';
 import * as THREE from 'three';
 import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
@@ -49,7 +50,7 @@ const WormSegment = ({ segment, isHead }) => {
         {/* Apply the conditional offset. */}
         <group position={positionOffset}>
           <Capsule args={[radius, cylinderLength, 16]}>
-            <meshStandardMaterial color="#00aaff" />
+            <meshStandardMaterial color="#00aaff" emissive="#00aaff" emissiveIntensity={1.5} toneMapped={false} />
           </Capsule>
       
           {/* Head decorations are positioned relative to the capsule's center. */}
@@ -58,7 +59,7 @@ const WormSegment = ({ segment, isHead }) => {
             <group position={[0, halfLength -0.3, 0]}>
               <mesh rotation={[Math.PI / 2, 0, 0]}>
                 <torusGeometry args={[radius + 0.01, 0.03, 8, 32]} />
-                <meshStandardMaterial color="#ffaa00" emissive="#331100" />
+                <meshStandardMaterial color="#ffaa00" emissive="#ffaa00" emissiveIntensity={2} toneMapped={false} />
               </mesh>
             </group>
           )}
@@ -76,7 +77,7 @@ export default function WormExample() {
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
-  const [homeHover, setHomeHover] = useState(false);
+
   const { isMobile } = useResponsive();
 
   const addLog = (txt) => {
@@ -153,7 +154,7 @@ export default function WormExample() {
         height: '100vh',
         overflow: 'hidden',
         outline: 'none',
-        background: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
+        background: '#000011',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -162,7 +163,7 @@ export default function WormExample() {
         <Canvas camera={{ position: [0, 4, 8], fov: 50 }} style={{ background: 'transparent', width: '100vw', height: '100vh', overflow: 'hidden' }}>
           <ambientLight intensity={0.5} />
           <directionalLight position={[5, 10, 5]} intensity={1.5} />
-          <Grid args={[48, 48]} cellSize={1} fadeDistance={25} />
+          <Grid args={[48, 48]} cellSize={1} fadeDistance={25} cellColor="#202020" sectionColor="#4488ff" sectionThickness={1} />
 
           {/* Worm body visualisation */}
           <group>
@@ -171,7 +172,12 @@ export default function WormExample() {
             ))}
           </group>
           
+          
           <OrbitControls target={[0, 0.5, 0]} enablePan enableRotate enableZoom />
+          <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
+          <EffectComposer disableNormalPass>
+            <Bloom luminanceThreshold={1} mipmapBlur intensity={1.5} radius={0.6} />
+          </EffectComposer>
         </Canvas>
 
         {/* UI overlay */}
@@ -185,27 +191,14 @@ export default function WormExample() {
             zIndex: 1,
           }}
         >
-          <Link
-            to="/"
-            style={{
-              fontFamily: 'monospace',
-              color: '#fff',
-              textDecoration: homeHover ? 'none' : 'underline',
-              display: 'inline-block',
-              fontSize: isMobile ? '12px' : '14px',
-            }}
-            onMouseEnter={() => setHomeHover(true)}
-            onMouseLeave={() => setHomeHover(false)}
-          >
-            Home
-          </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          <HomeButton />
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Worm
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-            <Button auto type="success" disabled={!trained} onClick={startRun}>Run</Button>
-            {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
+            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
+            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained} onClick={startRun}>Run</Button>
+            {trained && <Button auto type="error" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} onClick={resetTraining}>Reset</Button>}
           </div>
           <ModelInfoPanel modelInfo={modelInfo} />
         </div>

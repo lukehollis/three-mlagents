@@ -43,12 +43,6 @@ const examples = [
     link: "/fish"
   },
   {
-    title: "THE KRAKEN",
-    description: "Pirate ships versus Kraken",
-    image: "/three-mlagents/kraken_example.jpg",
-    link: "/kraken"
-  },
-  {
     title: "BrickBreak",
     description: "Destroy all the bricks with a ball and paddle.",
     image: "/three-mlagents/brick_break_example.jpg",

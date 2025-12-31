@@ -7,6 +7,7 @@ import InfoPanel from '../components/InfoPanel.jsx';
 import * as THREE from 'three';
 import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
+import HomeButton from '../components/HomeButton.jsx';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/kraken`;
@@ -286,9 +287,11 @@ export default function KrakenGame() {
         <OrbitControls maxDistance={200} minDistance={20} maxPolarAngle={Math.PI / 2} />
       </Canvas>
 
-      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
-        <Link to="/">Home</Link>
-        <Text h1>The Kraken</Text>
+        <div style={{position: 'absolute', top: 10, left: 10, zIndex: 10}}>
+             <HomeButton />
+             <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
+                THE KRAKEN
+             </Text>
         <div style={{ display: "flex", gap: "4px" }}>
           <Button type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
           <Button type="success" disabled={!trained || running} onClick={startRun}>Run</Button>

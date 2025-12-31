@@ -9,6 +9,7 @@ import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import HomeButton from '../components/HomeButton.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/fish`;
 
@@ -511,7 +512,7 @@ const EnergyPanel = ({ agents }) => {
             background: 'rgba(0,0,0,0.5)', 
             color: '#fff',
             border: '1px solid #4488ff',
-            borderRadius: '8px',
+            borderRadius: '0px',
         }}>
             <Text h4 style={{ padding: '4px 8px 0', margin: 0, position: 'sticky', top: 0, background: 'rgba(0,0,0,0.5)', color: '#fff' }}>Fish Energy</Text>
             <div style={{padding: '4px 8px'}}>
@@ -644,15 +645,13 @@ export default function FishExample() {
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
-        <Link to="/" style={{ fontFamily: 'monospace', color: '#fff', textDecoration: 'underline' }}>
-          Home
-        </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+        <HomeButton />
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Fish
           </Text>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-          <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
+          <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
+          <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained || running} onClick={startRun}>Run</Button>
           {/* <Button auto type="error" onClick={reset}>Reset </Button> */}
         </div>
       </div>

@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid } from '@react-three/drei';
+import { OrbitControls, Grid, Stars } from '@react-three/drei';
 import { Button, Text, useMediaQuery } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
 import config from '../config.js';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import 'katex/dist/katex.min.css';
 import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import HomeButton from '../components/HomeButton.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
 // WebSocket endpoint – exposed by crawler2.py routes (assumed to be /ws/ant)
@@ -113,14 +115,18 @@ export default function AntExample() {
         <Canvas camera={{ position: [5, 5, 5], fov: 60 }} style={{ background: 'transparent' }}>
           <ambientLight intensity={0.5} />
           <directionalLight position={[10, 10, 5]} intensity={1} castShadow />
-          <Grid args={[24, 24]} cellSize={1} />
+          <Grid args={[24, 24]} cellSize={1} cellColor="#202020" sectionColor="#4488ff" sectionThickness={1} fadeDistance={30} />
+          <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
+          <EffectComposer disableNormalPass>
+            <Bloom luminanceThreshold={1} mipmapBlur intensity={1.5} radius={0.6} />
+          </EffectComposer>
 
           {/* Ant body visualisation */}
           <group position={threePos} quaternion={threeQuat}>
             {/* Torso */}
             <mesh>
               <sphereGeometry args={[0.25, 16, 12]} />
-              <meshStandardMaterial color="#00aaff" />
+              <meshStandardMaterial color="#00aaff" emissive="#00aaff" emissiveIntensity={2} toneMapped={false} />
             </mesh>
             {/* Four legs (simple two-link rendering) */}
             {Array.from({ length: 4 }).map((_, i) => {
@@ -141,12 +147,12 @@ export default function AntExample() {
                       {/* upper */}
                       <mesh position={[0, -upperLen / 2, 0]}>
                         <cylinderGeometry args={[0.05, 0.05, upperLen, 8]} />
-                        <meshStandardMaterial color="#ffaa00" />
+                        <meshStandardMaterial color="#ffaa00" emissive="#ffaa00" emissiveIntensity={1} toneMapped={false} />
                       </mesh>
                       <group position={[0, -upperLen, 0]} rotation={[kneeAngle, 0, 0]}>
                         <mesh position={[0, -lowerLen / 2, 0]}>
                           <cylinderGeometry args={[0.05, 0.05, lowerLen, 8]} />
-                          <meshStandardMaterial color="#ffdd55" />
+                          <meshStandardMaterial color="#ffdd55" emissive="#ffdd55" emissiveIntensity={1} toneMapped={false} />
                         </mesh>
                       </group>
                     </group>
@@ -159,16 +165,14 @@ export default function AntExample() {
           <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
         </Canvas>
         <div style={{ position: 'absolute', top: 10, left: 10, color: '#fff', textShadow: '0 0 4px #000', zIndex: 1 }}>
-          <Link to="/" style={{ fontFamily: 'monospace', color: '#fff', textDecoration: homeHover ? 'none' : 'underline', display: 'inline-block', fontSize: isMobile ? '12px' : '14px' }} onMouseEnter={() => setHomeHover(true)} onMouseLeave={() => setHomeHover(false)}>
-            Home
-          </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          <HomeButton />
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Ant (Crawler)
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-            <Button auto type="success" disabled={!trained} onClick={startRun}>Run</Button>
-            {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
+            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
+            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained} onClick={startRun}>Run</Button>
+            {trained && <Button auto type="error" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} onClick={resetTraining}>Reset</Button>}
           </div>
           <ModelInfoPanel modelInfo={modelInfo} />
         </div>

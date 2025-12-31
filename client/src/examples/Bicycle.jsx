@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, Box, Cylinder, Stars, Plane, Grid } from '@react-three/drei';
 import { Button, Text } from '@geist-ui/core';
-import { Link } from 'react-router-dom';
+import HomeButton from '../components/HomeButton.jsx';
 import * as THREE from 'three';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import config from '../config.js';
@@ -81,7 +81,7 @@ export default function BicycleExample() {
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
-  const [homeHover, setHomeHover] = useState(false);
+
   const { isMobile } = useResponsive();
   const cameraRef = useRef();
 
@@ -190,27 +190,14 @@ export default function BicycleExample() {
             zIndex: 1,
           }}
         >
-          <Link
-            to="/"
-            style={{
-              fontFamily: 'monospace',
-              color: '#fff',
-              textDecoration: homeHover ? 'none' : 'underline',
-              display: 'inline-block',
-              fontSize: isMobile ? '12px' : '14px',
-            }}
-            onMouseEnter={() => setHomeHover(true)}
-            onMouseLeave={() => setHomeHover(false)}
-          >
-            Home
-          </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          <HomeButton />
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Bicycle
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-            <Button auto type="success" disabled={!trained} onClick={startRun}>Run</Button>
-            {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
+            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
+            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained} onClick={startRun}>Run</Button>
+            {trained && <Button auto type="error" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} onClick={resetTraining}>Reset</Button>}
           </div>
           <ModelInfoPanel modelInfo={modelInfo} />
         </div>

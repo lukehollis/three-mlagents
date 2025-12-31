@@ -31,7 +31,7 @@ const MessagePanel = ({
     color: '#fff',
     border: '1px solid #444',
     padding: '16px',
-    borderRadius: '5px',
+    borderRadius: '0px',
     ...style
   };
 
@@ -68,7 +68,7 @@ const MessagePanel = ({
               marginBottom: '12px', 
               padding: '8px', 
               background: 'rgba(255,255,255,0.05)', 
-              borderRadius: '4px', 
+              borderRadius: '0px', 
               fontSize: '12px' 
             }}
           >

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Stars, Grid } from '@react-three/drei';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import config from '../config.js';
 import 'katex/dist/katex.min.css';
 import { Text, Button } from '@geist-ui/core';
@@ -8,7 +9,7 @@ import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
-import { Link } from 'react-router-dom';
+import HomeButton from '../components/HomeButton.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
 const ROWS = 3;
@@ -22,12 +23,12 @@ function PlatformAndBall({ state, position }) {
       {/* Platform cuboid */}
       <mesh position={[0, 0, 0]}>
         <boxGeometry args={[6, 0.5, 6]} />
-        <meshStandardMaterial color="#3da8ff" />
+        <meshStandardMaterial color="#3da8ff" emissive="#3da8ff" emissiveIntensity={0.5} toneMapped={false} />
       </mesh>
       {/* Ball */}
       <mesh position={[ballX, 0.75, ballZ]}>
         <sphereGeometry args={[0.5, 32, 32]} />
-        <meshStandardMaterial color="#dddddd" metalness={0.6} roughness={0.3} />
+        <meshStandardMaterial color="#dddddd" emissive="#ffffff" emissiveIntensity={0.8} metalness={0.6} roughness={0.3} toneMapped={false} />
       </mesh>
     </group>
   );
@@ -46,7 +47,7 @@ export default function Ball3DExample() {
   const intervalRef = useRef(null);
 
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
-  const [homeHover, setHomeHover] = useState(false);
+
   const { isMobile } = useResponsive();
 
   const envRef = useRef({ rotX: 0, rotZ: 0, ballX: 0, ballZ: 0, velX: 0, velZ: 0 });
@@ -208,7 +209,7 @@ export default function Ball3DExample() {
         height: '100vh',
         overflow: 'hidden',
         outline: 'none',
-        background: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
+        background: '#000011',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -239,6 +240,10 @@ export default function Ball3DExample() {
           ))}
 
           <OrbitControls target={[0, 0, 0]} enablePan enableRotate enableZoom />
+          <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
+          <EffectComposer disableNormalPass>
+            <Bloom luminanceThreshold={1} mipmapBlur intensity={1.5} radius={0.6} />
+          </EffectComposer>
         </Canvas>
 
         {/* UI overlay */}
@@ -254,28 +259,15 @@ export default function Ball3DExample() {
         >
 
           {/* Home link */}
-          <Link
-            to="/"
-            style={{
-              fontFamily: 'monospace',
-              color: '#fff',
-              textDecoration: homeHover ? 'none' : 'underline',
-              display: 'inline-block',
-              fontSize: isMobile ? '12px' : '14px',
-            }}
-            onMouseEnter={() => setHomeHover(true)}
-            onMouseLeave={() => setHomeHover(false)}
-          >
-            Home
-          </Link>
+          <HomeButton />
 
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Ball 3D
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-            <Button auto type="success" disabled={!trained || autoRun} onClick={startRun}>Run</Button>
-            {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>}
+            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
+            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained || autoRun} onClick={startRun}>Run</Button>
+            {trained && <Button auto type="error" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} onClick={resetTraining}>Reset</Button>}
           </div>
 
           <ModelInfoPanel modelInfo={modelInfo} />

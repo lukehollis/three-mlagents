@@ -4,6 +4,7 @@ import { OrbitControls, Text as DreiText } from '@react-three/drei';
 import * as THREE from 'three';
 import { Button, Text, Card, Code } from '@geist-ui/core';
 import { Link } from 'react-router-dom';
+import HomeButton from '../components/HomeButton.jsx';
 import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
@@ -183,7 +184,7 @@ const FeatureImportancePanel = ({ chartData }) => {
         }}>
             <Text p style={{ margin: 0, fontWeight: 'bold', fontSize: '12px', paddingBottom: '8px' }}>
                 <span style={codeStyle}>[Step {step}] Agent {agentId}</span>
-                {action && <span style={{ color: '#fff', marginLeft: '8px', background: '#333', padding: '2px 6px', borderRadius: '4px' }}>{action}</span>}
+                {action && <span style={{ color: '#fff', marginLeft: '8px', background: '#333', padding: '2px 6px', borderRadius: '0px' }}>{action}</span>}
             </Text>
             <FeatureImportanceChart data={data} />
         </Card>
@@ -214,7 +215,7 @@ const FeatureImportanceChart = ({ data }) => {
                             width: `${percentage}%`,
                             background: barColor,
                             height: '14px',
-                            borderRadius: '2px',
+                            borderRadius: '0px',
                             transition: 'width 0.3s ease-in-out',
                             minWidth: '1px'
                         }} />
@@ -414,22 +415,11 @@ export default function SelfDrivingCarExample() {
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
-        <Link
-          to="/"
-          style={{
-            fontFamily: 'monospace',
-            color: '#fff',
-            textDecoration: 'underline',
-            display: 'inline-block',
-            fontSize: isMobile ? '12px' : '14px',
-          }}
-        >
-          Home
-        </Link>
-        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Self-Driving Car (Interpretability)</Text>
+        <HomeButton />
+        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>Self-Driving Car (Interpretability)</Text>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" disabled={training || running} onClick={startTraining}>Train</Button>
-          <Button auto type="success" disabled={training || running || !trained} onClick={startRun}>Run</Button>
+          <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running} onClick={startTraining}>Train</Button>
+          <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running || !trained} onClick={startRun}>Run</Button>
         </div>
       </div>
       

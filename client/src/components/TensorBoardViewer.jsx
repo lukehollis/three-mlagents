@@ -117,7 +117,7 @@ export default function TensorBoardViewer({ height = '300px' }) {
           height,
           background: 'rgba(0,0,0,0.6)',
           padding: '20px',
-          borderRadius: '8px',
+          borderRadius: '0px',
           border: '1px solid rgba(255,255,255,0.2)',
           display: 'flex',
           flexDirection: 'column',
@@ -142,7 +142,7 @@ export default function TensorBoardViewer({ height = '300px' }) {
           height,
           background: 'rgba(0,0,0,0.6)',
           padding: '20px',
-          borderRadius: '8px',
+          borderRadius: '0px',
           border: '1px solid rgba(255,255,255,0.2)',
           display: 'flex',
           flexDirection: 'column',
@@ -163,7 +163,7 @@ export default function TensorBoardViewer({ height = '300px' }) {
       style={{
         height,
         background: 'rgba(0,0,0,0.6)',
-        borderRadius: '8px',
+        borderRadius: '0px',
         border: '1px solid rgba(255,255,255,0.2)',
         position: 'relative',
         overflow: 'hidden',
@@ -188,7 +188,7 @@ export default function TensorBoardViewer({ height = '300px' }) {
           width: '100%',
           height: '100%',
           border: 'none',
-          borderRadius: '8px',
+          borderRadius: '0px',
         }}
         title="TensorBoard"
       />

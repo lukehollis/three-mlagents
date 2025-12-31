@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Text, Progress, Card } from '@geist-ui/core';
-import { Link } from 'react-router-dom';
+import HomeButton from '../components/HomeButton.jsx';
 import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import 'katex/dist/katex.min.css';
@@ -58,7 +58,7 @@ export default function LabyrinthExample() {
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const wsRef = useRef(null);
-  const [homeHover, setHomeHover] = useState(false);
+
   const { isMobile } = useResponsive();
   const [fontSize, setFontSize] = useState(20);
   const [totalTimesteps, setTotalTimesteps] = useState(0);
@@ -203,26 +203,13 @@ export default function LabyrinthExample() {
             zIndex: 1,
           }}
         >
-          <Link
-            to="/"
-            style={{
-              fontFamily: 'monospace',
-              color: '#fff',
-              textDecoration: homeHover ? 'none' : 'underline',
-              display: 'inline-block',
-              fontSize: isMobile ? '12px' : '14px',
-            }}
-            onMouseEnter={() => setHomeHover(true)}
-            onMouseLeave={() => setHomeHover(false)}
-          >
-            Home
-          </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          <HomeButton />
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Labyrinth
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-            <Button auto type="success" disabled={!trained} onClick={startRun}>Run</Button>
+            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
+            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained} onClick={startRun}>Run</Button>
             {/* {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>} */}
           </div>
           <ModelInfoPanel modelInfo={modelInfo} onnxAvailable={!!modelInfo?.onnxFilename} />

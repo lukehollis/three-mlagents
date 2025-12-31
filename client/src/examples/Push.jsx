@@ -5,7 +5,7 @@ import config from '../config.js';
 import { Text, Button } from '@geist-ui/core';
 import 'katex/dist/katex.min.css';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
-import { Link } from 'react-router-dom';
+import HomeButton from '../components/HomeButton.jsx';
 import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
@@ -73,7 +73,7 @@ export default function PushExample() {
   const [trained, setTrained] = useState(false);
   const [modelInfo, setModelInfo] = useState(null);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
-  const [homeHover, setHomeHover] = useState(false);
+
   const { isMobile } = useResponsive();
 
   const envRef = useRef({ ...state, steps: 0 });
@@ -335,32 +335,19 @@ export default function PushExample() {
             zIndex: 1,
           }}
         >
-          <Link
-            to="/"
-            style={{
-              fontFamily: 'monospace',
-              color: '#fff',
-              textDecoration: homeHover ? 'none' : 'underline',
-              display: 'inline-block',
-              fontSize: isMobile ? '12px' : '14px',
-            }}
-            onMouseEnter={() => setHomeHover(true)}
-            onMouseLeave={() => setHomeHover(false)}
-          >
-            Home
-          </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          <HomeButton />
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Push-Block
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>
+            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>
               Train
             </Button>
-            <Button auto type="success" disabled={!trained} onClick={startRun}>
+            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained} onClick={startRun}>
               Run
             </Button>
             {trained && (
-              <Button auto type="error" onClick={resetTraining}>
+              <Button auto type="error" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} onClick={resetTraining}>
                 Reset
               </Button>
             )}

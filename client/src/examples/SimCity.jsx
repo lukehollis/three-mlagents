@@ -14,6 +14,7 @@ import Map2D from '../components/Map2D.jsx';
 import Roads from '../components/Roads.jsx';
 import TrafficLight from '../components/TrafficLight.jsx';
 import Pedestrian from '../components/Pedestrian.jsx';
+import HomeButton from '../components/HomeButton.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/simcity`;
 
@@ -219,14 +220,14 @@ const ResourcePanel = ({ pedestrians, resources }) => {
             alignItems: 'center',
             padding: '8px',
             background: 'rgba(255,255,255,0.05)',
-            borderRadius: '4px',
+            borderRadius: '0px',
             border: `1px solid ${getResourceColor(resource)}`
           }}>
             <div style={{
               width: '12px',
               height: '12px',
               background: getResourceColor(resource),
-              borderRadius: '2px',
+              borderRadius: '0px',
               marginRight: '8px'
             }} />
             <div>
@@ -281,11 +282,11 @@ const BuildingPanel = ({ buildings, buildingRecipes, pedestrians }) => {
       
       <div style={{ marginBottom: '16px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-          <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(0,255,0,0.1)', borderRadius: '4px' }}>
+          <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(0,255,0,0.1)', borderRadius: '0px' }}>
             <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#00ff00' }}>{buildingStats.completed}</div>
             <div style={{ fontSize: '10px' }}>Completed</div>
           </div>
-          <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,0,0.1)', borderRadius: '4px' }}>
+          <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,0,0.1)', borderRadius: '0px' }}>
             <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#ffff00' }}>{buildingStats.underConstruction}</div>
             <div style={{ fontSize: '10px' }}>Building</div>
           </div>
@@ -302,7 +303,7 @@ const BuildingPanel = ({ buildings, buildingRecipes, pedestrians }) => {
           marginBottom: '12px',
           padding: '12px',
           background: building.status === 'under_construction' ? 'rgba(255,255,0,0.1)' : 'rgba(255,165,0,0.1)',
-          borderRadius: '4px'
+          borderRadius: '0px'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
             <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'capitalize' }}>
@@ -330,7 +331,7 @@ const BuildingPanel = ({ buildings, buildingRecipes, pedestrians }) => {
               width: '100%',
               height: '4px',
               background: '#333',
-              borderRadius: '2px',
+              borderRadius: '0px',
               overflow: 'hidden',
               marginTop: '4px'
             }}>
@@ -356,7 +357,7 @@ const BuildingPanel = ({ buildings, buildingRecipes, pedestrians }) => {
                       fontSize: '10px',
                       padding: '2px 6px',
                       background: remaining > 0 ? 'rgba(255,100,100,0.3)' : 'rgba(100,255,100,0.3)',
-                      borderRadius: '2px',
+                      borderRadius: '0px',
                       border: `1px solid ${remaining > 0 ? '#ff6464' : '#64ff64'}`
                     }}>
                       {resource}: {remaining > 0 ? remaining : '✓'}
@@ -401,7 +402,7 @@ const RecipePanel = ({ buildingRecipes }) => {
           marginBottom: '12px',
           padding: '8px',
           background: 'rgba(255,255,255,0.05)',
-          borderRadius: '4px'
+          borderRadius: '0px'
         }}>
           <div style={{ fontSize: '12px', fontWeight: 'bold', textTransform: 'capitalize', marginBottom: '4px' }}>
             {buildingType.replace(/_/g, ' ')}
@@ -415,7 +416,7 @@ const RecipePanel = ({ buildingRecipes }) => {
                 fontSize: '10px',
                 padding: '2px 6px',
                 background: 'rgba(100,150,255,0.3)',
-                borderRadius: '2px',
+                borderRadius: '0px',
                 border: '1px solid #6496ff'
               }}>
                 {amount} {resource}
@@ -563,26 +564,15 @@ export default function SimCityExample() {
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
-        <Link
-          to="/"
-          style={{
-            fontFamily: 'monospace',
-            color: '#fff',
-            textDecoration: 'underline',
-            display: 'inline-block',
-            fontSize: isMobile ? '12px' : '14px',
-          }}
-        >
-          Home
-        </Link>
-        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+        <HomeButton />
+        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
           SimCity 
         </Text>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" disabled={training || running} onClick={startTraining}>
+          <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running} onClick={startTraining}>
             Train
           </Button>
-          <Button auto type="success" disabled={training || running || !trained} onClick={startRun}>
+          <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running || !trained} onClick={startRun}>
             Run
           </Button>
         </div>
@@ -594,7 +584,7 @@ export default function SimCityExample() {
             padding: '8px 12px', 
             background: 'rgba(55, 245, 235, 0.1)', 
             border: '1px solid #37F5EB', 
-            borderRadius: '4px',
+            borderRadius: '0px',
             fontSize: '12px',
             color: '#37F5EB'
           }}>

@@ -8,6 +8,8 @@ import {
   LinearScale,
   CategoryScale,
 } from 'chart.js';
+import * as THREE from 'three';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import config from '../config.js';
 import 'katex/dist/katex.min.css';
 import { Text, Button } from '@geist-ui/core';
@@ -15,7 +17,7 @@ import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
-import { Link } from 'react-router-dom';
+import HomeButton from '../components/HomeButton.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
 ChartJS.register(LineElement, PointElement, LinearScale, CategoryScale);
@@ -30,7 +32,7 @@ function Agent({ position }) {
   return (
     <mesh position={[position - 10, 0, 0]}>
       <boxGeometry args={[0.9, 0.9, 0.9]} />
-      <meshStandardMaterial color="orange" />
+      <meshStandardMaterial color="orange" emissive="orange" emissiveIntensity={2} toneMapped={false} />
     </mesh>
   );
 }
@@ -39,7 +41,7 @@ function Goal({ position, color }) {
   return (
     <mesh position={[position - 10, 0, 0]}>
       <boxGeometry args={[0.9, 0.9, 0.9]} />
-      <meshStandardMaterial color={color} />
+      <meshStandardMaterial color={color} emissive={color} emissiveIntensity={2} toneMapped={false} />
     </mesh>
   );
 }
@@ -62,7 +64,7 @@ export default function BasicExample() {
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
 
   // Add hover state for Home link
-  const [homeHover, setHomeHover] = useState(false);
+
   const { isMobile } = useResponsive();
 
   const step = useCallback((direction) => {
@@ -217,7 +219,7 @@ export default function BasicExample() {
         height: '100vh',
         overflow: 'hidden',
         outline: 'none',
-        background: 'linear-gradient(to bottom, #1a1a2e, #16213e)',
+        background: '#000011',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -250,10 +252,10 @@ export default function BasicExample() {
             args={[30, 30]}
             cellSize={1}
             cellThickness={0.5}
-            cellColor="#444"
+            cellColor="#202020"
             sectionSize={5}
             sectionThickness={1}
-            sectionColor="#666"
+            sectionColor="#4488ff"
             fadeDistance={25}
             fadeStrength={1}
           />
@@ -262,6 +264,10 @@ export default function BasicExample() {
           <Goal position={LARGE_GOAL_POS} color="blue" />
           <Agent position={pos} />
           <OrbitControls enableRotate={true} enableZoom={true} enablePan={true} target={[0, 0, 0]} />
+          <Stars radius={100} depth={50} count={4000} factor={4} saturation={0} fade />
+          <EffectComposer disableNormalPass>
+            <Bloom luminanceThreshold={1} mipmapBlur intensity={1.5} radius={0.6} />
+          </EffectComposer>
         </Canvas>
         <div
           style={{
@@ -274,38 +280,25 @@ export default function BasicExample() {
           }}
         >
           {/* Home link */}
-          <Link
-            to="/"
-            style={{
-              fontFamily: 'monospace',
-              color: '#fff',
-              textDecoration: homeHover ? 'none' : 'underline',
-              display: 'inline-block',
-              fontSize: isMobile ? '12px' : '14px',
-            }}
-            onMouseEnter={() => setHomeHover(true)}
-            onMouseLeave={() => setHomeHover(false)}
-          >
-            Home
-          </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          <HomeButton />
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Basic Example - 1-D Move-To-Goal
           </Text>
-          <Text h3 style={{ margin: '0 0 12px 0', color: '#fff', fontSize: isMobile ? '12px' : 'inherit' }}>
+          <Text h3 style={{ margin: '0 0 12px 0', color: '#fff', fontSize: isMobile ? '12px' : 'inherit', fontFamily: 'monospace' }}>
             Reward: {rewardAccum.toFixed(2)}
           </Text>
 
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>
+            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>
               Train
             </Button>
 
-            <Button auto type="success" disabled={!trained || autoRun} onClick={startRun}>
+            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained || autoRun} onClick={startRun}>
               Run
             </Button>
 
             {trained && (
-              <Button auto type="error" onClick={resetTraining}>
+              <Button auto type="error" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} onClick={resetTraining}>
                 Reset
               </Button>
             )}

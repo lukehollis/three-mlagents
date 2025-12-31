@@ -35,7 +35,7 @@ const CameraFeed = ({ feedData, name }) => {
         >
             <Text style={{ 
                 margin: '0 0 5px 0', 
-                fontSize: '10px', color: '#fff', background: 'rgba(0,0,0,0.6)', padding: '4px', borderRadius: '4px', width: 'auto', textTransform: 'uppercase', display: 'inline-block' 
+                fontSize: '10px', color: '#fff', background: 'rgba(0,0,0,0.6)', padding: '4px', borderRadius: '0px', width: 'auto', textTransform: 'uppercase', display: 'inline-block' 
                 }}
             >
                 {name}
@@ -45,7 +45,7 @@ const CameraFeed = ({ feedData, name }) => {
                 width="120"
                 height="90" 
                 style={{ 
-                    border: '1px solid #555', borderRadius: '4px', 
+                    border: '1px solid #555', borderRadius: '0px', 
                     width: '120px',
                     background: 'rgba(0,0,0,0.6)',
                 }} 

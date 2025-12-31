@@ -10,6 +10,7 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import MessagePanel from '../components/MessagePanel.jsx';
+import HomeButton from '../components/HomeButton.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/minecraft`;
 
@@ -149,7 +150,7 @@ const ScorePanel = ({ agents }) => {
             background: 'rgba(0,0,0,0.5)', 
             color: '#fff',
             border: '1px solid #444',
-            borderRadius: '8px',
+            borderRadius: '0px',
 
         }}>
             <Text h4 style={{ padding: '4px 8px 0', margin: 0, position: 'sticky', top: 0, background: 'rgba(0,0,0,0.5)', color: '#fff' }}>Scores</Text>
@@ -170,7 +171,7 @@ const ScorePanel = ({ agents }) => {
                                   display: 'inline-flex',
                                   alignItems: 'center',
                                   background: 'rgba(255,255,255,0.1)',
-                                  borderRadius: '4px',
+                                  borderRadius: '0px',
                                   padding: '2px 6px',
                                   fontSize: '10px',
                                   border: `1px solid ${getResourceColor(res)}`,
@@ -209,7 +210,7 @@ const CraftingPanel = ({ recipes }) => {
             background: 'rgba(0,0,0,0.5)',
             color: '#fff',
             border: '1px solid #444',
-            borderRadius: '8px',
+            borderRadius: '0px',
         }}>
             <Text h4 style={{ padding: '4px 8px 0', margin: 0, position: 'sticky', top: 0, background: 'rgba(0,0,0,0.5)', color: '#fff' }}>Crafting Recipes</Text>
             <div style={{ padding: '4px 8px' }}>
@@ -246,7 +247,7 @@ const TradePanel = ({ offers }) => {
             background: 'rgba(0,0,0,0.5)',
             color: '#fff',
             border: '1px solid #444',
-            borderRadius: '8px',
+            borderRadius: '0px',
         }}>
             <Text h4 style={{ padding: '4px 8px 0', margin: 0, position: 'sticky', top: 0, background: 'rgba(0,0,0,0.5)', color: '#fff' }}>Open Trades</Text>
             <div style={{ padding: '4px 8px' }}>
@@ -422,22 +423,11 @@ export default function MineCraftExample() {
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
-        <Link
-          to="/"
-          style={{
-            fontFamily: 'monospace',
-            color: '#fff',
-            textDecoration: 'underline',
-            display: 'inline-block',
-            fontSize: isMobile ? '12px' : '14px',
-          }}
-        >
-          Home
-        </Link>
-        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>Minecraft</Text>
+        <HomeButton />
+        <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>Minecraft</Text>
         <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>Train</Button>
-          <Button auto type="success" disabled={!trained || running} onClick={startRun}>Run</Button>
+          <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
+          <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained || running} onClick={startRun}>Run</Button>
         </div>
       </div>
       

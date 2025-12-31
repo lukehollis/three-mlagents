@@ -11,6 +11,7 @@ import 'katex/dist/katex.min.css';
 import EquationPanel from '../components/EquationPanel.jsx';
 import TensorboardPanel from '../components/TensorboardPanel.jsx';
 import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import HomeButton from '../components/HomeButton.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/astrodynamics`;
@@ -339,7 +340,7 @@ const StatusDisplay = ({ state }) => {
       color: '#fff',
       background: 'rgba(0, 0, 20, 0.8)',
       padding: '15px',
-      borderRadius: '8px',
+      borderRadius: '0px',
       fontFamily: 'monospace',
       fontSize: '12px',
       border: '1px solid #4488ff',
@@ -474,30 +475,18 @@ export default function AstrodynamicsExample() {
             color: '#fff',
             textShadow: '0 0 4px #000',
             zIndex: 1,
+            zIndex: 1,
           }}
         >
-          <Link
-            to="/"
-            style={{
-              fontFamily: 'monospace',
-              color: '#fff',
-              textDecoration: homeHover ? 'none' : 'underline',
-              display: 'inline-block',
-              fontSize: isMobile ? '12px' : '14px',
-            }}
-            onMouseEnter={() => setHomeHover(true)}
-            onMouseLeave={() => setHomeHover(false)}
-          >
-            Home
-          </Link>
-          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem' }}>
+          <HomeButton />
+          <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Astrodynamics
           </Text>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" disabled={training || trained} onClick={startTraining}>
+            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>
               Train
             </Button>
-            <Button auto type="success" disabled={!trained} onClick={startRun}>
+            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained} onClick={startRun}>
               Run
             </Button>
           </div>
