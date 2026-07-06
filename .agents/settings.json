@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0",
+  "pack": "three-mlagents",
+  "created_for": "2026 scientific RL environment development",
+  "project_cli": "three-mlagents",
+  "backend_package": "mlagents",
+  "backend_package_path": "backend/mlagents",
+  "frontend_path": "client/src",
+  "primary_rules": [
+    "rules/scientific-ml.md",
+    "rules/frontend.md",
+    "rules/git-artifacts.md"
+  ],
+  "agents": [
+    {
+      "name": "three-mlagents-environment-architect",
+      "file": "agents/environment-architect.md",
+      "skills": [
+        "environment-spec",
+        "scientific-verification"
+      ]
+    },
+    {
+      "name": "three-mlagents-gymnasium-integrator",
+      "file": "agents/gymnasium-integrator.md",
+      "skills": [
+        "gymnasium-sb3-task",
+        "scientific-verification"
+      ]
+    },
+    {
+      "name": "three-mlagents-frontend-visualizer",
+      "file": "agents/frontend-visualizer.md",
+      "skills": [
+        "frontend-threejs-demo",
+        "scientific-verification"
+      ]
+    },
+    {
+      "name": "three-mlagents-evaluation-scientist",
+      "file": "agents/evaluation-scientist.md",
+      "skills": [
+        "scientific-verification",
+        "environment-spec"
+      ]
+    },
+    {
+      "name": "three-mlagents-roadmap-marl-planner",
+      "file": "agents/roadmap-marl-planner.md",
+      "skills": [
+        "roadmap-marl",
+        "environment-spec",
+        "scientific-verification"
+      ]
+    }
+  ],
+  "skills": [
+    {
+      "name": "environment-spec",
+      "path": "skills/environment-spec/SKILL.md"
+    },
+    {
+      "name": "gymnasium-sb3-task",
+      "path": "skills/gymnasium-sb3-task/SKILL.md"
+    },
+    {
+      "name": "frontend-threejs-demo",
+      "path": "skills/frontend-threejs-demo/SKILL.md"
+    },
+    {
+      "name": "scientific-verification",
+      "path": "skills/scientific-verification/SKILL.md"
+    },
+    {
+      "name": "roadmap-marl",
+      "path": "skills/roadmap-marl/SKILL.md"
+    }
+  ],
+  "templates": [
+    "templates/environment-proposal.md"
+  ]
+}
