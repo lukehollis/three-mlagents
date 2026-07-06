@@ -1,0 +1,55 @@
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files
+.env
+.env.*
+!.env.template
+
+# Python caches/tooling
+__pycache__/
+*.py[cod]
+*$py.class
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Python environments/builds
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+
+# Node/client artifacts
+node_modules/
+.vite/
+.vite-cache/
+coverage/
+playwright-report/
+test-results/
+
+# Reinforcement-learning outputs
+runs/
+policies/*
+!policies/.gitkeep
+*.monitor.csv
+events.out.tfevents.*
+tensorboard/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+cache/

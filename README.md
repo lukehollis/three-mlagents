@@ -13,7 +13,7 @@
 A **JavaScript / Python** re-implementation of the core [Unity ML-Agents](https://github.com/Unity-Technologies/ml-agents) examples. Test out the [Live Demos](https://lukehollis.github.io/three-mlagents/).
 
 
-![three_mlagents](https://github.com/user-attachments/assets/0589bada-85b7-4580-946a-99469e2b9b8e)
+![mlagents](https://github.com/user-attachments/assets/0589bada-85b7-4580-946a-99469e2b9b8e)
 
 
 
@@ -85,22 +85,27 @@ Select demos are here.
 | Intersection                   | [Live Demo](https://lukehollis.github.io/three-mlagents/intersection) |
 
 
-## Three ML-Agents 
-
-The library in Python+threejs should migrate easily matching from the previous ML-Agents if you're familiar with those examples.
-
-| Feature | Status | Notes |
-| :--- | :--- | :--- |
-| **Vector Observations** | ✅ Stable | Standard numeric observations supported. |
-| **Visual Observations** | ✅ Beta | `CameraSensor` implemented. Warning: Uses Base64/JSON (Prototype efficiency). |
-| **Ray Perception** | ✅ Stable | `RayPerceptionSensor` simulates Lidar/Raycasts including tag detection. |
-| **Side Channels** | ✅ Stable | Support for `EngineConfiguration` (timescale), `Stats` (logging), and `EnvironmentParameters`. |
-| **Decision Requester** | ✅ Stable | Agents can request decisions at customized intervals (skip-frames). |
+## Three ML-Agents
 
 **Architecture Note**:
-The migration uses bridge from Python to Javascript:
-*   **Python**: `api/mlagents_bridge` (Standalone env compatible with `mlagents-envs`).
-*   **JavaScript**: `client/src/libs/ml-agents` (Modular Agent/Academy/Sensor architecture).
+Training is now Python-first. The browser is a visualization and interaction surface; reproducible learning runs, task metadata, evaluation, and saved policies live under `backend/mlagents`.
+
+*   **Python training/eval**: `backend/mlagents` provides a Gymnasium task registry, Stable-Baselines3 training/evaluation helpers, a CLI, run metadata, and SB3 policy artifacts.
+*   **Browser visualization**: `client/src/examples` provides React and Three.js views for inspecting environments and interacting with backend demo WebSockets.
+
+For the current scientific roadmap, benchmark priorities, and 2026 method targets, see [docs/research_roadmap.md](docs/research_roadmap.md).
+
+### Python research workflow
+
+```bash
+cd backend
+uv run three-mlagents list --trainable-only
+uv run three-mlagents inspect ball3d
+uv run three-mlagents train basic --algorithm dqn --timesteps 25000 --seed 1
+uv run three-mlagents evaluate basic policies/<model>.zip --episodes 50
+```
+
+Policies are saved as SB3 `.zip` files in `backend/policies/`. Run metadata, monitor CSVs, evaluation logs, and TensorBoard logs are written under `backend/runs/`.
 
 ---
 
@@ -113,15 +118,14 @@ three-mlagents/
 │   ├─ src/examples
 │   │   ├─ Index.jsx  ← landing page listing all examples
 │   │   └─ Basic.jsx  ← 1-D "move-to-goal" environment matching Unity Basic
-│   └─ src/libs/ml-agents  ← New JS Client SDK (Academy, Agent, Sensors)
 │
-├─ api/            ← FastAPI micro-service (Python ≥3.9)
-│   ├─ mlagents_bridge/    ← New Python Environment Bridge
-│   ├─ main.py      ← gym-style REST API for each environment
-│   └─ requirements.txt
+├─ backend/        ← FastAPI service and Python training package (Python ≥3.11)
+│   ├─ mlagents/     ← Gymnasium registry plus SB3 train/eval helpers
+│   ├─ main.py             ← FastAPI routes and WebSocket demos
+│   └─ pyproject.toml
 ```
 
-You only need **client** and **api** to run the demos. The `ml-agents` directory remains untouched so you can cross-reference the original C#/Unity code (see `Examples/Basic/Scripts/BasicController.cs` for this particular demo).
+You only need **client** and **backend** to run the demos. The `ml-agents` directory remains untouched so you can cross-reference the original C#/Unity code (see `Examples/Basic/Scripts/BasicController.cs` for this particular demo).
 
 ---
 
@@ -146,9 +150,9 @@ You will land on `/` – a list of examples. Click **/basic** to open the first 
 For browser-only play the API is **not required**. If you want to let external RL algorithms interact with the environment, spin up the FastAPI service:
 
 ```bash
-cd api
-pip install -r requirements.txt
-uvicorn main:app --reload
+cd backend
+uv sync
+uv run uvicorn main:app --reload
 ```
 
 Endpoints:
@@ -173,7 +177,7 @@ The **MineCraft** example (#11) combines reinforcement learning with large langu
    ollama pull gemma3n:latest
    ```
 
-3. **Configure the example**: In `api/examples/minecraft.py`, set:
+3. **Configure the example**: In `backend/examples/minecraft.py`, set:
    ```python
    USE_LOCAL_OLLAMA = True
    ```
@@ -189,7 +193,7 @@ The **MineCraft** example (#11) combines reinforcement learning with large langu
    export OPENROUTER_API_KEY="your_api_key_here"
    ```
 
-3. **Configure the example**: In `api/examples/minecraft.py`, set:
+3. **Configure the example**: In `backend/examples/minecraft.py`, set:
    ```python
    USE_LOCAL_OLLAMA = False
    ```
@@ -198,7 +202,7 @@ The **MineCraft** example (#11) combines reinforcement learning with large langu
 
 ### Additional Dependencies
 
-The MineCraft example also requires additional Python packages for embeddings and LLM functionality. Make sure these are included in your `api/requirements.txt`:
+The MineCraft example also requires additional Python packages for embeddings and LLM functionality. Make sure these are included in `backend/pyproject.toml` before running LLM-backed experiments:
 
 ```
 sentence-transformers  # for text embeddings
@@ -209,9 +213,9 @@ openai                 # for LLM API calls (if using OpenRouter)
 
 1. Start the API with LLM support:
    ```bash
-   cd api
-   pip install -r requirements.txt
-   uvicorn main:app --reload
+   cd backend
+   uv sync
+   uv run uvicorn main:app --reload
    ```
 
 2. Open the frontend and navigate to the MineCraft example

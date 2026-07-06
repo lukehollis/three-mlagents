@@ -129,7 +129,6 @@ export default function LabyrinthExample() {
           timestamp: parsed.timestamp, 
           sessionUuid: parsed.session_uuid, 
           fileUrl: parsed.file_url,
-          onnxFilename: parsed.onnx_filename,
         });
       } else {
         addLog(ev.data);
@@ -212,7 +211,7 @@ export default function LabyrinthExample() {
             <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained} onClick={startRun}>Run</Button>
             {/* {trained && <Button auto type="error" onClick={resetTraining}>Reset</Button>} */}
           </div>
-          <ModelInfoPanel modelInfo={modelInfo} onnxAvailable={!!modelInfo?.onnxFilename} />
+          <ModelInfoPanel modelInfo={modelInfo} />
         </div>
         <EquationPanel
           equation="\begin{aligned} \text{Reward} &= f(\Delta d_{exit}, \Delta d_{minotaur}) \\ \text{Obs} &= \text{Grid}[y, x] \in [0, 1] \end{aligned}"

@@ -8,9 +8,9 @@ import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
-import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import MessagePanel from '../components/MessagePanel.jsx';
 import HomeButton from '../components/HomeButton.jsx';
+import RoadmapStatusPanel from '../components/RoadmapStatusPanel.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/minecraft`;
 
@@ -83,8 +83,6 @@ const Resources = ({ grid, resourceTypes, gridSize }) => {
     const offsetX = gridSize[0] / 2;
     const offsetZ = gridSize[2] / 2;
 
-    console.log('[Resources] Regenerating meshes, grid length:', grid.length); // Debug log
-
     grid.forEach((plane, x) => {
       plane.forEach((row, y) => {
         row.forEach((cell, z) => {
@@ -101,7 +99,6 @@ const Resources = ({ grid, resourceTypes, gridSize }) => {
       });
     });
     
-    console.log('[Resources] Generated', meshes.length, 'resource meshes'); // Debug log
     return meshes;
   }, [grid, resourceTypes, gridSize]);
 
@@ -270,14 +267,9 @@ const TradePanel = ({ offers }) => {
 
 export default function MineCraftExample() {
   const [state, setState] = useState(null);
-  const [running, setRunning] = useState(false);
-  const [training, setTraining] = useState(false);
-  const [trained, setTrained] = useState(false);
-  const [modelInfo, setModelInfo] = useState(null);
   const [error, setError] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
-  const wsRef = useRef(null);
   const { isMobile } = useResponsive();
   
   const gridSize = useMemo(() => state?.grid_size, [state]);
@@ -291,11 +283,9 @@ export default function MineCraftExample() {
 
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
     ws.onopen = () => addLog('MineCraft WS opened');
     ws.onmessage = (ev) => {
-      console.log('[MineCraft] WS message:', ev.data); // DEBUG
-      addLog(`Received data: ${ev.data.substring(0, 100)}...`); // Log incoming data
+      addLog(`Received data: ${ev.data.substring(0, 100)}...`);
       try {
         const parsed = JSON.parse(ev.data);
         
@@ -306,8 +296,6 @@ export default function MineCraftExample() {
         }
 
         if (parsed.type === 'train_step' || parsed.type === 'run_step' || parsed.type === 'state' || parsed.type === 'init') {
-          console.log('[MineCraft] Received state update, type:', parsed.type); // Debug log
-          console.log('[MineCraft] Grid dimensions:', parsed.state?.grid?.length, parsed.state?.grid?.[0]?.length, parsed.state?.grid?.[0]?.[0]?.length); // Debug log
           setState(parsed.state);
         } else if (parsed.type === 'train_step_update') {
           setState(prevState => {
@@ -326,18 +314,6 @@ export default function MineCraftExample() {
             losses: [...prev.losses, parsed.loss ?? null],
           }));
         }
-        if (parsed.type === 'data_collection_progress') {
-          addLog(`Collecting training data... ${parsed.progress.toFixed(0)}% (${parsed.samples} samples)`);
-        }
-        if (parsed.type === 'training_progress') {
-          addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);
-        }
-        if (parsed.type === 'trained') {
-          setTraining(false);
-          setTrained(true);
-          setModelInfo(parsed.model_info);
-          addLog('Training complete! Agents are now using the trained policy.');
-        }
       } catch (e) {
         addLog(`Error processing message: ${e}`);
         console.error("Failed to process message: ", e);
@@ -347,50 +323,15 @@ export default function MineCraftExample() {
     return () => ws.close();
   }, []);
 
-  const send = (obj) => {
-    console.log('[MineCraft] Sending to WS:', obj); // DEBUG
-    addLog(`Sending: ${JSON.stringify(obj)}`);
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(obj));
-    } else {
-      addLog('WebSocket not open');
-      console.warn('WebSocket not open when trying to send', obj);
-    }
-  };
-
-  const startRun = () => {
-    if (running) return;
-    setRunning(true);
-    send({ cmd: 'run' });
-  };
-
-  const startTraining = () => {
-    console.log('[MineCraft] startTraining clicked'); // DEBUG
-    if (training || running) {
-      console.log('[MineCraft] Training already in progress or simulation running.');
-      return;
-    }
-    setTraining(true);
-    addLog('Starting training run...');
-    send({ cmd: 'train' });
-  };
-
   const reset = () => {
     window.location.reload();
-  }
-
-  const resetTraining = () => {
-    setTrained(false);
-    setTraining(false);
-    setModelInfo(null);
-    addLog("Training state reset. Ready to train a new model.");
   }
 
   if (error) {
     return (
         <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#220000', color: '#ffaaaa' }}>
-            <Text h1>A Server Error Occurred</Text>
-            <Text p>Could not load the simulation environment.</Text>
+            <Text h1>Backend Unavailable</Text>
+            <Text p>The optional LLM backend for this demo is not available in this environment.</Text>
             <Code block width="50vw" style={{textAlign: 'left'}}>{error}</Code>
             <Button auto type="error" onClick={reset} style={{marginTop: '20px'}}>Reload Page</Button>
         </div>
@@ -425,10 +366,7 @@ export default function MineCraftExample() {
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
         <HomeButton />
         <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>Minecraft</Text>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
-          <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained || running} onClick={startRun}>Run</Button>
-        </div>
+        <RoadmapStatusPanel taskId="minecraft" />
       </div>
       
       <div style={{
@@ -449,7 +387,6 @@ export default function MineCraftExample() {
       
       {state && <MessagePanel messages={state.messages} />}
       <InfoPanel logs={logs} chartState={chartState} />
-      <ModelInfoPanel modelInfo={modelInfo} />
 
     </div>
   );

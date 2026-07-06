@@ -8,13 +8,13 @@ import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
-import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import MessagePanel from '../components/MessagePanel.jsx';
 import Map2D from '../components/Map2D.jsx';
 import Roads from '../components/Roads.jsx';
 import TrafficLight from '../components/TrafficLight.jsx';
 import Pedestrian from '../components/Pedestrian.jsx';
 import HomeButton from '../components/HomeButton.jsx';
+import RoadmapStatusPanel from '../components/RoadmapStatusPanel.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/simcity`;
 
@@ -433,21 +433,15 @@ const RecipePanel = ({ buildingRecipes }) => {
 
 export default function SimCityExample() {
   const [state, setState] = useState(null);
-  const [running, setRunning] = useState(false);
-  const [training, setTraining] = useState(false);
-  const [trained, setTrained] = useState(false);
-  const [modelInfo, setModelInfo] = useState(null);
   const [error, setError] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
-  const wsRef = useRef(null);
   const { isMobile } = useResponsive();
   const [mapLoaded, setMapLoaded] = useState(false);
   const [coordinateTransformer, setCoordinateTransformer] = useState(null);
 
   useEffect(() => {
       const ws = new WebSocket(WS_URL);
-      wsRef.current = ws;
       ws.onopen = () => addLog('SimCity WS opened');
       ws.onmessage = (ev) => {
           addLog(`Received data: ${ev.data.substring(0, 100)}...`);
@@ -478,15 +472,6 @@ export default function SimCityExample() {
                       losses: [...prev.losses, parsed.loss ?? null],
                   }));
               }
-              if (parsed.type === 'training_progress') {
-                  addLog(`Training Progress: ${parsed.message}`);
-              }
-              if (parsed.type === 'trained') {
-                  setTraining(false);
-                  setTrained(true);
-                  setModelInfo(parsed.model_info);
-                  addLog('Economic simulation training complete!');
-              }
           } catch (e) {
               addLog(`Error processing message: ${e}`);
               console.error("Failed to process message: ", e);
@@ -506,36 +491,6 @@ export default function SimCityExample() {
     });
   };
 
-  const send = (obj) => {
-    addLog(`Sending: ${JSON.stringify(obj)}`);
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(obj));
-    } else {
-      addLog('WebSocket not open');
-    }
-  };
-
-  const startRun = () => {
-    if (running || training) return;
-    setRunning(true);
-    send({ cmd: 'run' });
-  };
-
-  const stopRun = () => {
-    if (!running) return;
-    setRunning(false);
-    send({ cmd: 'stop' });
-  };
-
-  const startTraining = () => {
-    if (training || running) {
-      return;
-    }
-    setTraining(true);
-    addLog('Starting economic simulation training...');
-    send({ cmd: 'train' });
-  };
-
   const reset = () => {
     window.location.reload();
   }
@@ -543,8 +498,8 @@ export default function SimCityExample() {
   if (error) {
     return (
         <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#220000', color: '#ffaaaa' }}>
-            <Text h1>A Server Error Occurred</Text>
-            <Text p>Could not load the simulation environment.</Text>
+            <Text h1>Backend Unavailable</Text>
+            <Text p>The optional geospatial and LLM backend for this demo is not available in this environment.</Text>
             <Code block width="50vw" style={{textAlign: 'left'}}>{error}</Code>
             <Button auto type="error" onClick={reset} style={{marginTop: '20px'}}>Reload Page</Button>
         </div>
@@ -568,14 +523,7 @@ export default function SimCityExample() {
         <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
           SimCity 
         </Text>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running} onClick={startTraining}>
-            Train
-          </Button>
-          <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running || !trained} onClick={startRun}>
-            Run
-          </Button>
-        </div>
+        <RoadmapStatusPanel taskId="simcity" />
         
         {/* Map loading indicator */}
         {!mapLoaded && (
@@ -594,7 +542,6 @@ export default function SimCityExample() {
       </div>
       
       <InfoPanel logs={logs} chartState={chartState} />
-      <ModelInfoPanel modelInfo={modelInfo} />
       <ResourcePanel pedestrians={state?.pedestrians} resources={state?.resources} />
       <BuildingPanel buildings={state?.buildings} buildingRecipes={state?.building_recipes} pedestrians={state?.pedestrians} />
       <RecipePanel buildingRecipes={state?.building_recipes} />

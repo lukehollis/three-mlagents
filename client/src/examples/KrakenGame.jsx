@@ -259,7 +259,7 @@ export default function KrakenGame() {
   const startRun = () => {
     if (!trained) return;
     setRunning(true);
-    send({ cmd: 'run' });
+    send({ cmd: 'run', model_filename: modelInfo?.filename });
   };
 
   return (

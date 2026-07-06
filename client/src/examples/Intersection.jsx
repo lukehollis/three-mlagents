@@ -8,7 +8,7 @@ import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
-import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import RoadmapStatusPanel from '../components/RoadmapStatusPanel.jsx';
 import HomeButton from '../components/HomeButton.jsx';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/intersection`;
@@ -202,14 +202,9 @@ const Intersection = () => {
 
 export default function IntersectionExample() {
   const [state, setState] = useState(null);
-  const [running, setRunning] = useState(false);
-  const [training, setTraining] = useState(false);
-  const [trained, setTrained] = useState(false);
-  const [modelInfo, setModelInfo] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
   const [lightState, setLightState] = useState(0);
-  const wsRef = useRef(null);
   const { isMobile } = useResponsive();
   
   const gridSize = useMemo(() => state?.grid_size, [state]);
@@ -223,7 +218,6 @@ export default function IntersectionExample() {
 
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
     ws.onopen = () => addLog('Intersection WS opened');
     ws.onmessage = (ev) => {
       addLog(`Received data: ${ev.data.substring(0, 100)}...`);
@@ -242,12 +236,6 @@ export default function IntersectionExample() {
           losses: [...prev.losses, parsed.loss ?? null],
         }));
       }
-      if (parsed.type === 'trained') {
-        setTraining(false);
-        setTrained(true);
-        setModelInfo(parsed.model_info);
-        addLog('Training complete! Vehicles are now using the trained policy.');
-      }
       if (parsed.type === 'info') {
           addLog(`INFO: ${parsed.message}`);
       }
@@ -256,39 +244,9 @@ export default function IntersectionExample() {
     return () => ws.close();
   }, []);
 
-  const send = (obj) => {
-    addLog(`Sending: ${JSON.stringify(obj)}`);
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(obj));
-    } else {
-      addLog('WebSocket not open');
-    }
-  };
-
-  const startRun = () => {
-    if (running) return;
-    setRunning(true);
-    send({ cmd: 'run' });
-  };
-
-  const startTraining = () => {
-    if (training || running) return;
-    setTraining(true);
-    addLog('Starting training run...');
-    send({ cmd: 'train' });
-  };
-
   const reset = () => {
     window.location.reload();
   }
-
-  const resetTraining = () => {
-    setTrained(false);
-    setTraining(false);
-    setModelInfo(null);
-    addLog("Training state reset. Ready to train a new model.");
-  }
-
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', background: '#000011' }}>
@@ -322,15 +280,13 @@ export default function IntersectionExample() {
           <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Intersection
           </Text>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
-          <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained || running} onClick={startRun}>Run</Button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <Button auto type="error" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} onClick={reset}>Reset </Button>
+          <RoadmapStatusPanel taskId="intersection" />
         </div>
       </div>
       
       <InfoPanel logs={logs} chartState={chartState} />
-      <ModelInfoPanel modelInfo={modelInfo} />
 
     </div>
   );

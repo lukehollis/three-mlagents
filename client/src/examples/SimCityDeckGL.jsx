@@ -7,9 +7,9 @@ import { Link } from 'react-router-dom';
 import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import InfoPanel from '../components/InfoPanel.jsx';
-import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
 import MessagePanel from '../components/MessagePanel.jsx';
 import HomeButton from '../components/HomeButton.jsx';
+import RoadmapStatusPanel from '../components/RoadmapStatusPanel.jsx';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/simcity_deckgl`;
@@ -273,19 +273,13 @@ const RecipePanel = ({ buildingRecipes }) => {
 
 export default function SimCityDeckGL() {
     const [state, setState] = useState(null);
-    const [running, setRunning] = useState(false);
-    const [training, setTraining] = useState(false);
-    const [trained, setTrained] = useState(false);
-    const [modelInfo, setModelInfo] = useState(null);
     const [error, setError] = useState(null);
     const [logs, setLogs] = useState([]);
     const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
-    const wsRef = useRef(null);
     const { isMobile } = useResponsive();
 
     useEffect(() => {
         const ws = new WebSocket(WS_URL);
-        wsRef.current = ws;
         ws.onopen = () => addLog('SimCity WS opened');
         ws.onmessage = (ev) => {
             addLog(`Received data: ${ev.data.substring(0, 100)}...`);
@@ -308,15 +302,6 @@ export default function SimCityDeckGL() {
                         losses: [...prev.losses, parsed.loss ?? null],
                     }));
                 }
-                if (parsed.type === 'training_progress') {
-                    addLog(`Training Progress: ${parsed.message}`);
-                }
-                if (parsed.type === 'trained') {
-                    setTraining(false);
-                    setTrained(true);
-                    setModelInfo(parsed.model_info);
-                    addLog('Economic simulation training complete!');
-                }
             } catch (e) {
                 addLog(`Error processing message: ${e}`);
                 console.error("Failed to process message: ", e);
@@ -335,38 +320,6 @@ export default function SimCityDeckGL() {
             return upd.length > 200 ? upd.slice(upd.length - 200) : upd;
         });
     };
-
-    const send = (obj) => {
-        addLog(`Sending: ${JSON.stringify(obj)}`);
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify(obj));
-        } else {
-            addLog('WebSocket not open');
-        }
-    };
-
-    const startRun = () => {
-        if (running || training) return;
-        setRunning(true);
-        send({ cmd: 'run' });
-    };
-
-    const stopRun = () => {
-        if (!running) return;
-        setRunning(false);
-        send({ cmd: 'stop' });
-    };
-
-    const startTraining = () => {
-        if (training || running) {
-            return;
-        }
-        setTraining(true);
-        addLog('Starting economic simulation training...');
-        send({ cmd: 'train' });
-    };
-    
-    const [hoverInfo, setHoverInfo] = useState(null);
 
     const layers = useMemo(() => {
         if (!state) return [];
@@ -506,8 +459,8 @@ export default function SimCityDeckGL() {
     if (error) {
         return (
             <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#220000', color: '#ffaaaa' }}>
-                <Text h1>A Server Error Occurred</Text>
-                <Text p>Could not load the simulation environment.</Text>
+                <Text h1>Backend Unavailable</Text>
+                <Text p>The optional geospatial backend for this demo is not available in this environment.</Text>
                 <Code block width="50vw" style={{textAlign: 'left'}}>{error}</Code>
                 <Button auto type="error" onClick={() => window.location.reload()} style={{marginTop: '20px'}}>Reload Page</Button>
             </div>
@@ -522,11 +475,13 @@ export default function SimCityDeckGL() {
                 layers={layers}
                 getTooltip={getTooltip}
             >
-                <Map 
-                    mapboxAccessToken={MAPBOX_TOKEN}
-                    mapStyle="mapbox://styles/mapbox/dark-v11"
-                    onLoad={onMapLoad}
-                />
+                {MAPBOX_TOKEN ? (
+                    <Map
+                        mapboxAccessToken={MAPBOX_TOKEN}
+                        mapStyle="mapbox://styles/mapbox/dark-v11"
+                        onLoad={onMapLoad}
+                    />
+                ) : null}
             </DeckGL>
 
             <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
@@ -534,18 +489,10 @@ export default function SimCityDeckGL() {
                 <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
                   SimCity Deck.gl
                 </Text>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running} onClick={startTraining}>
-                    Train
-                  </Button>
-                  <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running || !trained} onClick={startRun}>
-                    Run
-                  </Button>
-                </div>
+                <RoadmapStatusPanel taskId="simcity" />
             </div>
 
             <InfoPanel logs={logs} chartState={chartState} />
-            <ModelInfoPanel modelInfo={modelInfo} />
             <ResourcePanel pedestrians={state?.pedestrians} resources={state?.resources} />
             <BuildingPanel buildings={state?.buildings} buildingRecipes={state?.building_recipes} pedestrians={state?.pedestrians} />
             <RecipePanel buildingRecipes={state?.building_recipes} />

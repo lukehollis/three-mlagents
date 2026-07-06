@@ -8,9 +8,8 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import config from '../config.js';
 import ButtonForkOnGithub from '../components/ButtonForkOnGithub.jsx';
 import 'katex/dist/katex.min.css';
-import EquationPanel from '../components/EquationPanel.jsx';
 import InfoPanel from '../components/InfoPanel.jsx';
-import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import RoadmapStatusPanel from '../components/RoadmapStatusPanel.jsx';
 import { useResponsive } from '../hooks/useResponsive.js';
 
 const WS_URL = `${config.WS_BASE_URL}/ws/foodcollector`;
@@ -37,12 +36,8 @@ const Food = ({ pos, color }) => (
 
 export default function FoodCollectorExample() {
   const [state, setState] = useState({ agents: [], good_food: [], bad_food: [], bounds: [40, 40] });
-  const [training, setTraining] = useState(false);
-  const [trained, setTrained] = useState(false);
-  const [modelInfo, setModelInfo] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
-  const wsRef = useRef(null);
 
   const { isMobile } = useResponsive();
 
@@ -58,7 +53,6 @@ export default function FoodCollectorExample() {
 
   useEffect(() => {
     const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
     ws.onopen = () => addLog('WS opened');
     ws.onmessage = (ev) => {
       addLog(ev.data);
@@ -78,40 +72,10 @@ export default function FoodCollectorExample() {
           losses: [...prev.losses, parsed.loss ?? null],
         }));
       }
-      if (parsed.type === 'trained') {
-        setTraining(false);
-        setTrained(true);
-        setModelInfo({ filename: parsed.model_filename, timestamp: parsed.timestamp, sessionUuid: parsed.session_uuid, fileUrl: parsed.file_url });
-      }
     };
     ws.onclose = () => addLog('WS closed');
     return () => ws.close();
   }, []);
-
-  const send = (obj) => {
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(obj));
-    }
-  };
-
-  const startTraining = () => {
-    if (training || trained) return;
-    setTraining(true);
-    send({ cmd: 'train' });
-  };
-
-  const startRun = () => {
-    if (!trained) return;
-    send({ cmd: 'run' });
-  };
-
-  const resetTraining = () => {
-    setTraining(false);
-    setTrained(false);
-    setModelInfo(null);
-    setChartState({ labels: [], rewards: [], losses: [] });
-    setState({ agents: [], good_food: [], bad_food: [], bounds: [40, 40] });
-  };
 
   const [width, height] = state.bounds;
 
@@ -171,14 +135,8 @@ export default function FoodCollectorExample() {
           <Text h1 style={{ margin: '12px 0 12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>
             Food Collector
           </Text>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || trained} onClick={startTraining}>Train</Button>
-            <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={!trained} onClick={startRun}>Run</Button>
-            {trained && <Button auto type="error" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} onClick={resetTraining}>Reset</Button>}
-          </div>
-          <ModelInfoPanel modelInfo={modelInfo} />
+          <RoadmapStatusPanel taskId="foodcollector" />
         </div>
-        <EquationPanel equation="L^{CLIP}(\theta) = \hat{\mathbb{E}}_t[\min(r_t(\theta)\hat{A}_t, \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon)\hat{A}_t)]" description="PPO-clip objective: encourages the policy ratio to stay within a small interval around 1." />
         <InfoPanel logs={logs} chartState={chartState} />
         <ButtonForkOnGithub position={{ top: '10px', right: '10px' }} />
       </div>

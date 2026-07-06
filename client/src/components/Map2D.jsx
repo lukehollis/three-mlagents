@@ -3,15 +3,6 @@ import * as THREE from 'three';
 
 const API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
 
-// Debug environment variable loading on initial load only
-if (!window._mapDebugLogged) {
-  console.log('Environment check:', {
-    hasAPIKey: !!API_KEY,
-    apiKeyLength: API_KEY ? API_KEY.length : 0
-  });
-  window._mapDebugLogged = true;
-}
-
 const Map2D = ({ onMapLoaded }) => {
   const [mapTexture, setMapTexture] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -37,7 +28,6 @@ const Map2D = ({ onMapLoaded }) => {
       return;
     }
 
-    console.log('Loading Google Maps texture...');
     setLoading(true);
     setError(null);
     setHasAttempted(true);

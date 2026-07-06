@@ -21,7 +21,6 @@ import FishExample from './examples/Fish.jsx';
 import IntersectionExample from './examples/Intersection.jsx';
 import SelfDrivingCarExample from './examples/SelfDrivingCar.jsx';
 import KrakenGame from './examples/KrakenGame.jsx';
-import Ball3DMigration from './examples/Ball3DMigration.jsx';
 
 export default function App() {
   return (
@@ -70,7 +69,6 @@ export default function App() {
         <Route path="/intersection" element={<IntersectionExample />} />
         <Route path="/self-driving-car" element={<SelfDrivingCarExample />} />
         <Route path="/kraken" element={<KrakenGame />} />
-        <Route path="/ball3d-migration" element={<Ball3DMigration />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

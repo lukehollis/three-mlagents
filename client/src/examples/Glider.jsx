@@ -397,7 +397,7 @@ export default function GliderExample() {
 
   const startRun = () => {
     if (!trained) return;
-    send({ cmd: 'run' });
+    send({ cmd: 'run', model_filename: modelInfo?.filename });
   };
 
   const resetTraining = () => {
@@ -476,5 +476,4 @@ export default function GliderExample() {
     </div>
   );
 } 
-
 

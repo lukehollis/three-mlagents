@@ -84,7 +84,7 @@ export default function AntExample() {
 
   const startRun = () => {
     if (!trained) return;
-    send({ cmd: 'run' });
+    send({ cmd: 'run', model_filename: modelInfo?.filename });
   };
 
   const resetTraining = () => {

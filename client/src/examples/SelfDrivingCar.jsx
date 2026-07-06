@@ -9,7 +9,7 @@ import config from '../config.js';
 import { useResponsive } from '../hooks/useResponsive.js';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import InfoPanel from '../components/InfoPanel.jsx';
-import ModelInfoPanel from '../components/ModelInfoPanel.jsx';
+import RoadmapStatusPanel from '../components/RoadmapStatusPanel.jsx';
 import CameraFeeds from '../components/CameraFeeds.jsx';
 import Map from '../components/Map.jsx';
 import Roads from '../components/Roads.jsx';
@@ -232,14 +232,9 @@ const FeatureImportanceChart = ({ data }) => {
 
 export default function SelfDrivingCarExample() {
   const [state, setState] = useState(null);
-  const [running, setRunning] = useState(false);
-  const [training, setTraining] = useState(false);
-  const [trained, setTrained] = useState(false);
-  const [modelInfo, setModelInfo] = useState(null);
   const [error, setError] = useState(null);
   const [logs, setLogs] = useState([]);
   const [chartState, setChartState] = useState({ labels: [], rewards: [], losses: [] });
-  const wsRef = useRef(null);
   const { isMobile } = useResponsive();
   const [mapLoaded, setMapLoaded] = useState(false);
   const [coordinateTransformer, setCoordinateTransformer] = useState(null);
@@ -250,7 +245,6 @@ export default function SelfDrivingCarExample() {
 
   useEffect(() => {
       const ws = new WebSocket(WS_URL);
-      wsRef.current = ws;
       ws.onopen = () => addLog('SelfDrivingCar WS opened');
       ws.onmessage = (ev) => {
           addLog(`Received data: ${ev.data.substring(0, 100)}...`);
@@ -311,18 +305,6 @@ export default function SelfDrivingCarExample() {
                       losses: [...prev.losses, parsed.loss ?? null],
                   }));
               }
-              if (parsed.type === 'data_collection_progress') {
-                  addLog(`Collecting training data... ${parsed.progress.toFixed(0)}% (${parsed.samples} samples)`);
-              }
-              if (parsed.type === 'training_progress') {
-                  addLog(`Training Progress: Epoch ${parsed.epoch}, Loss: ${parsed.loss.toFixed(4)}`);
-              }
-              if (parsed.type === 'trained') {
-                  setTraining(false);
-                  setTrained(true);
-                  setModelInfo(parsed.model_info);
-                  addLog('Training complete! Agents are now using the trained policy.');
-              }
           } catch (e) {
               addLog(`Error processing message: ${e}`);
               console.error("Failed to process message: ", e);
@@ -353,36 +335,6 @@ export default function SelfDrivingCarExample() {
     });
   };
 
-  const send = (obj) => {
-    addLog(`Sending: ${JSON.stringify(obj)}`);
-    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(obj));
-    } else {
-      addLog('WebSocket not open');
-    }
-  };
-
-  const startRun = () => {
-    if (running || training) return;
-    setRunning(true);
-    send({ cmd: 'run' });
-  };
-
-  const stopRun = () => {
-    if (!running) return;
-    setRunning(false);
-    send({ cmd: 'stop' });
-  };
-
-  const startTraining = () => {
-    if (training || running) {
-      return;
-    }
-    setTraining(true);
-    addLog('Starting training run...');
-    send({ cmd: 'train' });
-  };
-
   const reset = () => {
     window.location.reload();
   }
@@ -390,8 +342,8 @@ export default function SelfDrivingCarExample() {
   if (error) {
     return (
         <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', background: '#220000', color: '#ffaaaa' }}>
-            <Text h1>A Server Error Occurred</Text>
-            <Text p>Could not load the simulation environment.</Text>
+            <Text h1>Backend Unavailable</Text>
+            <Text p>The optional geospatial backend for this demo is not available in this environment.</Text>
             <Code block width="50vw" style={{textAlign: 'left'}}>{error}</Code>
             <Button auto type="error" onClick={reset} style={{marginTop: '20px'}}>Reload Page</Button>
         </div>
@@ -410,22 +362,18 @@ export default function SelfDrivingCarExample() {
             agentCamerasRef={agentCamerasRef}
             cameraTargetsRef={cameraTargetsRef}
             setCameraFeedData={setCameraFeedData}
-            training={training}
+            training={false}
         />
       </Canvas>
 
       <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1, color: '#fff' }}>
         <HomeButton />
         <Text h1 style={{ margin: '12px 0', color: '#fff', fontSize: isMobile ? '1.2rem' : '2rem', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.15em' }}>Self-Driving Car (Interpretability)</Text>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <Button auto type="secondary" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running} onClick={startTraining}>Train</Button>
-          <Button auto type="success" style={{ borderRadius: 0, textTransform: 'uppercase', letterSpacing: '0.1em', border: '1px solid #fff' }} disabled={training || running || !trained} onClick={startRun}>Run</Button>
-        </div>
+        <RoadmapStatusPanel taskId="self-driving-car" />
       </div>
       
       <CameraFeeds cameraFeedData={cameraFeedData} />
       <InfoPanel logs={logs} chartState={chartState} />
-      <ModelInfoPanel modelInfo={modelInfo} />
       <FeatureImportancePanel chartData={latestFeatureImportance} />
 
     </div>
